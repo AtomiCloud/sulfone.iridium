@@ -6,6 +6,7 @@
   pname = "cyanprint";
   version = "1.0.2"; # replace
   src = ../.;
+  nativeBuildInputs = [ pkgs-2305.perl pkgs-2305.pkgconfig ];
   buildInputs = ([
     pkgs-2305.pkgconfig
     pkgs-2305.openssl
