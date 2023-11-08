@@ -1,0 +1,80 @@
+project_name: cyanprint
+
+builds:
+  - main: goreleaser.go
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    binary: cyanprint
+    ignore:
+      - goos: windows
+        goarch: arm64
+    hooks:
+      post:
+        - ./scripts/build.sh {{ .Arch }} {{ .Os }} {{ .ProjectName }}
+
+brews:
+  - name: cyanprint
+    url_template: "https://github.com/AtomiCloud/sulfone.iridium/releases/download/{{ .Tag }}/{{ .ArtifactName }}"
+    commit_author:
+      name: Ernest Ng
+      email: kirinnee97@gmail.com
+    folder: Formula
+    commit_msg_template: "update({{ .ProjectName }}): to {{ .Tag }}"
+    homepage: "https://cyanprint.dev"
+    description: "Next-Generation Language-Agnostic Templating Platform"
+    skip_upload: false
+    repository:
+      owner: AtomiCloud
+      name: homebrew-tap
+      branch: main
+      token: "{{ .Env.SCOOP_BREW_TOKEN }}"
+
+nfpms:
+  - id: cyanprint
+    package_name: cyanprint
+    vendor: AtomiCloud
+    homepage: https://cyanprint.dev/
+    maintainer: Ernest Ng <kirinnee97@gmail.com>
+
+    # Your app's description.
+    description: |-
+      Next-Generation Language-Agnostic Templating Platform
+
+    license: MIT
+
+    # Formats to be generated.
+    formats:
+      - apk
+      - deb
+      - rpm
+      - termux.deb # Since: v1.11
+      - archlinux # Since: v1.13
+
+    bindir: /usr/bin
+
+    version_metadata: git
+    meta: true
+
+scoops:
+  - name: cyanprint
+    url_template: "https://github.com/AtomiCloud/sulfone.iridium/releases/download/{{ .Tag }}/{{ .ArtifactName }}"
+    folder: bucket
+    commit_author:
+      name: Ernest Ng
+      email: kirinnee97@gmail.com
+    commit_msg_template: "update({{ .ProjectName }}): to {{ .Tag }}"
+    homepage: "https://cyanprint.dev"
+    description: "Next-Generation Language-Agnostic Templating Platform"
+    skip_upload: false
+    repository:
+      owner: AtomiCloud
+      name: scoop-bucket
+      branch: main
+      token: "{{ .Env.SCOOP_BREW_TOKEN }}"
+checksum:
+  name_template: "checksums.txt"

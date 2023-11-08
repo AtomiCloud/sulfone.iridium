@@ -1,0 +1,10 @@
+[workspace]
+
+resolver = "2"
+
+members = [
+  "cyanprint",
+  "cyanprompt",
+  "cyanregistry",
+  "cyancoordinator",
+]

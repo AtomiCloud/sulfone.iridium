@@ -1,0 +1,11 @@
+username: kirinnee
+name: dotnet-handlebar
+description: .NET Handlebar to process templates
+project: https://github.com/tr8team/template.nestjs
+source: https://github.com/tr8team/template.nestjs
+email: ernest@tr8.io
+tags:
+  - dotnet
+  - handlerbar
+  - csharp
+readme: README.md

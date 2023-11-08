@@ -1,0 +1,130 @@
+name: CI-CD
+
+on:
+  push:
+
+env:
+  # Define the rust version to use
+  RUST_VERSION: 1.72.0
+  BUILD_ARGS: "--release --all-features"
+  BIN_NAME: "cyanprint"
+  DOCKER_USER: ${{ github.actor }}
+  DOCKER_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+  DOCKER_DOMAIN: ghcr.io
+
+jobs:
+  precommit:
+    name: Pre-commit Check
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: DeterminateSystems/nix-installer-action@main
+      - uses: DeterminateSystems/magic-nix-cache-action@main
+      - name: Run pre-commit
+        run: nix develop .#ci -c ./scripts/pre-commit.sh
+  build:
+    name: Build - ${{ matrix.platform.name }}
+    runs-on: ${{ matrix.platform.os || 'ubuntu-22.04' }}
+    strategy:
+      matrix:
+        platform:
+          - name: Linux x86_64
+            target: x86_64-unknown-linux-gnu
+          - name: Linux aarch64
+            target: aarch64-unknown-linux-gnu
+          - name: MacOS x86_64
+            target: x86_64-apple-darwin
+          - name: MacOS aarch64
+            target: aarch64-apple-darwin
+          - name: Windows x86_64
+            os: windows-latest
+            target: x86_64-pc-windows-msvc
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+      - name: Install rust toolchain
+        if: ${{ !contains(matrix.platform.target, 'apple') }}
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: "${{ env.RUST_VERSION }}"
+          override: true
+          target: ${{ matrix.platform.target }}
+          components: rustfmt, clippy
+      - name: Cargo Cache
+        uses: actions/cache@v3
+        continue-on-error: false
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ matrix.platform.target }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ matrix.platform.target }}-cargo-
+      - name: Build ${{ matrix.platform.name }} binary
+        if: ${{ !contains(matrix.platform.target, 'apple') }}
+        uses: actions-rs/cargo@v1
+        with:
+          command: build
+          use-cross: ${{ !contains(matrix.platform.target, 'x86_64') }}
+          args: ${{ env.BUILD_ARGS }} --target ${{ matrix.platform.target }}
+      - name: Login to DockerHub
+        if: contains(matrix.platform.target, 'apple')
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.DOCKER_DOMAIN }}
+          username: ${{ env.DOCKER_USER }}
+          password: ${{ env.DOCKER_PASSWORD }}
+      - name: Build ${{ matrix.platform.name }} binary
+        if: contains(matrix.platform.target, 'apple')
+        run: |
+          docker run --rm --volume "${PWD}":/root/src --workdir /root/src joseluisq/rust-linux-darwin-builder:$RUST_VERSION \
+          sh -c "CC=o64-clang CXX=o64-clang++ cargo build $BUILD_ARGS --target ${{ matrix.platform.target }}"
+      - name: Store artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: ${{ matrix.platform.target }}-${{ env.BIN_NAME }}
+          path: target/${{ matrix.platform.target }}/release/${{ env.BIN_NAME }}${{ contains(matrix.platform.target, 'windows') && '.exe' || '' }}
+          retention-days: 1
+
+  release:
+    name: Release
+    needs:
+      - build
+      - precommit
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.SCOOP_BREW_TOKEN }}
+      - uses: DeterminateSystems/nix-installer-action@main
+      - uses: DeterminateSystems/magic-nix-cache-action@main
+      - name: Release
+        env:
+          GITHUB_TOKEN: ${{ secrets.SCOOP_BREW_TOKEN }}
+          DOCKER_PASSWORD: ${{ env.DOCKER_PASSWORD }}
+          DOCKER_USER: ${{ env.DOCKER_USER }}
+        run: nix develop .#releaser -c scripts/release.sh
+  publish:
+    name: Publish
+    needs:
+      - build
+      - precommit
+    if: startsWith( github.ref, 'refs/tags/v' )
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: DeterminateSystems/nix-installer-action@main
+      - uses: DeterminateSystems/magic-nix-cache-action@main
+      - name: Download artifact
+        uses: actions/download-artifact@v3
+        with:
+          path: artifacts
+      - name: Publish
+        env:
+          GITHUB_TOKEN: ${{ secrets.SCOOP_BREW_TOKEN }}
+          FURY_TOKEN: ${{ secrets.FURY_TOKEN }}
+          SCOOP_BREW_TOKEN: ${{ secrets.SCOOP_BREW_TOKEN }}
+        run: nix develop .#releaser -c scripts/publish.sh

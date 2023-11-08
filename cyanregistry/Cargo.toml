@@ -1,0 +1,15 @@
+[package]
+name = "cyanregistry"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+validator = { version = "0.16", features = ["derive"] }
+reqwest = { version = "0.11", features = ["json", "blocking", "native-tls-vendored"] }
+tokio = { version = "1", features = ["full"] }
+serde = { version = "1.0", features = ["derive"] }
+chrono = { version = "0.4", features = ["unstable-locales"] }
+serde_json = "1.0"
+serde_yaml = "0.9.26"
