@@ -1,3 +1,10 @@
+## [1.0.2](https://github.com/AtomiCloud/sulfone.iridium/compare/v1.0.1...v1.0.2) (2023-11-08)
+
+
+### 🐛 Bug Fixes 🐛
+
+* nix configuration for installation ([80831c6](https://github.com/AtomiCloud/sulfone.iridium/commit/80831c6663fd9ff5390b3de1f7990bcc5a605f1c))
+
 ## [1.0.1](https://github.com/AtomiCloud/sulfone.iridium/compare/v1.0.0...v1.0.1) (2023-11-08)
 
 
