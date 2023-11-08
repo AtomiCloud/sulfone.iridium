@@ -1,0 +1,17 @@
+/target
+.direnv
+.idea
+result
+.DS_Store
+.pre-commit-config.yaml
+*.a
+*.o
+*.so
+*.exe
+*.test
+*.prof
+bin/
+pkg/
+
+dist/
+artifacts
