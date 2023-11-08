@@ -1,7 +1,8 @@
 project_name: cyanprint
 
 builds:
-  - main: goreleaser.go
+  - id: cyanprint
+    main: goreleaser.go
     goos:
       - linux
       - darwin
@@ -16,7 +17,6 @@ builds:
     hooks:
       post:
         - ./scripts/build.sh {{ .Arch }} {{ .Os }} {{ .ProjectName }}
-
 brews:
   - name: cyanprint
     url_template: "https://github.com/AtomiCloud/sulfone.iridium/releases/download/{{ .Tag }}/{{ .ArtifactName }}"
@@ -36,7 +36,7 @@ brews:
 
 nfpms:
   - id: cyanprint
-    package_name: cyanprint
+    #    package_name: cyanprint
     vendor: AtomiCloud
     homepage: https://cyanprint.dev/
     maintainer: Ernest Ng <kirinnee97@gmail.com>
@@ -46,20 +46,16 @@ nfpms:
       Next-Generation Language-Agnostic Templating Platform
 
     license: MIT
-
+    builds:
+      - cyanprint
+    meta: false
     # Formats to be generated.
     formats:
-      - apk
+      #      - apk
       - deb
-      - rpm
-      - termux.deb # Since: v1.11
-      - archlinux # Since: v1.13
-
-    bindir: /usr/bin
-
-    version_metadata: git
-    meta: true
-
+#      - rpm
+#      - termux.deb # Since: v1.11
+#      - archlinux # Since: v1.13
 scoops:
   - name: cyanprint
     url_template: "https://github.com/AtomiCloud/sulfone.iridium/releases/download/{{ .Tag }}/{{ .ArtifactName }}"

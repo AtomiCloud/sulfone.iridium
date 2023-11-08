@@ -15,7 +15,7 @@ pub enum Commands {
 
         path: Option<String>,
 
-        #[arg(short, long, value_name = "COORDINATOR_ENDPOINT", default_value = "http://localhost:9000")]
+        #[arg(short, long, value_name = "COORDINATOR_ENDPOINT", default_value = "http://coord.cyanprint.dev:9000")]
         coordinator_endpoint: String,
     },
 }

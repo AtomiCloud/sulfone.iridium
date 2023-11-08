@@ -42,7 +42,6 @@ fi
 rm -rf "${dist_dir}"
 mkdir -p "${dist_dir}"
 
-# Now move the binary to the corresponding 'dist' directory
 cp "${artifact_dir}/${binary_name}" "${dist_dir}/"
 
 echo "Copied '${binary_name}' to '${dist_dir}/'"
