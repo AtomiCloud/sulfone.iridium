@@ -4,7 +4,7 @@
   rustc = packages.rust;
 }).buildRustPackage {
   pname = "cyanprint";
-  version = "0.1.0"; # replace
+  version = "1.0.0"; # replace
   src = ../.;
   buildInputs = ([
     pkgs-2305.pkgconfig
