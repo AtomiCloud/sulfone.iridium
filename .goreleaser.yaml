@@ -36,7 +36,6 @@ brews:
 
 nfpms:
   - id: cyanprint
-    #    package_name: cyanprint
     vendor: AtomiCloud
     homepage: https://cyanprint.dev/
     maintainer: Ernest Ng <kirinnee97@gmail.com>
@@ -49,13 +48,12 @@ nfpms:
     builds:
       - cyanprint
     meta: false
-    # Formats to be generated.
     formats:
-      #      - apk
+      - apk
       - deb
-#      - rpm
-#      - termux.deb # Since: v1.11
-#      - archlinux # Since: v1.13
+      - rpm
+      - termux.deb # Since: v1.11
+      - archlinux # Since: v1.13
 scoops:
   - name: cyanprint
     url_template: "https://github.com/AtomiCloud/sulfone.iridium/releases/download/{{ .Tag }}/{{ .ArtifactName }}"

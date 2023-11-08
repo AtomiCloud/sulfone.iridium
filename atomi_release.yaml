@@ -27,10 +27,7 @@ plugins:
       changelogFile: Changelog.md
   - module: "@semantic-release/exec"
     config:
-      prepareCmd: scripts/bump-cargo.sh ${nextRelease.version}
-  - module: "@semantic-release/exec"
-    config:
-      prepareCmd: scripts/bump-nix.sh ${nextRelease.version}
+      prepareCmd: scripts/bump.sh ${nextRelease.version}
   - module: "@semantic-release/git"
     config:
       message: "release(no-release): ${nextRelease.version}\n\n${nextRelease.notes}"
@@ -39,6 +36,7 @@ plugins:
         - nix/default.nix
         - CommitConventions.md
         - cyanprint/Cargo.toml
+        - Cargo.lock
 
 types:
   - type: build
