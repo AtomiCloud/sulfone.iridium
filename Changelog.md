@@ -1,3 +1,10 @@
+## [1.1.0](https://github.com/AtomiCloud/sulfone.iridium/compare/v1.0.3...v1.1.0) (2023-11-11)
+
+
+### ✨ Features ✨
+
+* migrate to tag-based images ([3f329c2](https://github.com/AtomiCloud/sulfone.iridium/commit/3f329c2ce55b03093d401f88005e63526e49a7ec))
+
 ## [1.0.3](https://github.com/AtomiCloud/sulfone.iridium/compare/v1.0.2...v1.0.3) (2023-11-08)
 
 
