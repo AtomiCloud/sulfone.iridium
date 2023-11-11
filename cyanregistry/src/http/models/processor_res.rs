@@ -8,7 +8,7 @@ pub struct ProcessorVersionPrincipalRes {
     pub created_at: String,
     pub description: String,
     pub docker_reference: String,
-    pub docker_sha: String,
+    pub docker_tag: String,
 }
 
 

@@ -21,11 +21,11 @@ pub struct TemplateReq {
 
     pub blob_docker_reference: String,
 
-    pub blob_docker_sha: String,
+    pub blob_docker_tag: String,
 
     pub template_docker_reference: String,
 
-    pub template_docker_sha: String,
+    pub template_docker_tag: String,
 
     pub plugins: Vec<PluginRefReq>,
 

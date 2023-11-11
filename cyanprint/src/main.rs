@@ -47,23 +47,20 @@ fn main() -> Result<(), Box<dyn Error + Send>> {
     let http_client = new_client()?;
     let http = Rc::new(http_client);
 
-    let registry_endpoint = "https://api.zinc.sulfone.raichu.cluster.atomi.cloud";
 
-
+    let cli = Cli::parse();
     let registry = CyanRegistryClient {
-        endpoint: registry_endpoint.to_string(),
+        endpoint: cli.registry.to_string(),
         version: "1.0".to_string(),
         client: Rc::clone(&http),
     };
-
-    let cli = Cli::parse();
-
     match cli.command {
+
         Commands::Push(p) => {
             match p.commands {
-                PushCommands::Processor { config, token, message, image, sha } => {
+                PushCommands::Processor { config, token, message, image, tag } => {
                     let res = registry
-                        .push_processor(config, token, message, image, sha);
+                        .push_processor(config, token, message, image, tag);
                     match res {
                         Ok(r) => {
                             println!("Pushed processor successfully");
@@ -75,9 +72,9 @@ fn main() -> Result<(), Box<dyn Error + Send>> {
                     }
                     Ok(())
                 }
-                PushCommands::Template { config, token, message, template_image, template_sha, blob_image, blob_sha } => {
+                PushCommands::Template { config, token, message, template_image, template_tag, blob_image, blob_tag } => {
                     let res = registry
-                        .push_template(config, token, message, blob_image, blob_sha, template_image, template_sha);
+                        .push_template(config, token, message, blob_image, blob_tag, template_image, template_tag);
                     match res {
                         Ok(r) => {
                             println!("Pushed template successfully");
@@ -89,9 +86,9 @@ fn main() -> Result<(), Box<dyn Error + Send>> {
                     }
                     Ok(())
                 }
-                PushCommands::Plugin { config, token, message, image, sha } => {
+                PushCommands::Plugin { config, token, message, image, tag } => {
                     let res = registry
-                        .push_plugin(config, token, message, image, sha);
+                        .push_plugin(config, token, message, image, tag);
                     match res {
                         Ok(r) => {
                             println!("Pushed plugin successfully");
@@ -119,10 +116,10 @@ fn main() -> Result<(), Box<dyn Error + Send>> {
             match r {
                 Ok(o) => {
                     println!("✅ Completed: {:#?}", o);
-                    let coord_client = CyanCoordinatorClient { endpoint: coordinator_endpoint.clone() };
-                    println!("🧹 Cleaning up...");
-                    let _ = coord_client.clean(session_id);
-                    println!("✅ Cleaned up");
+                    // let coord_client = CyanCoordinatorClient { endpoint: coordinator_endpoint.clone() };
+                    // println!("🧹 Cleaning up...");
+                    // let _ = coord_client.clean(session_id);
+                    // println!("✅ Cleaned up");
                 }
                 Err(e) => {
                     eprintln!("🚨 Error: {:#?}", e);
@@ -130,7 +127,7 @@ fn main() -> Result<(), Box<dyn Error + Send>> {
                     println!("🧹 Cleaning up...");
                     let _ = coord_client.clean(session_id);
                     println!("✅ Cleaned up");
-                    let _ = new_extension_engine(registry_endpoint, Rc::clone(&http));
+                    let _ = new_extension_engine(cli.registry.clone().as_str(), Rc::clone(&http));
                 }
             }
             Ok(())

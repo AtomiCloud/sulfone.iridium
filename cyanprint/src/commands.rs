@@ -5,6 +5,10 @@ use clap::{Args, Parser, Subcommand};
 pub struct Cli {
     #[command(subcommand)]
     pub command: Commands,
+
+    #[arg(short, long, value_name = "REGISTRY_ENDPOINT", default_value = "https://api.zinc.sulfone.raichu.cluster.atomi.cloud")]
+    pub registry: String,
+
 }
 
 #[derive(Subcommand)]
@@ -29,7 +33,7 @@ pub struct PushArgs {
 #[derive(Debug, Subcommand)]
 pub enum PushCommands {
     Template {
-        #[arg(short, long, value_name = "CONFIG_PATH", default_value = "cyan.temp.yaml")]
+        #[arg(short, long, value_name = "CONFIG_PATH", default_value = "cyan.yaml")]
         config: String,
 
         #[arg(short, long, value_name = "PUBLISH_MESSAGE", default_value = "No description")]
@@ -40,14 +44,14 @@ pub enum PushCommands {
 
         blob_image: String,
 
-        blob_sha: String,
+        blob_tag: String,
 
         template_image: String,
 
-        template_sha: String,
+        template_tag: String,
     },
     Plugin {
-        #[arg(short, long, value_name = "CONFIG_PATH", default_value = "cyan.temp.yaml")]
+        #[arg(short, long, value_name = "CONFIG_PATH", default_value = "cyan.yaml")]
         config: String,
 
         #[arg(short, long, value_name = "PUBLISH_MESSAGE", default_value = "No description")]
@@ -58,10 +62,10 @@ pub enum PushCommands {
 
         image: String,
 
-        sha: String,
+        tag: String,
     },
     Processor {
-        #[arg(short, long, value_name = "CONFIG_PATH", default_value = "cyan.temp.yaml")]
+        #[arg(short, long, value_name = "CONFIG_PATH", default_value = "cyan.yaml")]
         config: String,
 
         #[arg(short, long, value_name = "PUBLISH_MESSAGE", default_value = "No description")]
@@ -72,6 +76,6 @@ pub enum PushCommands {
 
         image: String,
 
-        sha: String,
+        tag: String,
     },
 }

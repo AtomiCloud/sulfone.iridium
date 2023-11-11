@@ -21,5 +21,5 @@ pub struct PluginReq {
 
     pub docker_reference: String,
 
-    pub docker_sha: String,
+    pub docker_tag: String,
 }

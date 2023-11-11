@@ -1,4 +1,4 @@
-username: kirinnee
+username: ernest
 name: nestjs
 description: NestJS Template for Gotrade
 project: https://github.com/tr8team/template.nestjs
@@ -9,5 +9,5 @@ tags:
   - typescript
 readme: README.md
 processors:
-  - "kirinnee/dotnet-handlebar"
+  - "ernest/dotnet-handlebar"
 plugins: []

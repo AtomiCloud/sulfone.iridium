@@ -10,9 +10,9 @@ pub struct TemplateVersionPrincipalRes {
     pub created_at: String,
     pub description: String,
     pub blob_docker_reference: String,
-    pub blob_docker_sha: String,
+    pub blob_docker_tag: String,
     pub template_docker_reference: String,
-    pub template_docker_sha: String,
+    pub template_docker_tag: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

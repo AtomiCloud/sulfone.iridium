@@ -94,28 +94,27 @@ impl CyanRegistryClient {
             })
     }
 
-    pub fn push_processor(&self, config_path: String, token: String, desc: String, docker_ref: String, docker_sha: String) -> Result<ProcessorVersionPrincipalRes, Box<dyn Error + Send>> {
-        let a: Result<CyanProcessorFileConfig, Box<dyn Error+ Send>> = read_yaml(config_path);
+    pub fn push_processor(&self, config_path: String, token: String, desc: String, docker_ref: String, docker_tag: String) -> Result<ProcessorVersionPrincipalRes, Box<dyn Error + Send>> {
+        let a: Result<CyanProcessorFileConfig, Box<dyn Error + Send>> = read_yaml(config_path);
         let config = a?;
         let domain = processor_config_mapper(&config)?;
-        let req = processor_req_mapper(&domain, desc, docker_ref, docker_sha);
+        let req = processor_req_mapper(&domain, desc, docker_ref, docker_tag);
         self.push_processor_internal(domain.username, token, &req)
     }
 
-    pub fn push_plugin(&self, config_path: String, token: String, desc: String, docker_ref: String, docker_sha: String) -> Result<PluginVersionPrincipalRes, Box<dyn Error + Send>> {
-        let a: Result<CyanPluginFileConfig, Box<dyn Error+ Send>> = read_yaml(config_path);
+    pub fn push_plugin(&self, config_path: String, token: String, desc: String, docker_ref: String, docker_tag: String) -> Result<PluginVersionPrincipalRes, Box<dyn Error + Send>> {
+        let a: Result<CyanPluginFileConfig, Box<dyn Error + Send>> = read_yaml(config_path);
         let config = a?;
         let domain = plugin_config_mapper(&config)?;
-        let req = plugin_req_mapper(&domain, desc, docker_ref, docker_sha);
+        let req = plugin_req_mapper(&domain, desc, docker_ref, docker_tag);
         self.push_plugin_internal(domain.username, token, &req)
     }
 
-    pub fn push_template(&self, config_path: String, token: String, desc: String, blob_docker_ref: String, blob_docker_sha: String, template_docker_ref: String, template_docker_sha: String) -> Result<TemplateVersionPrincipalRes, Box<dyn Error + Send>> {
+    pub fn push_template(&self, config_path: String, token: String, desc: String, blob_docker_ref: String, blob_docker_tag: String, template_docker_ref: String, template_docker_tag: String) -> Result<TemplateVersionPrincipalRes, Box<dyn Error + Send>> {
         let a: Result<CyanTemplateFileConfig, Box<dyn Error + Send>> = read_yaml(config_path);
         let config = a?;
         let domain = template_config_mapper(&config)?;
-        let req = template_req_mapper(&domain, desc, blob_docker_ref, blob_docker_sha, template_docker_ref, template_docker_sha);
-        println!("{:#?}", req);
+        let req = template_req_mapper(&domain, desc, blob_docker_ref, blob_docker_tag, template_docker_ref, template_docker_tag);
         self.push_template_internal(domain.username, token, &req)
     }
 

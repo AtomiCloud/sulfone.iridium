@@ -5,7 +5,7 @@ use crate::http::models::plugin_req::PluginReq;
 use crate::http::models::processor_req::ProcessorReq;
 use crate::http::models::template_req::{PluginRefReq, ProcessorRefReq, TemplateReq};
 
-pub fn processor_req_mapper(r: &CyanProcessorConfig, desc: String, docker_ref: String, docker_sha: String) -> ProcessorReq {
+pub fn processor_req_mapper(r: &CyanProcessorConfig, desc: String, docker_ref: String, docker_tag: String) -> ProcessorReq {
     ProcessorReq {
         name: r.name.clone(),
         project: r.project.clone(),
@@ -16,11 +16,11 @@ pub fn processor_req_mapper(r: &CyanProcessorConfig, desc: String, docker_ref: S
         readme: r.readme.clone(),
         version_description: desc,
         docker_reference: docker_ref.to_string(),
-        docker_sha: docker_sha.to_string(),
+        docker_tag: docker_tag.to_string(),
     }
 }
 
-pub fn plugin_req_mapper(r: &CyanPluginConfig, desc: String, docker_ref: String, docker_sha: String) -> PluginReq {
+pub fn plugin_req_mapper(r: &CyanPluginConfig, desc: String, docker_ref: String, docker_tag: String) -> PluginReq {
     PluginReq {
         name: r.name.clone(),
         project: r.project.clone(),
@@ -31,7 +31,7 @@ pub fn plugin_req_mapper(r: &CyanPluginConfig, desc: String, docker_ref: String,
         readme: r.readme.clone(),
         version_description: desc,
         docker_reference: docker_ref.to_string(),
-        docker_sha: docker_sha.to_string(),
+        docker_tag: docker_tag.to_string(),
     }
 }
 
@@ -51,8 +51,8 @@ pub fn processor_ref_req_mapper(r : &CyanProcessorRef) -> ProcessorRefReq {
     }
 }
 
-pub fn template_req_mapper(r: &CyanTemplateConfig, desc: String, blob_docker_ref: String, blob_docker_sha: String,
-    template_docker_ref: String, template_docker_sha: String
+pub fn template_req_mapper(r: &CyanTemplateConfig, desc: String, blob_docker_ref: String, blob_docker_tag: String,
+    template_docker_ref: String, template_docker_tag: String
 ) -> TemplateReq {
     TemplateReq {
         name: r.name.clone(),
@@ -64,9 +64,9 @@ pub fn template_req_mapper(r: &CyanTemplateConfig, desc: String, blob_docker_ref
         readme: r.readme.clone(),
         version_description: desc,
         blob_docker_reference: blob_docker_ref.to_string(),
-        blob_docker_sha: blob_docker_sha.to_string(),
+        blob_docker_tag: blob_docker_tag.to_string(),
         template_docker_reference: template_docker_ref.to_string(),
-        template_docker_sha: template_docker_sha.to_string(),
+        template_docker_tag: template_docker_tag.to_string(),
         plugins: r.plugins.iter().map(|p| plugin_ref_req_mapper(p)).collect(),
         processors: r.processors.iter().map(|p| processor_ref_req_mapper(p)).collect(),
     }

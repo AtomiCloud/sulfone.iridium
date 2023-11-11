@@ -154,7 +154,7 @@ pub fn cyan_run(session_id: String, path: Option<String>, template: TemplateVers
         merger_id,
     };
     println!("🚀 Starting build...");
-    let _ = coord_client.start(path_buf.as_path(), session_id.clone(), &br);
+    let _ = coord_client.start(path_buf.as_path(), session_id.clone(), &br)?;
     println!("✅ Build completed");
 
     Ok(())
