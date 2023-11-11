@@ -1,3 +1,10 @@
+## [1.0.3](https://github.com/AtomiCloud/sulfone.iridium/compare/v1.0.2...v1.0.3) (2023-11-08)
+
+
+### 🐛 Bug Fixes 🐛
+
+* incorrect build for linux system ([07500b3](https://github.com/AtomiCloud/sulfone.iridium/commit/07500b3f18dd5ce77087cf4dd3ba130a064764d9))
+
 ## [1.0.2](https://github.com/AtomiCloud/sulfone.iridium/compare/v1.0.1...v1.0.2) (2023-11-08)
 
 
