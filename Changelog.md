@@ -1,3 +1,10 @@
+## [1.3.0](https://github.com/AtomiCloud/sulfone.iridium/compare/v1.2.0...v1.3.0) (2023-11-13)
+
+
+### ✨ Features ✨
+
+* local coordinator setup ([b8853eb](https://github.com/AtomiCloud/sulfone.iridium/commit/b8853eba3b5c358429952f7529fb7b9db8b66f36))
+
 ## [1.2.0](https://github.com/AtomiCloud/sulfone.iridium/compare/v1.1.0...v1.2.0) (2023-11-13)
 
 
