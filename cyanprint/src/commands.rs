@@ -13,8 +13,11 @@ pub struct Cli {
 
 #[derive(Subcommand)]
 pub enum Commands {
+    #[command(alias = "p")]
     Push(PushArgs),
-    Run {
+
+    #[command(alias = "c")]
+    Create {
         template_ref: String,
 
         path: Option<String>,
@@ -28,20 +31,20 @@ pub enum Commands {
 pub struct PushArgs {
     #[command(subcommand)]
     pub commands: PushCommands,
+
+    #[arg(short, long, value_name = "CONFIG_PATH", default_value = "cyan.yaml")]
+    pub config: String,
+
+    #[arg(short, long, value_name = "PUBLISH_MESSAGE", default_value = "No description")]
+    pub message: String,
+
+    #[arg(short, long, value_name = "API_TOKEN", env = "CYAN_TOKEN")]
+    pub token: String,
 }
 
 #[derive(Debug, Subcommand)]
 pub enum PushCommands {
     Template {
-        #[arg(short, long, value_name = "CONFIG_PATH", default_value = "cyan.yaml")]
-        config: String,
-
-        #[arg(short, long, value_name = "PUBLISH_MESSAGE", default_value = "No description")]
-        message: String,
-
-        #[arg(short, long, value_name = "API_TOKEN")]
-        token: String,
-
         blob_image: String,
 
         blob_tag: String,
@@ -51,29 +54,11 @@ pub enum PushCommands {
         template_tag: String,
     },
     Plugin {
-        #[arg(short, long, value_name = "CONFIG_PATH", default_value = "cyan.yaml")]
-        config: String,
-
-        #[arg(short, long, value_name = "PUBLISH_MESSAGE", default_value = "No description")]
-        message: String,
-
-        #[arg(short, long, value_name = "API_TOKEN")]
-        token: String,
-
         image: String,
 
         tag: String,
     },
     Processor {
-        #[arg(short, long, value_name = "CONFIG_PATH", default_value = "cyan.yaml")]
-        config: String,
-
-        #[arg(short, long, value_name = "PUBLISH_MESSAGE", default_value = "No description")]
-        message: String,
-
-        #[arg(short, long, value_name = "API_TOKEN")]
-        token: String,
-
         image: String,
 
         tag: String,

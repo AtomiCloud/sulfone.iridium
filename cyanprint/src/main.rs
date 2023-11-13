@@ -11,7 +11,7 @@ use cyanprompt::domain::services::template::engine::TemplateEngine;
 use cyanprompt::http::client::CyanClient;
 use cyanregistry::http::client::CyanRegistryClient;
 
-use crate::commands::{Cli, Commands, PushCommands};
+use crate::commands::{Cli, Commands, PushArgs, PushCommands};
 use crate::run::cyan_run;
 use crate::util::{generate_session_id, parse_ref};
 
@@ -55,10 +55,10 @@ fn main() -> Result<(), Box<dyn Error + Send>> {
         client: Rc::clone(&http),
     };
     match cli.command {
-
-        Commands::Push(p) => {
-            match p.commands {
-                PushCommands::Processor { config, token, message, image, tag } => {
+        Commands::Push(push_arg) => {
+            match push_arg.commands {
+                PushCommands::Processor { image, tag } => {
+                    let PushArgs { config, token, message, .. } = push_arg;
                     let res = registry
                         .push_processor(config, token, message, image, tag);
                     match res {
@@ -72,7 +72,8 @@ fn main() -> Result<(), Box<dyn Error + Send>> {
                     }
                     Ok(())
                 }
-                PushCommands::Template { config, token, message, template_image, template_tag, blob_image, blob_tag } => {
+                PushCommands::Template { template_image, template_tag, blob_image, blob_tag } => {
+                    let PushArgs { config, token, message, .. } = push_arg;
                     let res = registry
                         .push_template(config, token, message, blob_image, blob_tag, template_image, template_tag);
                     match res {
@@ -86,7 +87,8 @@ fn main() -> Result<(), Box<dyn Error + Send>> {
                     }
                     Ok(())
                 }
-                PushCommands::Plugin { config, token, message, image, tag } => {
+                PushCommands::Plugin { image, tag } => {
+                    let PushArgs { config, token, message, .. } = push_arg;
                     let res = registry
                         .push_plugin(config, token, message, image, tag);
                     match res {
@@ -102,7 +104,7 @@ fn main() -> Result<(), Box<dyn Error + Send>> {
                 }
             }
         }
-        Commands::Run { template_ref, path, coordinator_endpoint } => {
+        Commands::Create { template_ref, path, coordinator_endpoint } => {
             let session_id = generate_session_id();
             let r = parse_ref(template_ref)
                 .and_then(|(u, n, v)| {
@@ -116,10 +118,10 @@ fn main() -> Result<(), Box<dyn Error + Send>> {
             match r {
                 Ok(o) => {
                     println!("✅ Completed: {:#?}", o);
-                    // let coord_client = CyanCoordinatorClient { endpoint: coordinator_endpoint.clone() };
-                    // println!("🧹 Cleaning up...");
-                    // let _ = coord_client.clean(session_id);
-                    // println!("✅ Cleaned up");
+                    let coord_client = CyanCoordinatorClient { endpoint: coordinator_endpoint.clone() };
+                    println!("🧹 Cleaning up...");
+                    let _ = coord_client.clean(session_id);
+                    println!("✅ Cleaned up");
                 }
                 Err(e) => {
                     eprintln!("🚨 Error: {:#?}", e);
