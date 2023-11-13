@@ -8,6 +8,7 @@ pub enum GlobType {
 
 #[derive(Debug, Clone)]
 pub struct CyanGlob {
+    pub root: Option<String>,
     pub glob_type: GlobType,
     pub exclude: Vec<String>,
     pub glob: String,

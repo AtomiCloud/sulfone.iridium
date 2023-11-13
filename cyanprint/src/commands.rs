@@ -13,10 +13,10 @@ pub struct Cli {
 
 #[derive(Subcommand)]
 pub enum Commands {
-    #[command(alias = "p")]
+    #[command(alias = "p", about = "Publish a CyanPrint artifact")]
     Push(PushArgs),
 
-    #[command(alias = "c")]
+    #[command(alias = "c", about = "Create a project from a CyanPrint template")]
     Create {
         template_ref: String,
 
@@ -24,6 +24,16 @@ pub enum Commands {
 
         #[arg(short, long, value_name = "COORDINATOR_ENDPOINT", default_value = "http://coord.cyanprint.dev:9000")]
         coordinator_endpoint: String,
+    },
+
+    #[command(alias = "d", about = "Starts the CyanPrint Coordinator locally daemon")]
+    Daemon {
+        #[arg(value_name = "COORDINATOR_VERSION", default_value = "latest")]
+        version: String,
+
+        #[arg(value_name = "COORDINATOR_ARCH")]
+        architecture: Option<String>,
+
     },
 }
 

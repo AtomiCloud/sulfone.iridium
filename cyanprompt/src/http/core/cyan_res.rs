@@ -4,6 +4,7 @@ use serde_json::Value;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CyanGlobRes {
+    pub root: Option<String>,
     pub glob: String,
     pub exclude: Vec<String>,
     #[serde(rename = "type")]

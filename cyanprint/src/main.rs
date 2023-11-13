@@ -1,6 +1,7 @@
 use std::error::Error;
 use std::rc::Rc;
 
+use bollard::Docker;
 use clap::Parser;
 use reqwest::blocking::Client;
 
@@ -12,6 +13,7 @@ use cyanprompt::http::client::CyanClient;
 use cyanregistry::http::client::CyanRegistryClient;
 
 use crate::commands::{Cli, Commands, PushArgs, PushCommands};
+use crate::coord::start_coordinator;
 use crate::run::cyan_run;
 use crate::util::{generate_session_id, parse_ref};
 
@@ -22,6 +24,9 @@ pub mod util;
 pub mod errors;
 
 pub mod run;
+
+
+pub mod coord;
 
 fn new_template_engine(endpoint: &str, client: Rc<Client>) -> TemplateEngine {
     let client: Rc<dyn CyanRepo> = Rc::new(CyanHttpRepo {
@@ -132,6 +137,34 @@ fn main() -> Result<(), Box<dyn Error + Send>> {
                     let _ = new_extension_engine(cli.registry.clone().as_str(), Rc::clone(&http));
                 }
             }
+            Ok(())
+        }
+        Commands::Daemon { version, architecture } => {
+            let docker = Docker::connect_with_local_defaults()
+                .map_err(|e| Box::new(e) as Box<dyn Error + Send>)?;
+            tokio::runtime::Builder::new_multi_thread()
+                .enable_all()
+                .build()
+                .unwrap()
+                .block_on(async {
+                    let arch = architecture.unwrap_or(if cfg!(target_arch = "arm") || cfg!(target_arch = "aarch64") {
+                        "arm".to_string()
+                    } else {
+                        "amd".to_string()
+                    }).to_string();
+
+                    let img = "ghcr.io/atomicloud/sulfone.boron/sulfone-boron".to_string() + "-" + arch.as_str() + ":" + version.as_str();
+                    let r = start_coordinator(docker, img).await;
+                    match r {
+                        Ok(_) => {
+                            println!("✅ Coordinator started");
+                        }
+                        Err(e) => {
+                            eprintln!("🚨 Error: {:#?}", e);
+                        }
+                    }
+                });
+
             Ok(())
         }
     }

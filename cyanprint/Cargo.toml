@@ -9,6 +9,7 @@ edition = "2021"
 cyanprompt = { path = "../cyanprompt" }
 cyanregistry = { path = "../cyanregistry"}
 cyancoordinator = { path = "../cyancoordinator"}
+bollard = "*"
 tokio = { version = "1", features = ["full"] }
 reqwest = { version = "0.11", features = ["json", "blocking", "native-tls-vendored"] }
 serde = { version = "1.0", features = ["derive"] }
@@ -17,3 +18,4 @@ clap = { version = "4.4.7", features = ["derive", "env"] }
 futures = "0.3.29"
 rand = "0.8.5"
 uuid = { version = "1.5.0", features = ["v4"] }
+futures-util = "0.3.29"

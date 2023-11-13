@@ -122,6 +122,7 @@ pub fn plugin_res_mapper(r: CyanPluginRes) -> CyanPlugin {
 
 pub fn glob_res_mapper(r: CyanGlobRes) -> CyanGlob {
     CyanGlob {
+        root: r.root,
         glob: r.glob,
         glob_type: glob_type_res_mapper(r.glob_type.as_str()),
         exclude: r.exclude,
@@ -161,6 +162,7 @@ pub fn plugin_req_mapper(r: CyanPlugin) -> CyanPluginReq {
 
 pub fn glob_req_mapper(r: CyanGlob) -> CyanGlobReq {
     CyanGlobReq {
+        root: r.root,
         glob: r.glob,
         glob_type: glob_type_req_mapper(r.glob_type),
         exclude: r.exclude,
