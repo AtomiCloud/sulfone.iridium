@@ -1,3 +1,10 @@
+## [1.2.0](https://github.com/AtomiCloud/sulfone.iridium/compare/v1.1.0...v1.2.0) (2023-11-13)
+
+
+### ✨ Features ✨
+
+* read token from ENV ([1c687ce](https://github.com/AtomiCloud/sulfone.iridium/commit/1c687ce03f6171b211ae23fb06e6db5d7cb80770))
+
 ## [1.1.0](https://github.com/AtomiCloud/sulfone.iridium/compare/v1.0.3...v1.1.0) (2023-11-11)
 
 
