@@ -1,3 +1,10 @@
+## [1.4.0](https://github.com/AtomiCloud/sulfone.iridium/compare/v1.3.0...v1.4.0) (2023-11-14)
+
+
+### ✨ Features ✨
+
+* YUM repository ([44016ce](https://github.com/AtomiCloud/sulfone.iridium/commit/44016ce8703c77af8db5fb2881ce662826b9fd7d))
+
 ## [1.3.0](https://github.com/AtomiCloud/sulfone.iridium/compare/v1.2.0...v1.3.0) (2023-11-13)
 
 
