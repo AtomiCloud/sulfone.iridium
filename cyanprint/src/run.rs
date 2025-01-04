@@ -17,16 +17,18 @@ use cyanregistry::http::models::template_res::TemplateVersionRes;
 
 use crate::new_template_engine;
 
-
-pub fn cyan_run(session_id: String, path: Option<String>, template: TemplateVersionRes, coordinator_endpoint: String) -> Result<(), Box<dyn Error + Send>> {
-
+pub fn cyan_run(
+    session_id: String,
+    path: Option<String>,
+    template: TemplateVersionRes,
+    coordinator_endpoint: String,
+) -> Result<(), Box<dyn Error + Send>> {
     // handle the target directory
     let path = path.unwrap_or(".".to_string());
     let path_buf = PathBuf::from(&path);
     let p = path_buf.as_path();
     println!("📁 Generating target directory: {:?}", p);
-    fs::create_dir_all(p)
-        .map_err(|e| Box::new(e) as Box<dyn Error + Send>)?;
+    fs::create_dir_all(p).map_err(|e| Box::new(e) as Box<dyn Error + Send>)?;
 
     // runtime
     let runtime = Builder::new_multi_thread()
@@ -38,7 +40,9 @@ pub fn cyan_run(session_id: String, path: Option<String>, template: TemplateVers
     // PHASE 1
     let (tx11, mut rx11) = mpsc::channel(1);
     let t11 = template.clone();
-    let c11 = CyanCoordinatorClient { endpoint: coordinator_endpoint.clone() };
+    let c11 = CyanCoordinatorClient {
+        endpoint: coordinator_endpoint.clone(),
+    };
     let h11 = runtime.spawn_blocking(move || {
         println!("♨️ Warming Templates...");
         let res = c11.warm_template(&t11);
@@ -48,7 +52,9 @@ pub fn cyan_run(session_id: String, path: Option<String>, template: TemplateVers
 
     let (tx12, mut rx12) = mpsc::channel(1);
     let t12 = template.clone();
-    let c12 = CyanCoordinatorClient { endpoint: coordinator_endpoint.clone() };
+    let c12 = CyanCoordinatorClient {
+        endpoint: coordinator_endpoint.clone(),
+    };
     let h12 = runtime.spawn_blocking(move || {
         println!("♨️ Warming Processors and Plugins...");
         let res = c12.warn_executor(session_id, &t12);
@@ -90,7 +96,9 @@ pub fn cyan_run(session_id: String, path: Option<String>, template: TemplateVers
         write_vol_reference: executor_warm.vol_ref.clone(),
         merger: merger_req,
     };
-    let c21 = CyanCoordinatorClient { endpoint: coordinator_endpoint.clone() };
+    let c21 = CyanCoordinatorClient {
+        endpoint: coordinator_endpoint.clone(),
+    };
     let h21 = runtime.spawn_blocking(move || {
         println!("🚀 Bootstrapping Executor...");
         let res = c21.bootstrap(&start_executor_req);
@@ -139,15 +147,17 @@ pub fn cyan_run(session_id: String, path: Option<String>, template: TemplateVers
                 t: "local".to_string(),
                 trace_id: None,
                 data: Some(serde_json::json!({
-                        "error": e.to_string(),
-                    })),
+                    "error": e.to_string(),
+                })),
             })) as Box<dyn Error + Send>)
         }
     };
     let cyan = res?;
 
     // final phase
-    let coord_client = CyanCoordinatorClient { endpoint: coordinator_endpoint.clone() };
+    let coord_client = CyanCoordinatorClient {
+        endpoint: coordinator_endpoint.clone(),
+    };
     let br = BuildReq {
         template: template.clone(),
         cyan: cyan_req_mapper(cyan),

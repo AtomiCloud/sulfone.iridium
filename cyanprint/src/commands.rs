@@ -6,9 +6,13 @@ pub struct Cli {
     #[command(subcommand)]
     pub command: Commands,
 
-    #[arg(short, long, value_name = "REGISTRY_ENDPOINT", default_value = "https://api.zinc.sulfone.raichu.cluster.atomi.cloud")]
+    #[arg(
+        short,
+        long,
+        value_name = "REGISTRY_ENDPOINT",
+        default_value = "https://api.zinc.sulfone.raichu.cluster.atomi.cloud"
+    )]
     pub registry: String,
-
 }
 
 #[derive(Subcommand)]
@@ -22,7 +26,12 @@ pub enum Commands {
 
         path: Option<String>,
 
-        #[arg(short, long, value_name = "COORDINATOR_ENDPOINT", default_value = "http://coord.cyanprint.dev:9000")]
+        #[arg(
+            short,
+            long,
+            value_name = "COORDINATOR_ENDPOINT",
+            default_value = "http://coord.cyanprint.dev:9000"
+        )]
         coordinator_endpoint: String,
     },
 
@@ -33,7 +42,6 @@ pub enum Commands {
 
         #[arg(value_name = "COORDINATOR_ARCH")]
         architecture: Option<String>,
-
     },
 }
 
@@ -45,7 +53,12 @@ pub struct PushArgs {
     #[arg(short, long, value_name = "CONFIG_PATH", default_value = "cyan.yaml")]
     pub config: String,
 
-    #[arg(short, long, value_name = "PUBLISH_MESSAGE", default_value = "No description")]
+    #[arg(
+        short,
+        long,
+        value_name = "PUBLISH_MESSAGE",
+        default_value = "No description"
+    )]
     pub message: String,
 
     #[arg(short, long, value_name = "API_TOKEN", env = "CYAN_TOKEN")]

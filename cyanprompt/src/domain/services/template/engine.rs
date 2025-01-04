@@ -17,9 +17,7 @@ pub struct TemplateEngine {
 
 impl TemplateEngine {
     pub fn new(client: Rc<dyn CyanRepo>) -> TemplateEngine {
-        TemplateEngine {
-            client,
-        }
+        TemplateEngine { client }
     }
 
     pub fn start(&self) -> TemplateState {
@@ -35,11 +33,20 @@ impl TemplateEngine {
                 answers: answers.clone(),
                 deterministic_states: states.clone(),
             };
-            let result = self.client.prompt_template(input)
+            let result = self
+                .client
+                .prompt_template(input)
                 .and_then(|resp| match resp {
                     TemplateOutput::QnA(q) => {
                         let ans = prompt_mapper(&q.question)
-                            .map(|p| add_template_validator(p, Rc::clone(&self.client), answers.clone(), states.clone()))
+                            .map(|p| {
+                                add_template_validator(
+                                    p,
+                                    Rc::clone(&self.client),
+                                    answers.clone(),
+                                    states.clone(),
+                                )
+                            })
                             .and_then(|p| prompt(p))
                             // handle responses
                             .map(|x| match x {
@@ -64,7 +71,9 @@ impl TemplateEngine {
                             Err(err) => Err(err),
                         }
                     }
-                    TemplateOutput::Final(c) => Ok(TemplateState::Complete(c.cyan, answers.clone())),
+                    TemplateOutput::Final(c) => {
+                        Ok(TemplateState::Complete(c.cyan, answers.clone()))
+                    }
                 });
 
             state = match result {

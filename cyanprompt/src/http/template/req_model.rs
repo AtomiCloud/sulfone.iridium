@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
-use serde::{Deserialize, Serialize};
 use crate::http::core::answer_req::AnswerReq;
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -20,4 +20,3 @@ pub struct TemplateValidateReq {
 
     pub validate: String,
 }
-

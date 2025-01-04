@@ -1,12 +1,11 @@
 use std::error::Error;
 use std::fmt;
 
-
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug)]
 pub enum GenericError {
-    ProblemDetails(ProblemDetails)
+    ProblemDetails(ProblemDetails),
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -29,4 +28,3 @@ impl fmt::Display for GenericError {
 }
 
 impl Error for GenericError {}
-

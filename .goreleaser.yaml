@@ -19,20 +19,20 @@ builds:
         - ./scripts/build.sh {{ .Arch }} {{ .Os }} {{ .ProjectName }}
 brews:
   - name: cyanprint
-    url_template: "https://github.com/AtomiCloud/sulfone.iridium/releases/download/{{ .Tag }}/{{ .ArtifactName }}"
+    url_template: 'https://github.com/AtomiCloud/sulfone.iridium/releases/download/{{ .Tag }}/{{ .ArtifactName }}'
     commit_author:
       name: Ernest Ng
       email: kirinnee97@gmail.com
     folder: Formula
-    commit_msg_template: "update({{ .ProjectName }}): to {{ .Tag }}"
-    homepage: "https://cyanprint.dev"
-    description: "Next-Generation Language-Agnostic Templating Platform"
+    commit_msg_template: 'update({{ .ProjectName }}): to {{ .Tag }}'
+    homepage: 'https://cyanprint.dev'
+    description: 'Next-Generation Language-Agnostic Templating Platform'
     skip_upload: false
     repository:
       owner: AtomiCloud
       name: homebrew-tap
       branch: main
-      token: "{{ .Env.SCOOP_BREW_TOKEN }}"
+      token: '{{ .Env.SCOOP_BREW_TOKEN }}'
 
 #snapcrafts:
 #  - id: cyanprint
@@ -72,19 +72,19 @@ nfpms:
       - archlinux # Since: v1.13
 scoops:
   - name: cyanprint
-    url_template: "https://github.com/AtomiCloud/sulfone.iridium/releases/download/{{ .Tag }}/{{ .ArtifactName }}"
+    url_template: 'https://github.com/AtomiCloud/sulfone.iridium/releases/download/{{ .Tag }}/{{ .ArtifactName }}'
     folder: bucket
     commit_author:
       name: Ernest Ng
       email: kirinnee97@gmail.com
-    commit_msg_template: "update({{ .ProjectName }}): to {{ .Tag }}"
-    homepage: "https://cyanprint.dev"
-    description: "Next-Generation Language-Agnostic Templating Platform"
+    commit_msg_template: 'update({{ .ProjectName }}): to {{ .Tag }}'
+    homepage: 'https://cyanprint.dev'
+    description: 'Next-Generation Language-Agnostic Templating Platform'
     skip_upload: false
     repository:
       owner: AtomiCloud
       name: scoop-bucket
       branch: main
-      token: "{{ .Env.SCOOP_BREW_TOKEN }}"
+      token: '{{ .Env.SCOOP_BREW_TOKEN }}'
 checksum:
-  name_template: "checksums.txt"
+  name_template: 'checksums.txt'

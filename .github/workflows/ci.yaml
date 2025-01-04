@@ -6,8 +6,8 @@ on:
 env:
   # Define the rust version to use
   RUST_VERSION: 1.72.0
-  BUILD_ARGS: "--release --all-features"
-  BIN_NAME: "cyanprint"
+  BUILD_ARGS: '--release --all-features'
+  BIN_NAME: 'cyanprint'
   DOCKER_USER: ${{ github.actor }}
   DOCKER_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
   DOCKER_DOMAIN: ghcr.io
@@ -47,7 +47,7 @@ jobs:
         uses: actions-rs/toolchain@v1
         with:
           profile: minimal
-          toolchain: "${{ env.RUST_VERSION }}"
+          toolchain: '${{ env.RUST_VERSION }}'
           override: true
           target: ${{ matrix.platform.target }}
           components: rustfmt, clippy

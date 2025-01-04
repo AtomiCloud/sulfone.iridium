@@ -1,7 +1,7 @@
 pub mod prompt;
 
-pub mod question;
 pub mod answer;
+pub mod question;
 
 pub mod cyan;
 

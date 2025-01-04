@@ -1,6 +1,6 @@
-use std::collections::HashMap;
 use crate::domain::models::cyan::Cyan;
 use crate::domain::models::question::Question;
+use std::collections::HashMap;
 
 pub enum ExtensionOutput {
     QnA(ExtensionQnAOutput),

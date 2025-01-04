@@ -31,4 +31,3 @@ pub struct ExtensionQnARes {
     pub deterministic_state: Vec<HashMap<String, String>>,
     pub question: QuestionRes,
 }
-

@@ -1,6 +1,5 @@
 #[derive(Debug, Clone)]
-pub struct CyanTemplateConfig
-{
+pub struct CyanTemplateConfig {
     pub username: String,
 
     pub name: String,
@@ -23,17 +22,15 @@ pub struct CyanTemplateConfig
 }
 
 #[derive(Debug, Clone)]
-pub struct CyanProcessorRef
-{
+pub struct CyanProcessorRef {
     pub username: String,
     pub name: String,
-    pub version: Option<i64> ,
+    pub version: Option<i64>,
 }
 
 #[derive(Debug, Clone)]
-pub struct CyanPluginRef
-{
+pub struct CyanPluginRef {
     pub username: String,
     pub name: String,
-    pub version: Option<i64> ,
+    pub version: Option<i64>,
 }

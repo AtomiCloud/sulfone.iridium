@@ -17,9 +17,7 @@ pub struct ExtensionEngine {
 
 impl ExtensionEngine {
     pub fn new(client: Rc<dyn CyanRepo>) -> ExtensionEngine {
-        ExtensionEngine {
-            client,
-        }
+        ExtensionEngine { client }
     }
 
     pub fn start(&self, prev: Cyan, prev_answers: Vec<Answer>) -> ExtensionState {
@@ -37,11 +35,22 @@ impl ExtensionEngine {
                 prev_answers: prev_answers.clone(),
                 prev: prev.clone(),
             };
-            let result = self.client.prompt_extension(input)
+            let result = self
+                .client
+                .prompt_extension(input)
                 .and_then(|resp| match resp {
                     ExtensionOutput::QnA(q) => {
                         let ans = prompt_mapper(&q.question)
-                            .map(|p| add_extension_validator(p, Rc::clone(&self.client), answers.clone(), states.clone(), prev_answers.clone(), prev.clone()))
+                            .map(|p| {
+                                add_extension_validator(
+                                    p,
+                                    Rc::clone(&self.client),
+                                    answers.clone(),
+                                    states.clone(),
+                                    prev_answers.clone(),
+                                    prev.clone(),
+                                )
+                            })
                             .and_then(|p| prompt(p))
                             // handle responses
                             .map(|x| match x {

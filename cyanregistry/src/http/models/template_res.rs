@@ -1,6 +1,6 @@
-use serde::{Serialize, Deserialize};
 use crate::http::models::plugin_res::PluginVersionPrincipalRes;
 use crate::http::models::processor_res::ProcessorVersionPrincipalRes;
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -22,7 +22,6 @@ pub struct TemplateVersionRes {
     pub plugins: Vec<PluginVersionPrincipalRes>,
     pub processors: Vec<ProcessorVersionPrincipalRes>,
 }
-
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

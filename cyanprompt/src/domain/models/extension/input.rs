@@ -1,6 +1,6 @@
-use std::collections::HashMap;
 use crate::domain::models::answer::Answer;
 use crate::domain::models::cyan::Cyan;
+use std::collections::HashMap;
 
 pub struct ExtensionAnswerInput {
     pub answers: Vec<Answer>,

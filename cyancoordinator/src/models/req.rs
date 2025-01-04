@@ -1,6 +1,6 @@
-use serde::{Deserialize, Serialize};
 use cyanprompt::http::core::cyan_req::CyanReq;
 use cyanregistry::http::models::template_res::TemplateVersionRes;
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DockerVolumeReferenceReq {

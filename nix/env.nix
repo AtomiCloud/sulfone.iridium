@@ -14,35 +14,26 @@ with packages;
     git
   ];
 
-  infra = [
-  ];
-
   main = [
     toml-cli
+    infisical
     nfpm
     goreleaser
     go
     rust
-    cargo2junit
   ];
 
   lint = [
     # http
     treefmt
-    infisical
     gitlint
     shellcheck
+    hadolint
     sg
-  ];
-
-  ci = [
-
   ];
 
   releaser = [
-    nodejs
     sg
-    npm
   ];
 
 }

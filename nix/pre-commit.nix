@@ -70,6 +70,15 @@ pre-commit-lib.run {
       language = "system";
       pass_filenames = true;
     };
+
+    a-hadolint = {
+      enable = true;
+      name = "Docker Linter";
+      entry = "${packages.hadolint}/bin/hadolint";
+      files = ".*Dockerfile$";
+      language = "system";
+      pass_filenames = true;
+    };
   };
 
   settings = {

@@ -1,16 +1,16 @@
-version: "3"
+version: '3'
 
 vars:
   PLATFORM: sulfone
-  SERVICE: boron
+  SERVICE: iridium
 
 tasks:
   build:
-    desc: "Build the binary"
+    desc: 'Build the binary'
     cmds:
       - cargo build --profile release
   run:
-    desc: "Run the application"
+    desc: 'Run the application'
     cmds:
       - cargo run {{.CLI_ARGS}}
   cross-build:

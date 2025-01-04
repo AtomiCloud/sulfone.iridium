@@ -1,5 +1,5 @@
-use std::collections::HashMap;
 use crate::domain::models::answer::Answer;
+use std::collections::HashMap;
 
 pub struct TemplateAnswerInput {
     pub answers: Vec<Answer>,
