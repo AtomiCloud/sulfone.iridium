@@ -1,3 +1,15 @@
+## [1.6.0](https://github.com/AtomiCloud/sulfone.iridium/compare/v1.5.0...v1.6.0) (2025-01-28)
+
+
+### ✨ Features ✨
+
+* upgrade to 1.84.0 rust ([b4d6845](https://github.com/AtomiCloud/sulfone.iridium/commit/b4d6845d1874560fcabaea3a039f31ebf6ece360))
+
+
+### 🐛 Bug Fixes 🐛
+
+* pin to v3 cargo lock ([43efc33](https://github.com/AtomiCloud/sulfone.iridium/commit/43efc3378c9f6d98d63f7b25d877b8fa98d7875b))
+
 ## [1.5.0](https://github.com/AtomiCloud/sulfone.iridium/compare/v1.4.0...v1.5.0) (2025-01-28)
 
 
