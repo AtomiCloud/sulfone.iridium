@@ -1,3 +1,10 @@
+## [1.6.1](https://github.com/AtomiCloud/sulfone.iridium/compare/v1.6.0...v1.6.1) (2025-01-28)
+
+
+### 🐛 Bug Fixes 🐛
+
+* update goreleaser config ([88311e8](https://github.com/AtomiCloud/sulfone.iridium/commit/88311e853d7aed7ee0a0b28442ca7b29a438b2c9))
+
 ## [1.6.0](https://github.com/AtomiCloud/sulfone.iridium/compare/v1.5.0...v1.6.0) (2025-01-28)
 
 
