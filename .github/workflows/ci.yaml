@@ -5,7 +5,7 @@ on:
 
 env:
   # Define the rust version to use
-  RUST_VERSION: 1.72.0
+  RUST_VERSION: 1.84.0
   BUILD_ARGS: '--release --all-features'
   BIN_NAME: 'cyanprint'
   DOCKER_USER: ${{ github.actor }}
