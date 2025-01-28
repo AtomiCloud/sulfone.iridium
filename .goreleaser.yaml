@@ -1,3 +1,4 @@
+version: 2
 project_name: cyanprint
 
 builds:
@@ -23,7 +24,7 @@ brews:
     commit_author:
       name: Ernest Ng
       email: kirinnee97@gmail.com
-    folder: Formula
+    directory: Formula
     commit_msg_template: 'update({{ .ProjectName }}): to {{ .Tag }}'
     homepage: 'https://cyanprint.dev'
     description: 'Next-Generation Language-Agnostic Templating Platform'
@@ -73,7 +74,7 @@ nfpms:
 scoops:
   - name: cyanprint
     url_template: 'https://github.com/AtomiCloud/sulfone.iridium/releases/download/{{ .Tag }}/{{ .ArtifactName }}'
-    folder: bucket
+    directory: bucket
     commit_author:
       name: Ernest Ng
       email: kirinnee97@gmail.com
