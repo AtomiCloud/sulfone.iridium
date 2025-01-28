@@ -1,3 +1,15 @@
+## [1.5.0](https://github.com/AtomiCloud/sulfone.iridium/compare/v1.4.0...v1.5.0) (2025-01-28)
+
+
+### ✨ Features ✨
+
+* nix pin to new nix-registry ([e3746be](https://github.com/AtomiCloud/sulfone.iridium/commit/e3746be814bebe2164c6006ee94820977898e7b2))
+
+
+### 🐛 Bug Fixes 🐛
+
+* release script pin to npm ([eab1563](https://github.com/AtomiCloud/sulfone.iridium/commit/eab1563908726e9560cf61cfbeddc5bfac958556))
+
 ## [1.4.0](https://github.com/AtomiCloud/sulfone.iridium/compare/v1.3.0...v1.4.0) (2023-11-14)
 
 
