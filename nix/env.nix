@@ -2,11 +2,7 @@
 with packages;
 {
   system = [
-    coreutils
-    sd
-    bash
-    findutils
-    gnused
+    atomiutils
   ];
 
   dev = [

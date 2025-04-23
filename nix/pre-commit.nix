@@ -65,7 +65,7 @@ pre-commit-lib.run {
     a-enforce-exec = {
       enable = true;
       name = "Enforce Shell Script executable";
-      entry = "${packages.coreutils}/bin/chmod +x";
+      entry = "${packages.atomiutils}/bin/chmod +x";
       files = ".*sh$";
       language = "system";
       pass_filenames = true;

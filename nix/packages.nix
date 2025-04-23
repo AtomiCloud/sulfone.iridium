@@ -5,6 +5,7 @@ let
       with atomi;
       {
         inherit
+          atomiutils
           toml-cli
           sg
           pls;
@@ -14,12 +15,6 @@ let
       with pkgs-2411;
       {
         inherit
-          coreutils
-          findutils
-          sd
-          bash
-          gnused
-
           infisical
           docker
 
