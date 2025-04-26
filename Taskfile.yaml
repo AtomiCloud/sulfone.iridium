@@ -4,31 +4,19 @@ vars:
   PLATFORM: sulfone
   SERVICE: iridium
 
+env:
+  RUST_VERSION: 1.86.0
+
 tasks:
   build:
     desc: 'Build the binary'
     cmds:
-      - cargo build --profile release
+      - cargo build
+  pack:
+    desc: 'Build the binary for all platforms'
+    cmds:
+      - nix develop .#ci -c ./scripts/build.sh
   run:
     desc: 'Run the application'
     cmds:
       - cargo run {{.CLI_ARGS}}
-  cross-build:
-    desc: Build cross-platform
-    cmds:
-      - docker build . -t cross-builder
-
-      # linux
-      #      - docker run --rm -v $(pwd):/app cross-builder cargo build --release --target aarch64-unknown-linux-gnu
-      #      - docker run --rm -v $(pwd):/app cross-builder cargo build --release --target x86_64-unknown-linux-gnu
-      #      - docker run --rm -v $(pwd):/app cross-builder cargo build --release --target aarch64-unknown-linux-musl
-      #      - docker run --rm -v $(pwd):/app cross-builder cargo build --release --target x86_64-unknown-linux-musl
-
-      # windows
-      #      - docker run --rm -v $(pwd):/app cross-builder cargo build --release --target x86_64-pc-windows-gnu
-      #      - docker run --rm -v $(pwd):/app cross-builder cargo build --release --target x86_64-pc-windows-msvc
-      #      - docker run --rm -v $(pwd):/app cross-builder cargo build --release --target aarch64-pc-windows-msvc
-
-      # darwin
-      #      - docker run --rm -v $(pwd):/app cross-builder cargo build --release --target x86_64-apple-darwin
-      - docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v $(pwd):/app cross-builder cargo build --release --target aarch64-apple-darwin

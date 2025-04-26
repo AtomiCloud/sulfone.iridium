@@ -1,23 +1,51 @@
+# This is an example .goreleaser.yml file with some sensible defaults.
+# Make sure to check the documentation at https://goreleaser.com
+
+# The lines below are called `modelines`. See `:help modeline`
+# Feel free to remove those if you don't want/need to use them.
+# yaml-language-server: $schema=https://goreleaser.com/static/schema.json
+# vim: set ts=2 sw=2 tw=0 fo=cnqoj
+
 version: 2
-project_name: cyanprint
+
+before:
+  hooks:
+    - rustup default {{ .Env.RUST_VERSION }}
 
 builds:
   - id: cyanprint
-    main: goreleaser.go
-    goos:
-      - linux
-      - darwin
-      - windows
-    goarch:
-      - amd64
-      - arm64
     binary: cyanprint
-    ignore:
+    builder: rust
+    tool: cross
+    command: build
+    flags:
+      - --release
+      - --all-features
+      - -p=cyanprint
+    env:
+      - CC=o64-clang
+      - CXX=o64-clang++
+    targets:
+      - x86_64-unknown-linux-gnu
+      - x86_64-apple-darwin
+      - x86_64-pc-windows-gnu
+      - aarch64-unknown-linux-gnu
+      - aarch64-apple-darwin
+
+archives:
+  - formats: [tar.gz]
+    # this name template makes the OS and Arch compatible with the results of `uname`.
+    name_template: >-
+      {{ .ProjectName }}_
+      {{- title .Os }}_
+      {{- if eq .Arch "amd64" }}x86_64
+      {{- else if eq .Arch "386" }}i386
+      {{- else }}{{ .Arch }}{{ end }}
+    # use zip for windows archives
+    format_overrides:
       - goos: windows
-        goarch: arm64
-    hooks:
-      post:
-        - ./scripts/build.sh {{ .Arch }} {{ .Os }} {{ .ProjectName }}
+        formats: [zip]
+
 brews:
   - name: cyanprint
     url_template: 'https://github.com/AtomiCloud/sulfone.iridium/releases/download/{{ .Tag }}/{{ .ArtifactName }}'
@@ -35,25 +63,8 @@ brews:
       branch: main
       token: '{{ .Env.SCOOP_BREW_TOKEN }}'
 
-#snapcrafts:
-#  - id: cyanprint
-#    builds:
-#      - cyanprint
-#    title: CyanPrint
-#    icon: ./cyanprint.png
-#    publish: true
-#    summary: Next-Generation Language-Agnostic Templating Platform
-#    description: |
-#      CyanPrint is a next-generation language-agnostic templating platform. It is designed to be simple, fast, and extensible. It is built with the following principles in mind:
-#      - **Language Agnostic**: CyanPrint is designed to be used with any language. It is not tied to any language and can be used with any language.
-#      - **Simple**: CyanPrint is designed to be simple to use. It is designed to be easy to use and easy to learn.
-#      - **Lightweight**: CyanPrint is designed to be lightweight. It has 0 dependencies and only takes up 20MB.
-#      - **Extensible**: CyanPrint is designed to be extensible. It is designed to be extensible and can be extended with plugins.
-#    license: MIT
-
 nfpms:
-  - id: cyanprint
-    vendor: AtomiCloud
+  - vendor: AtomiCloud
     homepage: https://cyanprint.dev/
     maintainer: Ernest Ng <kirinnee97@gmail.com>
 
@@ -62,7 +73,7 @@ nfpms:
       Next-Generation Language-Agnostic Templating Platform
 
     license: MIT
-    builds:
+    ids:
       - cyanprint
     meta: false
     formats:

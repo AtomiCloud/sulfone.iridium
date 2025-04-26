@@ -11,17 +11,23 @@ let
           pls;
       }
     );
+    nix-unstable = (
+      with pkgs;
+      {
+        inherit
+          goreleaser
+          ;
+      }
+    );
     nix-2411 = (
       with pkgs-2411;
       {
         inherit
           infisical
           docker
+          rustup
 
           git
-          go
-          goreleaser
-          nfpm
 
           # lint
           treefmt
@@ -51,4 +57,5 @@ in
 with all;
 atomipkgs //
 fenix //
-nix-2411
+nix-2411 //
+nix-unstable

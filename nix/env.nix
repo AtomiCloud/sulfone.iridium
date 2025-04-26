@@ -8,15 +8,13 @@ with packages;
   dev = [
     pls
     git
+    rust
   ];
 
   main = [
     toml-cli
     infisical
-    nfpm
     goreleaser
-    go
-    rust
   ];
 
   lint = [
@@ -26,6 +24,10 @@ with packages;
     shellcheck
     hadolint
     sg
+  ];
+
+  ci = [
+    rustup
   ];
 
   releaser = [
