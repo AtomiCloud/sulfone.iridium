@@ -3,34 +3,70 @@ name: Builds
 on:
   workflow_call:
     inputs:
-      rust_version:
-        required: true
-        type: string
       atomi_platform:
         required: true
         type: string
       atomi_service:
         required: true
         type: string
-      namespacelabs:
+      bin_name:
         required: true
-        type: boolean
+        type: string
 
 jobs:
   build:
     name: Build
-    runs-on: macos-latest
+    runs-on: ${{ matrix.platform.os }}
+    strategy:
+      matrix:
+        platform:
+          - name: Linux x86_64
+            os:
+              - nscloud-ubuntu-22.04-amd64-4x8-with-cache
+              - nscloud-cache-size-50gb
+              - nscloud-cache-tag-${{ inputs.atomi_platform }}-${{ inputs.atomi_service }}-nix-store-cache
+            namespacelabs: true
+            target: x86_64-unknown-linux-gnu
+          - name: Linux aarch64
+            os:
+              - nscloud-ubuntu-22.04-arm64-4x8-with-cache
+              - nscloud-cache-size-50gb
+              - nscloud-cache-tag-${{ inputs.atomi_platform }}-${{ inputs.atomi_service }}-nix-store-cache
+            namespacelabs: true
+            target: aarch64-unknown-linux-gnu
+          - name: MacOS x86_64
+            os:
+              - macos-13
+            namespacelabs: false
+            target: x86_64-apple-darwin
+          - name: MacOS aarch64
+            os:
+              - macos-15
+            namespacelabs: false
+            target: aarch64-apple-darwin
+          - name: Windows x86_64
+            os:
+              - windows-latest
+            namespacelabs: false
+            target: x86_64-pc-windows-msvc
     steps:
       # Setup
       - uses: AtomiCloud/actions.setup-nix@v2
         with:
-          namespacelabs: ${{ inputs.namespacelabs }}
+          namespacelabs: ${{ matrix.platform.namespacelabs }}
       - uses: AtomiCloud/actions.cache-cargo@v1
         with:
-          namespacelabs: ${{ inputs.namespacelabs }}
+          namespacelabs: ${{ matrix.platform.namespacelabs }}
 
       # build
       - name: Build
         env:
-          RUST_VERSION: ${{ inputs.rust_version }}
+          TARGET: ${{ matrix.platform.target }}
         run: nix develop .#ci -c ./scripts/build.sh
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.platform.target }}-${{ inputs.bin_name }}
+          path: target/${{ matrix.platform.target }}/release/${{ inputs.bin_name }}${{ contains(matrix.platform.target, 'windows') && '.exe' || '' }}
+          retention-days: 7

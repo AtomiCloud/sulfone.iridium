@@ -13,4 +13,4 @@ jobs:
     with:
       atomi_platform: sulfone
       atomi_service: iridium
-      namespacelabs: false
+      namespacelabs: true

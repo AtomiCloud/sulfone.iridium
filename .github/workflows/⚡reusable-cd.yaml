@@ -30,6 +30,10 @@ jobs:
           namespacelabs: ${{ inputs.namespacelabs }}
 
       # Publish
+      - name: Download artifact
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
       - name: Release
         env:
           GITHUB_TOKEN: ${{ secrets.SCOOP_BREW_TOKEN }}

@@ -16,6 +16,7 @@ let
       {
         inherit
           goreleaser
+          go
           ;
       }
     );

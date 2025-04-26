@@ -4,18 +4,11 @@ vars:
   PLATFORM: sulfone
   SERVICE: iridium
 
-env:
-  RUST_VERSION: 1.86.0
-
 tasks:
   build:
     desc: 'Build the binary'
     cmds:
-      - cargo build
-  pack:
-    desc: 'Build the binary for all platforms'
-    cmds:
-      - nix develop .#ci -c ./scripts/build.sh
+      - cargo build --release
   run:
     desc: 'Run the application'
     cmds:

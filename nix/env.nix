@@ -15,6 +15,7 @@ with packages;
     toml-cli
     infisical
     goreleaser
+    go
   ];
 
   lint = [
