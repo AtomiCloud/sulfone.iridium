@@ -20,3 +20,4 @@ jobs:
       atomi_platform: sulfone
       atomi_service: iridium
       rust_version: 1.86.0
+      namespacelabs: false

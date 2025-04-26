@@ -9,6 +9,9 @@ on:
       atomi_service:
         required: true
         type: string
+      namespacelabs:
+        required: true
+        type: boolean
 
 jobs:
   publish:
@@ -20,7 +23,11 @@ jobs:
     steps:
       # Setup
       - uses: AtomiCloud/actions.setup-nix@v2
+        with:
+          namespacelabs: ${{ inputs.namespacelabs }}
       - uses: AtomiCloud/actions.cache-cargo@v1
+        with:
+          namespacelabs: ${{ inputs.namespacelabs }}
 
       # Publish
       - name: Release
