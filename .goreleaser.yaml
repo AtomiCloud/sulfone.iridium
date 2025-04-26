@@ -16,14 +16,10 @@ builds:
     goos:
       - linux
       - darwin
-      - windows
     goarch:
       - amd64
       - arm64
     binary: cyanprint
-    ignore:
-      - goos: windows
-        goarch: arm64
     hooks:
       post:
         - ./scripts/goreleaser-shim.sh {{ .Arch }} {{ .Os }} {{ .ProjectName }}
@@ -37,10 +33,6 @@ archives:
       {{- if eq .Arch "amd64" }}x86_64
       {{- else if eq .Arch "386" }}i386
       {{- else }}{{ .Arch }}{{ end }}
-    # use zip for windows archives
-    format_overrides:
-      - goos: windows
-        formats: [zip]
 
 brews:
   - name: cyanprint
@@ -78,21 +70,5 @@ nfpms:
       - rpm
       - termux.deb # Since: v1.11
       - archlinux # Since: v1.13
-scoops:
-  - name: cyanprint
-    url_template: 'https://github.com/AtomiCloud/sulfone.iridium/releases/download/{{ .Tag }}/{{ .ArtifactName }}'
-    directory: bucket
-    commit_author:
-      name: Ernest Ng
-      email: kirinnee97@gmail.com
-    commit_msg_template: 'update({{ .ProjectName }}): to {{ .Tag }}'
-    homepage: 'https://cyanprint.dev'
-    description: 'Next-Generation Language-Agnostic Templating Platform'
-    skip_upload: false
-    repository:
-      owner: AtomiCloud
-      name: scoop-bucket
-      branch: main
-      token: '{{ .Env.SCOOP_BREW_TOKEN }}'
 checksum:
   name_template: 'checksums.txt'

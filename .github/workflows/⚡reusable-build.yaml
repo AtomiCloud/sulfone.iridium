@@ -44,11 +44,6 @@ jobs:
               - macos-15
             namespacelabs: false
             target: aarch64-apple-darwin
-          - name: Windows x86_64
-            os:
-              - windows-latest
-            namespacelabs: false
-            target: x86_64-pc-windows-msvc
     steps:
       # Setup
       - uses: AtomiCloud/actions.setup-nix@v2
