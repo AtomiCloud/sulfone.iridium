@@ -1,10 +1,9 @@
 use crate::errors::GenericError;
-use rand::distributions::Alphanumeric;
-use rand::Rng;
+use rand::{distr::Alphanumeric, Rng};
 use std::error::Error;
 
 pub fn generate_session_id() -> String {
-    rand::thread_rng()
+    rand::rng()
         .sample_iter(&Alphanumeric)
         .take(10)
         .map(char::from)

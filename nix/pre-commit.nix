@@ -7,12 +7,22 @@ pre-commit-lib.run {
     # formatter
     treefmt = {
       enable = true;
-      excludes = [ ".*scaffold/templates/.*" ".*infra/.*" "pnpm-lock.yaml" "Changelog.md" "CommitConventions.md" ".*schema.json" ];
+      package = formatter;
+      excludes = [ ".*scaffold/templates/.*" ".*infra/.*" "pnpm-lock.yaml" "Changelog.*.md" "CommitConventions.md" ".*schema.json" ];
     };
 
     # linters From https://github.com/cachix/pre-commit-hooks.nix
     shellcheck = {
       enable = false;
+    };
+
+    a-clippy = {
+      enable = true;
+      name = "Clippy";
+      entry = "${packages.rust}/bin/cargo-clippy  --all-targets --all-features -- -D warnings";
+      files = ".*rs$";
+      language = "system";
+      pass_filenames = false;
     };
 
     a-infisical = {
@@ -78,12 +88,6 @@ pre-commit-lib.run {
       files = ".*Dockerfile$";
       language = "system";
       pass_filenames = true;
-    };
-  };
-
-  settings = {
-    treefmt = {
-      package = formatter;
     };
   };
 }

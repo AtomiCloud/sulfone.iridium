@@ -23,6 +23,7 @@ pub fn question_mapper(r: &QuestionRes) -> Question {
             desc: c.desc.clone(),
             default: c.default,
             error_message: c.error_message.clone(),
+            id: c.id.clone(),
         }),
         QuestionRes::Date(date) => Question::Date(DateQuestion {
             message: date.message.clone(),
@@ -30,27 +31,32 @@ pub fn question_mapper(r: &QuestionRes) -> Question {
             default: date.default.clone(),
             min_date: date.min_date.clone(),
             max_date: date.max_date.clone(),
+            id: date.id.clone(),
         }),
         QuestionRes::Checkbox(cb) => Question::Checkbox(CheckboxQuestion {
             message: cb.message.clone(),
             options: cb.options.clone(),
             desc: cb.desc.clone(),
+            id: cb.id.clone(),
         }),
         QuestionRes::Password(pw) => Question::Password(PasswordQuestion {
             message: pw.message.clone(),
             desc: pw.desc.clone(),
             confirmation: pw.confirmation,
+            id: pw.id.clone(),
         }),
         QuestionRes::Text(text) => Question::Text(TextQuestion {
             message: text.message.clone(),
             default: text.default.clone(),
             desc: text.desc.clone(),
             initial: text.initial.clone(),
+            id: text.id.clone(),
         }),
         QuestionRes::Select(s) => Question::Select(SelectQuestion {
             message: s.message.clone(),
             desc: s.desc.clone(),
             options: s.options.clone(),
+            id: s.id.clone(),
         }),
     }
 }
@@ -69,13 +75,11 @@ pub fn ans_req_mapper(a: &Answer) -> AnswerReq {
         Answer::StringArray(sa) => {
             AnswerReq::StringArray(StringArrayAnswerReq { answer: sa.clone() })
         }
-        Answer::Bool(b) => AnswerReq::Bool(BoolAnswerReq { answer: b.clone() }),
+        Answer::Bool(b) => AnswerReq::Bool(BoolAnswerReq { answer: *b }),
     }
 }
 
-pub fn prompt_mapper<'a>(
-    q: &'a Question,
-) -> Result<Prompts<'a>, Box<dyn std::error::Error + Send>> {
+pub fn prompt_mapper(q: &Question) -> Result<Prompts, Box<dyn std::error::Error + Send>> {
     match q {
         Question::Confirm(c) => Ok(inquire::Confirm::new(&c.message))
             .map(|p| c.default.map_or(p.clone(), |def| p.with_default(def)))
@@ -89,7 +93,7 @@ pub fn prompt_mapper<'a>(
                     .as_ref()
                     .map_or(p.clone(), |err_msg| p.with_error_message(err_msg))
             })
-            .map(|p| Prompts::Confirm(p)),
+            .map(Prompts::Confirm),
         Question::Date(date) => Ok(DateSelect::new(&date.message))
             .map(|p| {
                 date.desc
@@ -117,14 +121,14 @@ pub fn prompt_mapper<'a>(
                         .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send>)
                 })
             })
-            .map(|p| Prompts::Date(p)),
+            .map(Prompts::Date),
         Question::Checkbox(cb) => Ok(MultiSelect::new(&cb.message, cb.options.clone()))
             .map(|p| {
                 cb.desc
                     .as_ref()
                     .map_or(p.clone(), |desc| p.with_help_message(desc))
             })
-            .map(|p| Prompts::Checkbox(p)),
+            .map(Prompts::Checkbox),
         Question::Password(pw) => {
             Ok(inquire::Password::new(&pw.message).with_display_mode(PasswordDisplayMode::Masked))
                 .map(|p| {
@@ -141,7 +145,7 @@ pub fn prompt_mapper<'a>(
                         }
                     })
                 })
-                .map(|p| Prompts::Password(p))
+                .map(Prompts::Password)
         }
         Question::Text(text) => Ok(inquire::Text::new(&text.message))
             .map(|p| {
@@ -159,14 +163,14 @@ pub fn prompt_mapper<'a>(
                     .as_ref()
                     .map_or(p.clone(), |init| p.with_initial_value(init))
             })
-            .map(|p| Prompts::Text(p)),
+            .map(Prompts::Text),
         Question::Select(s) => Ok(inquire::Select::new(&s.message, s.options.clone()))
             .map(|p| {
                 s.desc
                     .as_ref()
                     .map_or(p.clone(), |desc| p.with_help_message(desc))
             })
-            .map(|p| Prompts::Select(p)),
+            .map(Prompts::Select),
     }
 }
 

@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
 
-[ "${RUST_VERSION}" = '' ] && echo "❌ 'RUST_VERSION' env var not set" && exit 1
 [ "${SCOOP_BREW_TOKEN}" = '' ] && echo "❌ 'SCOOP_BREW_TOKEN' env var not set" && exit 1
 [ "${FURY_TOKEN}" = '' ] && echo "❌ 'FURY_TOKEN' env var not set" && exit 1
 

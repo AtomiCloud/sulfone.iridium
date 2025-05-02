@@ -82,11 +82,7 @@ pub fn template_req_mapper(
         blob_docker_tag: blob_docker_tag.to_string(),
         template_docker_reference: template_docker_ref.to_string(),
         template_docker_tag: template_docker_tag.to_string(),
-        plugins: r.plugins.iter().map(|p| plugin_ref_req_mapper(p)).collect(),
-        processors: r
-            .processors
-            .iter()
-            .map(|p| processor_ref_req_mapper(p))
-            .collect(),
+        plugins: r.plugins.iter().map(plugin_ref_req_mapper).collect(),
+        processors: r.processors.iter().map(processor_ref_req_mapper).collect(),
     }
 }

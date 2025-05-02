@@ -45,8 +45,8 @@ impl CyanRegistryClient {
         token: String,
         r: &ProcessorReq,
     ) -> Result<ProcessorVersionPrincipalRes, Box<dyn Error + Send>> {
-        let host = (&self.endpoint).to_string().to_owned();
-        let version = (&self.version).to_string().to_owned();
+        let host = (self.endpoint).to_string().to_owned();
+        let version = (self.version).to_string().to_owned();
         let endpoint = host
             + "/api/v".to_string().as_str()
             + version.as_str()
@@ -77,8 +77,8 @@ impl CyanRegistryClient {
         token: String,
         r: &PluginReq,
     ) -> Result<PluginVersionPrincipalRes, Box<dyn Error + Send>> {
-        let host = (&self.endpoint).to_string().to_owned();
-        let version = (&self.version).to_string().to_owned();
+        let host = (self.endpoint).to_string().to_owned();
+        let version = (self.version).to_string().to_owned();
         let endpoint = host
             + "/api/v".to_string().as_str()
             + version.as_str()
@@ -109,8 +109,8 @@ impl CyanRegistryClient {
         token: String,
         r: &TemplateReq,
     ) -> Result<TemplateVersionPrincipalRes, Box<dyn Error + Send>> {
-        let host = (&self.endpoint).to_string().to_owned();
-        let version = (&self.version).to_string().to_owned();
+        let host = (self.endpoint).to_string().to_owned();
+        let version = (self.version).to_string().to_owned();
         let endpoint = host
             + "/api/v".to_string().as_str()
             + version.as_str()
@@ -165,6 +165,7 @@ impl CyanRegistryClient {
         self.push_plugin_internal(domain.username, token, &req)
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn push_template(
         &self,
         config_path: String,
@@ -195,8 +196,8 @@ impl CyanRegistryClient {
         name: String,
         v: Option<i64>,
     ) -> Result<TemplateVersionRes, Box<dyn Error + Send>> {
-        let host = (&self.endpoint).to_string().to_owned();
-        let version = (&self.version).to_string().to_owned();
+        let host = (self.endpoint).to_string().to_owned();
+        let version = (self.version).to_string().to_owned();
 
         let endpoint = match v {
             None => format!(
@@ -234,8 +235,8 @@ impl CyanRegistryClient {
         name: String,
         v: Option<i64>,
     ) -> Result<PluginVersionRes, Box<dyn Error + Send>> {
-        let host = (&self.endpoint).to_string().to_owned();
-        let version = (&self.version).to_string().to_owned();
+        let host = (self.endpoint).to_string().to_owned();
+        let version = (self.version).to_string().to_owned();
 
         let endpoint = match v {
             None => format!(
@@ -275,8 +276,8 @@ impl CyanRegistryClient {
         name: String,
         v: Option<i64>,
     ) -> Result<ProcessorVersionRes, Box<dyn Error + Send>> {
-        let host = (&self.endpoint).to_string().to_owned();
-        let version = (&self.version).to_string().to_owned();
+        let host = (self.endpoint).to_string().to_owned();
+        let version = (self.version).to_string().to_owned();
 
         let endpoint = match v {
             None => format!(

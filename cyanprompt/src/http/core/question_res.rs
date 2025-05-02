@@ -24,6 +24,7 @@ pub struct ConfirmQuestionRes {
     pub desc: Option<String>,
     pub default: Option<bool>,
     pub error_message: Option<String>,
+    pub id: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -34,6 +35,7 @@ pub struct DateQuestionRes {
     pub default: Option<String>,
     pub min_date: Option<String>,
     pub max_date: Option<String>,
+    pub id: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -42,6 +44,7 @@ pub struct CheckboxQuestionRes {
     pub message: String,
     pub options: Vec<String>,
     pub desc: Option<String>,
+    pub id: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -50,6 +53,7 @@ pub struct PasswordQuestionRes {
     pub message: String,
     pub desc: Option<String>,
     pub confirmation: Option<bool>,
+    pub id: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -59,6 +63,7 @@ pub struct TextQuestionRes {
     pub default: Option<String>,
     pub desc: Option<String>,
     pub initial: Option<String>,
+    pub id: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -67,4 +72,5 @@ pub struct SelectQuestionRes {
     pub message: String,
     pub desc: Option<String>,
     pub options: Vec<String>,
+    pub id: String,
 }

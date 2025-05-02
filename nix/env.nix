@@ -28,7 +28,7 @@ with packages;
   ];
 
   ci = [
-    rustup
+    rust
   ];
 
   releaser = [

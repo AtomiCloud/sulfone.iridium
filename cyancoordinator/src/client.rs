@@ -25,7 +25,7 @@ pub fn new_client() -> Result<Client, Box<dyn Error + Send>> {
 
 impl CyanCoordinatorClient {
     pub fn clean(&self, session_id: String) -> Result<StandardRes, Box<dyn Error + Send>> {
-        let host = (&self.endpoint).to_string().to_owned();
+        let host = (self.endpoint).to_string().to_owned();
         let endpoint = host + "/executor/" + session_id.as_str();
         let http_client = new_client()?;
         http_client
@@ -53,7 +53,7 @@ impl CyanCoordinatorClient {
         session_id: String,
         build_req: &BuildReq,
     ) -> Result<(), Box<dyn Error + Send>> {
-        let host = (&self.endpoint).to_string().to_owned();
+        let host = (self.endpoint).to_string().to_owned();
         let endpoint = host + "/executor/" + session_id.as_str();
         let http_client = new_client()?;
         let response = http_client
@@ -92,7 +92,7 @@ impl CyanCoordinatorClient {
         let mut archive = Archive::new(tar_gz);
 
         // Finally, we extract it into the specified directory
-        let ret = archive.unpack(full_dir).map_err(|x| {
+        archive.unpack(full_dir).map_err(|x| {
             Box::new(GenericError::ProblemDetails(ProblemDetails {
                 title: "Failed to unpack archive".to_string(),
                 status: 400,
@@ -103,13 +103,13 @@ impl CyanCoordinatorClient {
                 })),
             })) as Box<dyn Error + Send>
         })?;
-        return Ok(ret);
+        Ok(())
     }
     pub fn bootstrap(
         &self,
         start_executor_req: &StartExecutorReq,
     ) -> Result<StandardRes, Box<dyn Error + Send>> {
-        let host = (&self.endpoint).to_string().to_owned();
+        let host = (self.endpoint).to_string().to_owned();
         let endpoint = host + "/executor";
         let http_client = new_client()?;
         http_client
@@ -137,7 +137,7 @@ impl CyanCoordinatorClient {
         session_id: String,
         template: &TemplateVersionRes,
     ) -> Result<ExecutorWarmRes, Box<dyn Error + Send>> {
-        let host = (&self.endpoint).to_string().to_owned();
+        let host = (self.endpoint).to_string().to_owned();
         let endpoint = host + "/executor/" + session_id.as_str() + "/warm";
         let http_client = new_client()?;
         http_client
@@ -164,7 +164,7 @@ impl CyanCoordinatorClient {
         &self,
         template: &TemplateVersionRes,
     ) -> Result<StandardRes, Box<dyn Error + Send>> {
-        let host = (&self.endpoint).to_string().to_owned();
+        let host = (self.endpoint).to_string().to_owned();
         let endpoint = host + "/template/warm";
         let http_client = new_client()?;
         http_client
