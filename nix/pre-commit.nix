@@ -7,6 +7,7 @@ pre-commit-lib.run {
     # formatter
     treefmt = {
       enable = true;
+      package = formatter;
       excludes = [ ".*scaffold/templates/.*" ".*infra/.*" "pnpm-lock.yaml" "Changelog.*.md" "CommitConventions.md" ".*schema.json" ];
     };
 
@@ -87,12 +88,6 @@ pre-commit-lib.run {
       files = ".*Dockerfile$";
       language = "system";
       pass_filenames = true;
-    };
-  };
-
-  settings = {
-    treefmt = {
-      package = formatter;
     };
   };
 }

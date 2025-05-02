@@ -2,6 +2,10 @@
 
 set -eou pipefail
 
-cargo clean
+echo "🔨 Building..."
+cargo build
 
+echo "🔍 Running pre-commit hooks..."
 pre-commit run --all
+
+echo "✅ Done!"
