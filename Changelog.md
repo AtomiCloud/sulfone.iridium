@@ -1,3 +1,20 @@
+## [1.8.0](https://github.com/AtomiCloud/sulfone.iridium/compare/v1.7.0...v1.8.0) (2025-05-02)
+
+
+### ✨ Features ✨
+
+* **breaking:** [CU 86et87kzu] CyanPrint referenced by id ([#26](https://github.com/AtomiCloud/sulfone.iridium/issues/26)) ([da23293](https://github.com/AtomiCloud/sulfone.iridium/commit/da23293c537d40a53668a1af694dd5dd27001f00))
+* upgrade all dependencies to latest ([01e4159](https://github.com/AtomiCloud/sulfone.iridium/commit/01e4159c83feea65cdf0573997b7a865bd3c50cc))
+* **breaking:** use answer referenced by ID ([6ec65f0](https://github.com/AtomiCloud/sulfone.iridium/commit/6ec65f0ca0bf1f985d8faf930bb74a0b338d0874))
+
+
+### 🐛 Bug Fixes 🐛
+
+* incorrect ci environment -- move to fenix rust ([9b25df8](https://github.com/AtomiCloud/sulfone.iridium/commit/9b25df8917712a87da5bfe6569519d81009cc07a))
+* increase timeout of merge to 20min ([f735ef5](https://github.com/AtomiCloud/sulfone.iridium/commit/f735ef5e539efd30b32e1c35344214f5ba0abd37))
+* linting errors from clippy ([36b28d4](https://github.com/AtomiCloud/sulfone.iridium/commit/36b28d458600cc55b09f087cf239a6711a2f79d8))
+* treefmt in hooks ([7752a93](https://github.com/AtomiCloud/sulfone.iridium/commit/7752a935aeda3cb6c3069657a632e6bf21a9466c))
+
 ## [1.7.0](https://github.com/AtomiCloud/sulfone.iridium/compare/v1.6.1...v1.7.0) (2025-04-26)
 
 

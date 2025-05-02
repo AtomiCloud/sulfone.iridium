@@ -1,3 +1,22 @@
+## [1.7.0](https://github.com/AtomiCloud/sulfone.iridium/compare/v1.6.1...v1.7.0) (2025-04-26)
+
+
+### ✨ Features ✨
+
+* upgrade all packages ([ae030fd](https://github.com/AtomiCloud/sulfone.iridium/commit/ae030fd19eb75e69b599e28837fb125bed37e494))
+* upgrade infra configuration ([943bedf](https://github.com/AtomiCloud/sulfone.iridium/commit/943bedfb897b005a9b97e91915d17533343d30c7))
+* upgrade infrastructure ([7aafff8](https://github.com/AtomiCloud/sulfone.iridium/commit/7aafff8d5ceaef5cb5b67dc73cea63f19e4a94ab))
+
+
+### 🐛 Bug Fixes 🐛
+
+* deprecate windows support ([4a72573](https://github.com/AtomiCloud/sulfone.iridium/commit/4a725733fd7675f722048f5876607c00fee965b8))
+* incorrect release yaml ([b608aac](https://github.com/AtomiCloud/sulfone.iridium/commit/b608aac06bae6d6dfc5deb93edc720c49c44c6a8))
+* pinning cross ([3071410](https://github.com/AtomiCloud/sulfone.iridium/commit/30714106e0d963948fa97c1ca112cda4ced2d885))
+* **ci:** upgrade actions ([cec6869](https://github.com/AtomiCloud/sulfone.iridium/commit/cec6869ca1a6124d43a9aad14ff678eef377903a))
+* use different os to build ([886e2b1](https://github.com/AtomiCloud/sulfone.iridium/commit/886e2b184df33a2c731e33cde7201bec4055e067))
+* use macos runner ([70c7941](https://github.com/AtomiCloud/sulfone.iridium/commit/70c79417ad5a53e179288f76f2fe6db56dd2ed16))
+
 ## [1.6.1](https://github.com/AtomiCloud/sulfone.iridium/compare/v1.6.0...v1.6.1) (2025-01-28)
 
 
