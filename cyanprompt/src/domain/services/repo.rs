@@ -31,7 +31,7 @@ impl CyanRepo for CyanHttpRepo {
         let x = template_ans_input_mapper(&input);
         self.client
             .prompt_template(&x)
-            .map(|r| template_ans_output_mapper(r))
+            .map(template_ans_output_mapper)
     }
 
     fn validate_template(

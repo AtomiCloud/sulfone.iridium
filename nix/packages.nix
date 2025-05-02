@@ -46,6 +46,7 @@ let
           stable.rustc
           stable.rust-src
           stable.rust-std
+          stable.clippy
           pkgs-2411.openssl
         ] ++ pkgs.lib.optionals pkgs.stdenv.isDarwin [
           pkgs-2411.darwin.Security

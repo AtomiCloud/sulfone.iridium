@@ -25,7 +25,7 @@ impl CyanClient {
         &self,
         r: &TemplateAnswerReq,
     ) -> Result<TemplateRes, Box<dyn Error + Send>> {
-        let host = (&self.endpoint).to_string().to_owned();
+        let host = (self.endpoint).to_string().to_owned();
         let endpoint = host + "/api/template/init".to_string().as_str();
         self.json_post(endpoint, r)
             .map_err(|x| Box::new(x) as Box<dyn Error + Send>)
@@ -39,7 +39,7 @@ impl CyanClient {
         &self,
         r: &TemplateValidateReq,
     ) -> Result<TemplateValidRes, Box<dyn Error + 'static + Send + Sync>> {
-        let host = (&self.endpoint).to_string().to_owned();
+        let host = (self.endpoint).to_string().to_owned();
         let endpoint = host + "/api/template/validate".to_string().as_str();
 
         self.json_post(endpoint, r)

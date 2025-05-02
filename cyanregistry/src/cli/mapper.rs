@@ -121,25 +121,22 @@ pub fn template_config_mapper(
     let readme_result: Result<String, Box<dyn Error + Send>> =
         fs::read_to_string(r.readme.clone()).map_err(|e| Box::new(e) as Box<dyn Error + Send>);
 
-    let combined_result = proc.and_then(|proc_result| {
+    proc.and_then(|proc_result| {
         plug.and_then(|plug_result| {
-            readme_result.and_then(|readme_r| {
-                Ok(CyanTemplateConfig {
-                    readme: readme_r,
-                    email: r.email.clone(),
-                    name: r.name.clone(),
-                    description: r.description.clone(),
-                    project: r.project.clone(),
-                    source: r.source.clone(),
-                    tags: r.tags.clone(),
-                    username: r.username.clone(),
-                    processors: proc_result,
-                    plugins: plug_result,
-                }) // All three results are not errors, so return Ok(())
+            readme_result.map(|readme_r| CyanTemplateConfig {
+                readme: readme_r,
+                email: r.email.clone(),
+                name: r.name.clone(),
+                description: r.description.clone(),
+                project: r.project.clone(),
+                source: r.source.clone(),
+                tags: r.tags.clone(),
+                username: r.username.clone(),
+                processors: proc_result,
+                plugins: plug_result,
             })
         })
-    });
-    combined_result
+    })
 }
 
 pub fn processor_config_mapper(

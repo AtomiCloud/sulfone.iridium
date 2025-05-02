@@ -13,14 +13,14 @@ pub async fn start_coordinator(docker: Docker, img: String) -> Result<(), Box<dy
 
     let mount = Mount {
         target: Some(if cfg!(windows) {
-            String::from("/var/run/docker.sock".to_string())
+            String::from("//var/run/docker.sock")
         } else {
-            String::from("/var/run/docker.sock".to_string())
+            String::from("/var/run/docker.sock")
         }),
         source: Some(if cfg!(windows) {
-            String::from("//var/run/docker.sock".to_string())
+            String::from("//var/run/docker.sock")
         } else {
-            String::from("/var/run/docker.sock".to_string())
+            String::from("/var/run/docker.sock")
         }),
         typ: Some(MountTypeEnum::BIND),
         consistency: Some(String::from("default")),
@@ -89,7 +89,7 @@ pub async fn start_coordinator(docker: Docker, img: String) -> Result<(), Box<dy
         println!("{:#?}", msg);
     }
     docker
-        .remove_container(&setup, None)
+        .remove_container(setup, None)
         .await
         .map_err(|e| Box::new(e) as Box<dyn Error + Send>)?;
     println!("✅ CyanPrint Coordinator Network Started");

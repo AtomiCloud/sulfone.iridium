@@ -15,6 +15,15 @@ pre-commit-lib.run {
       enable = false;
     };
 
+    a-clippy = {
+      enable = true;
+      name = "Clippy";
+      entry = "${packages.rust}/bin/cargo-clippy  --all-targets --all-features -- -D warnings";
+      files = ".*rs$";
+      language = "system";
+      pass_filenames = false;
+    };
+
     a-infisical = {
       enable = true;
       name = "Secrets Scanning (Past Commits)";
