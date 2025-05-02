@@ -1,9 +1,10 @@
 use crate::domain::models::answer::Answer;
 use crate::domain::models::cyan::Cyan;
+use std::collections::HashMap;
 
 pub enum TemplateState {
     QnA(),
-    Complete(Cyan, Vec<Answer>),
+    Complete(Cyan, HashMap<String, Answer>),
     Err(String),
 }
 

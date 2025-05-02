@@ -131,7 +131,7 @@ pub fn cyan_run(
             data: None,
         })));
     }
-    let prompter_state = rx22.blocking_recv().unwrap();
+    let prompter_state: TemplateState = rx22.blocking_recv().unwrap();
 
     let res = match prompter_state {
         TemplateState::QnA() => panic!("Should terminate in QnA state"),

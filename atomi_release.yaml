@@ -94,6 +94,9 @@ types:
       default:
         desc: Generic fixes
         release: patch
+      breaking:
+        desc: A breaking change
+        release: major
   - type: perf
     section: 🚀 Performance Improvement 🚀
     desc: A code change that improves performance

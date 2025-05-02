@@ -27,6 +27,6 @@ pub struct TemplateFinalRes {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TemplateQnARes {
-    pub deterministic_state: Vec<HashMap<String, String>>,
+    pub deterministic_state: HashMap<String, String>,
     pub question: QuestionRes,
 }

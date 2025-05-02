@@ -6,7 +6,6 @@ use clap::Parser;
 use reqwest::blocking::Client;
 
 use cyancoordinator::client::{new_client, CyanCoordinatorClient};
-use cyanprompt::domain::services::extension::engine::ExtensionEngine;
 use cyanprompt::domain::services::repo::{CyanHttpRepo, CyanRepo};
 use cyanprompt::domain::services::template::engine::TemplateEngine;
 use cyanprompt::http::client::CyanClient;
@@ -35,16 +34,6 @@ fn new_template_engine(endpoint: &str, client: Rc<Client>) -> TemplateEngine {
         },
     });
     TemplateEngine { client }
-}
-
-fn new_extension_engine(endpoint: &str, client: Rc<Client>) -> ExtensionEngine {
-    let client: Rc<dyn CyanRepo> = Rc::new(CyanHttpRepo {
-        client: CyanClient {
-            endpoint: endpoint.to_string(),
-            client,
-        },
-    });
-    ExtensionEngine { client }
 }
 
 fn main() -> Result<(), Box<dyn Error + Send>> {
@@ -175,7 +164,6 @@ fn main() -> Result<(), Box<dyn Error + Send>> {
                     println!("🧹 Cleaning up...");
                     let _ = coord_client.clean(session_id);
                     println!("✅ Cleaned up");
-                    let _ = new_extension_engine(cli.registry.clone().as_str(), Rc::clone(&http));
                 }
             }
             Ok(())

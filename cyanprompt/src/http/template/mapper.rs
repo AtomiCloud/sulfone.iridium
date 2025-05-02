@@ -8,15 +8,23 @@ use crate::http::template::res_model::TemplateRes;
 
 pub fn template_ans_input_mapper(r: &TemplateAnswerInput) -> TemplateAnswerReq {
     TemplateAnswerReq {
-        answers: r.answers.iter().map(|x| ans_req_mapper(x)).collect(),
-        deterministic_states: r.deterministic_states.clone(),
+        answers: r
+            .answers
+            .iter()
+            .map(|(k, v)| (k.clone(), ans_req_mapper(v)))
+            .collect(),
+        deterministic_states: r.deterministic_state.clone(),
     }
 }
 
 pub fn template_validate_input_mapper(r: &TemplateValidateInput) -> TemplateValidateReq {
     TemplateValidateReq {
-        answers: r.answers.iter().map(|x| ans_req_mapper(x)).collect(),
-        deterministic_states: r.deterministic_states.clone(),
+        answers: r
+            .answers
+            .iter()
+            .map(|(k, v)| (k.clone(), ans_req_mapper(v)))
+            .collect(),
+        deterministic_states: r.deterministic_state.clone(),
         validate: r.validate.clone(),
     }
 }

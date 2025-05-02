@@ -23,6 +23,7 @@ pub fn question_mapper(r: &QuestionRes) -> Question {
             desc: c.desc.clone(),
             default: c.default,
             error_message: c.error_message.clone(),
+            id: c.id.clone(),
         }),
         QuestionRes::Date(date) => Question::Date(DateQuestion {
             message: date.message.clone(),
@@ -30,27 +31,32 @@ pub fn question_mapper(r: &QuestionRes) -> Question {
             default: date.default.clone(),
             min_date: date.min_date.clone(),
             max_date: date.max_date.clone(),
+            id: date.id.clone(),
         }),
         QuestionRes::Checkbox(cb) => Question::Checkbox(CheckboxQuestion {
             message: cb.message.clone(),
             options: cb.options.clone(),
             desc: cb.desc.clone(),
+            id: cb.id.clone(),
         }),
         QuestionRes::Password(pw) => Question::Password(PasswordQuestion {
             message: pw.message.clone(),
             desc: pw.desc.clone(),
             confirmation: pw.confirmation,
+            id: pw.id.clone(),
         }),
         QuestionRes::Text(text) => Question::Text(TextQuestion {
             message: text.message.clone(),
             default: text.default.clone(),
             desc: text.desc.clone(),
             initial: text.initial.clone(),
+            id: text.id.clone(),
         }),
         QuestionRes::Select(s) => Question::Select(SelectQuestion {
             message: s.message.clone(),
             desc: s.desc.clone(),
             options: s.options.clone(),
+            id: s.id.clone(),
         }),
     }
 }

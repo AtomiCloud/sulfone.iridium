@@ -9,7 +9,7 @@ pub enum TemplateOutput {
 }
 
 pub struct TemplateQnAOutput {
-    pub deterministic_state: Vec<HashMap<String, String>>,
+    pub deterministic_state: HashMap<String, String>,
     pub question: Question,
 }
 

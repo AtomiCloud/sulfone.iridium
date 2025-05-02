@@ -7,7 +7,7 @@ pre-commit-lib.run {
     # formatter
     treefmt = {
       enable = true;
-      excludes = [ ".*scaffold/templates/.*" ".*infra/.*" "pnpm-lock.yaml" "Changelog.md" "CommitConventions.md" ".*schema.json" ];
+      excludes = [ ".*scaffold/templates/.*" ".*infra/.*" "pnpm-lock.yaml" "Changelog.*.md" "CommitConventions.md" ".*schema.json" ];
     };
 
     # linters From https://github.com/cachix/pre-commit-hooks.nix
