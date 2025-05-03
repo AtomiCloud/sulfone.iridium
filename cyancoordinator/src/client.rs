@@ -2,13 +2,12 @@ use std::error::Error;
 use std::path::Path;
 use std::time::Duration;
 
-use flate2::read::GzDecoder;
 use reqwest::blocking::Client;
-use tar::Archive;
 
 use cyanregistry::http::models::template_res::TemplateVersionRes;
 
 use crate::errors::{GenericError, ProblemDetails};
+use crate::fs::FileSystemWriter;
 use crate::models::req::{BuildReq, StartExecutorReq};
 use crate::models::res::{ExecutorWarmRes, StandardRes};
 
@@ -75,6 +74,7 @@ impl CyanCoordinatorClient {
                     }
                 }
             })?;
+
         std::fs::create_dir_all(full_dir).map_err(|x| {
             Box::new(GenericError::ProblemDetails(ProblemDetails {
                 title: "Local Error, unable to create directory".to_string(),
@@ -86,15 +86,12 @@ impl CyanCoordinatorClient {
                 })),
             })) as Box<dyn Error + Send>
         })?;
-        let tar_gz = GzDecoder::new(response);
 
-        // Then we pass the decoder to the Archive::new function to handle the tar layer
-        let mut archive = Archive::new(tar_gz);
-
-        // Finally, we extract it into the specified directory
-        archive.unpack(full_dir).map_err(|x| {
+        // Use the FileSystemWriter to process the archive
+        let fs_writer = FileSystemWriter::default();
+        fs_writer.process(response, full_dir).map_err(|x| {
             Box::new(GenericError::ProblemDetails(ProblemDetails {
-                title: "Failed to unpack archive".to_string(),
+                title: "Failed to process archive".to_string(),
                 status: 400,
                 t: "local".to_string(),
                 trace_id: None,
@@ -103,6 +100,7 @@ impl CyanCoordinatorClient {
                 })),
             })) as Box<dyn Error + Send>
         })?;
+
         Ok(())
     }
     pub fn bootstrap(
