@@ -4,7 +4,7 @@
   rustc = packages.rust;
 }).buildRustPackage {
   pname = "cyanprint";
-  version = "1.8.0"; # replace
+  version = "1.9.0"; # replace
   src = ../.;
   nativeBuildInputs = [ pkgs-2411.perl ];
   buildInputs = ([

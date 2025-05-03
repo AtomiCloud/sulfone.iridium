@@ -1,3 +1,15 @@
+## [1.9.0](https://github.com/AtomiCloud/sulfone.iridium/compare/v1.8.0...v1.9.0) (2025-05-03)
+
+
+### ✨ Features ✨
+
+* use 3 way merge instead of just writing to file system ([475c7ed](https://github.com/AtomiCloud/sulfone.iridium/commit/475c7ede8bb0fd8fc06feb04d783bba7eec49c97))
+
+
+### 🐛 Bug Fixes 🐛
+
+* ignore incremental changelog that prevents release ([4ca20c8](https://github.com/AtomiCloud/sulfone.iridium/commit/4ca20c8122b70548e68bd56ca0ba911646c7cc19))
+
 ## [1.8.0](https://github.com/AtomiCloud/sulfone.iridium/compare/v1.7.0...v1.8.0) (2025-05-02)
 
 
