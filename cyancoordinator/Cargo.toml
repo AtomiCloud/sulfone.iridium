@@ -16,3 +16,6 @@ serde = { version = "1.0", features = ["derive"] }
 chrono = { version = "0.4", features = ["unstable-locales"] }
 serde_json = "1.0"
 serde_yaml = "0.9.34"
+diffy = "0.3.0"
+tempfile = "3.8.0"
+tracing = "0.1.40"
