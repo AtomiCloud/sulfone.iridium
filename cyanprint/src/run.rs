@@ -16,13 +16,12 @@ use cyanprompt::http::mapper::cyan_req_mapper;
 use cyanregistry::http::models::template_res::TemplateVersionRes;
 
 use crate::new_template_engine;
-use crate::state::{DefaultStateManager, StateManager};
 
 pub fn cyan_run(
     session_id: String,
     path: Option<String>,
     template: TemplateVersionRes,
-    coordinator_endpoint: String,
+    coord_client: CyanCoordinatorClient,
     username: String,
 ) -> Result<(), Box<dyn Error + Send>> {
     // handle the target directory
@@ -42,24 +41,23 @@ pub fn cyan_run(
     // PHASE 1
     let (tx11, mut rx11) = mpsc::channel(1);
     let t11 = template.clone();
-    let c11 = CyanCoordinatorClient {
-        endpoint: coordinator_endpoint.clone(),
-    };
+    let endpoint11 = coord_client.endpoint.clone();
     let h11 = runtime.spawn_blocking(move || {
         println!("♨️ Warming Templates...");
-        let res = c11.warm_template(&t11);
+        let client = CyanCoordinatorClient::new(endpoint11);
+        let res = client.warm_template(&t11);
         println!("✅ Template Warmed");
         tx11.blocking_send(res)
     });
 
     let (tx12, mut rx12) = mpsc::channel(1);
     let t12 = template.clone();
-    let c12 = CyanCoordinatorClient {
-        endpoint: coordinator_endpoint.clone(),
-    };
+    let s_id12 = session_id.clone();
+    let endpoint12 = coord_client.endpoint.clone();
     let h12 = runtime.spawn_blocking(move || {
         println!("♨️ Warming Processors and Plugins...");
-        let res = c12.warn_executor(session_id, &t12);
+        let client = CyanCoordinatorClient::new(endpoint12);
+        let res = client.warn_executor(s_id12, &t12);
         println!("✅ Processors and Plugins Warmed");
         tx12.blocking_send(res)
     });
@@ -98,17 +96,17 @@ pub fn cyan_run(
         write_vol_reference: executor_warm.vol_ref.clone(),
         merger: merger_req,
     };
-    let c21 = CyanCoordinatorClient {
-        endpoint: coordinator_endpoint.clone(),
-    };
+    let endpoint21 = coord_client.endpoint.clone();
+    let start_req = start_executor_req.clone();
     let h21 = runtime.spawn_blocking(move || {
         println!("🚀 Bootstrapping Executor...");
-        let res = c21.bootstrap(&start_executor_req);
+        let client = CyanCoordinatorClient::new(endpoint21);
+        let res = client.bootstrap(&start_req);
         tx21.blocking_send(res)
     });
 
     let (tx22, mut rx22) = mpsc::channel(1);
-    let coord_endpoint = coordinator_endpoint.clone();
+    let coord_endpoint = coord_client.endpoint.clone();
     let template_id = template.principal.id.clone();
     let h22 = runtime.spawn_blocking(move || {
         println!("🤖 Starting template...");
@@ -157,32 +155,23 @@ pub fn cyan_run(
     let cyan = res?;
 
     // final phase
-    let coord_client = CyanCoordinatorClient {
-        endpoint: coordinator_endpoint.clone(),
-    };
     let br = BuildReq {
         template: template.clone(),
         cyan: cyan_req_mapper(cyan),
         merger_id,
     };
     println!("🚀 Starting build...");
-    coord_client.start(path_buf.as_path(), session_id.clone(), &br)?;
+
+    // Pass template state to coordinator for automatic metadata saving
+    let template_state_opt = Some((&prompter_state, username.as_str()));
+    coord_client.start(
+        path_buf.as_path(),
+        session_id.clone(),
+        &br,
+        template_state_opt,
+    )?;
+
     println!("✅ Build completed");
-
-    if let TemplateState::Complete(_, answers) = &prompter_state {
-        // Create state manager instance
-        let state_manager = DefaultStateManager::new();
-
-        // Save template metadata
-        state_manager.save_template_metadata(
-            path_buf.as_path(),
-            &template,
-            answers,
-            &prompter_state,
-            &username,
-        )?;
-        println!("📝 Template metadata saved to .cyan_state.yaml");
-    }
 
     Ok(())
 }

@@ -20,7 +20,6 @@ pub mod commands;
 pub mod coord;
 pub mod errors;
 pub mod run;
-pub mod state;
 pub mod util;
 
 fn new_template_engine(endpoint: &str, client: Rc<Client>) -> TemplateEngine {
@@ -144,30 +143,22 @@ fn main() -> Result<(), Box<dyn Error + Send>> {
                     r
                 })
                 .and_then(|tv| {
-                    cyan_run(
-                        session_id.clone(),
-                        path,
-                        tv,
-                        coordinator_endpoint.clone(),
-                        username.clone(),
-                    )
+                    let coord_client = CyanCoordinatorClient::new(coordinator_endpoint.clone());
+
+                    cyan_run(session_id.clone(), path, tv, coord_client, username.clone())
                 });
 
             match r {
                 Ok(o) => {
                     println!("✅ Completed: {:#?}", o);
-                    let coord_client = CyanCoordinatorClient {
-                        endpoint: coordinator_endpoint.clone(),
-                    };
+                    let coord_client = CyanCoordinatorClient::new(coordinator_endpoint.clone());
                     println!("🧹 Cleaning up...");
                     let _ = coord_client.clean(session_id);
                     println!("✅ Cleaned up");
                 }
                 Err(e) => {
                     eprintln!("🚨 Error: {:#?}", e);
-                    let coord_client = CyanCoordinatorClient {
-                        endpoint: coordinator_endpoint.clone(),
-                    };
+                    let coord_client = CyanCoordinatorClient::new(coordinator_endpoint.clone());
                     println!("🧹 Cleaning up...");
                     let _ = coord_client.clean(session_id);
                     println!("✅ Cleaned up");
