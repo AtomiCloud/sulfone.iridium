@@ -48,7 +48,14 @@ let
           stable.rust-std
           stable.clippy
           pkgs-2411.openssl
-        ] ++ pkgs.lib.optionals pkgs.stdenv.isDarwin [
+        ]
+        ++ pkgs.lib.optionals (pkgs.stdenv.isLinux && pkgs.stdenv.hostPlatform.isx86_64) [
+          targets.x86_64-unknown-linux-musl.stable.rust-std
+        ]
+        ++ pkgs.lib.optionals (pkgs.stdenv.isLinux && pkgs.stdenv.hostPlatform.isAarch64) [
+          targets.aarch64-unknown-linux-musl.stable.rust-std
+        ]
+        ++ pkgs.lib.optionals pkgs.stdenv.isDarwin [
           pkgs-2411.darwin.Security
           pkgs-2411.darwin.libiconv
         ]);
