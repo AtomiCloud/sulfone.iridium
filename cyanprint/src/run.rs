@@ -1,11 +1,8 @@
-use std::collections::HashMap;
 use std::error::Error;
 use std::fs;
-use std::path::Path;
 use std::path::PathBuf;
 use std::rc::Rc;
 
-use chrono::Utc;
 use reqwest::blocking::Client;
 use tokio::runtime::Builder;
 use tokio::sync::mpsc;
@@ -14,16 +11,12 @@ use uuid::Uuid;
 use cyancoordinator::client::CyanCoordinatorClient;
 use cyancoordinator::errors::{GenericError, ProblemDetails};
 use cyancoordinator::models::req::{BuildReq, MergerReq, StartExecutorReq};
-use cyanprompt::domain::models::answer::Answer;
 use cyanprompt::domain::services::template::states::TemplateState;
 use cyanprompt::http::mapper::cyan_req_mapper;
 use cyanregistry::http::models::template_res::TemplateVersionRes;
 
 use crate::new_template_engine;
-use crate::util::{
-    load_or_create_state_file, save_state_file, TemplateHistoryEntry,
-    TemplateState as YamlTemplateState,
-};
+use crate::state::{DefaultStateManager, StateManager};
 
 pub fn cyan_run(
     session_id: String,
@@ -177,7 +170,11 @@ pub fn cyan_run(
     println!("✅ Build completed");
 
     if let TemplateState::Complete(_, answers) = &prompter_state {
-        save_template_metadata(
+        // Create state manager instance
+        let state_manager = DefaultStateManager::new();
+
+        // Save template metadata
+        state_manager.save_template_metadata(
             path_buf.as_path(),
             &template,
             answers,
@@ -186,43 +183,6 @@ pub fn cyan_run(
         )?;
         println!("📝 Template metadata saved to .cyan_state.yaml");
     }
-
-    Ok(())
-}
-
-fn save_template_metadata(
-    target_dir: &Path,
-    template: &TemplateVersionRes,
-    answers: &HashMap<String, Answer>,
-    _template_state: &TemplateState, // Unused but kept for future extension
-    username: &str,
-) -> Result<(), Box<dyn Error + Send>> {
-    let state_file_path = target_dir.join(".cyan_state.yaml");
-
-    let mut state = load_or_create_state_file(&state_file_path)?;
-
-    let template_key = format!("{}/{}", username, template.template.name);
-
-    let deterministic_states = HashMap::new();
-
-    let history_entry = TemplateHistoryEntry {
-        version: template.principal.version,
-        time: Utc::now(),
-        answers: answers.clone(),
-        deterministic_states,
-    };
-
-    let template_state_entry = state
-        .templates
-        .entry(template_key)
-        .or_insert(YamlTemplateState {
-            active: true,
-            history: Vec::new(),
-        });
-
-    template_state_entry.history.push(history_entry);
-
-    save_state_file(&state, &state_file_path)?;
 
     Ok(())
 }
