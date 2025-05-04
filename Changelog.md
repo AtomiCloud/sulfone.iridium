@@ -1,3 +1,12 @@
+## [1.9.3](https://github.com/AtomiCloud/sulfone.iridium/compare/v1.9.2...v1.9.3) (2025-05-04)
+
+
+### 🐛 Bug Fixes 🐛
+
+* try to force musl target for static compile ([e758ded](https://github.com/AtomiCloud/sulfone.iridium/commit/e758ded09b29cd0aa1124c2f54b43d54f74cdef1))
+* try using static builds ([aa895e3](https://github.com/AtomiCloud/sulfone.iridium/commit/aa895e3377972da79e24634aa8075124a76d47cf))
+* try using static builds ([#29](https://github.com/AtomiCloud/sulfone.iridium/issues/29)) ([b94f293](https://github.com/AtomiCloud/sulfone.iridium/commit/b94f2930f39ea64ae2abb45bb459df4486ee9f36))
+
 ## [1.9.2](https://github.com/AtomiCloud/sulfone.iridium/compare/v1.9.1...v1.9.2) (2025-05-04)
 
 

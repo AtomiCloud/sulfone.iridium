@@ -1,3 +1,13 @@
+## [1.9.2](https://github.com/AtomiCloud/sulfone.iridium/compare/v1.9.1...v1.9.2) (2025-05-04)
+
+
+### 🐛 Bug Fixes 🐛
+
+* incorrect bin name ([1417621](https://github.com/AtomiCloud/sulfone.iridium/commit/14176213fcbb71fb95c548c45574dcf2909e9966))
+* remove cargo cache in hopes to fix build errors ([6484746](https://github.com/AtomiCloud/sulfone.iridium/commit/6484746d3ced9db9136e53d8998acc56860008e9))
+* static build ([5b00830](https://github.com/AtomiCloud/sulfone.iridium/commit/5b008307d257cb7c8469fa0a75a6351b3c2bf7f9))
+* use nix build process ([107c8c3](https://github.com/AtomiCloud/sulfone.iridium/commit/107c8c3c83c8670caf2315d7c7322d31892d5215))
+
 ## [1.9.1](https://github.com/AtomiCloud/sulfone.iridium/compare/v1.9.0...v1.9.1) (2025-05-04)
 
 
