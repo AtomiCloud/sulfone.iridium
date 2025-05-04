@@ -1,7 +1,9 @@
 use std::error::Error;
 use std::path::Path;
+use std::sync::Arc;
 use std::time::Duration;
 
+use cyanprompt::domain::services::template::states::TemplateState;
 use reqwest::blocking::Client;
 
 use cyanregistry::http::models::template_res::TemplateVersionRes;
@@ -10,9 +12,12 @@ use crate::errors::{GenericError, ProblemDetails};
 use crate::fs::FileSystemWriter;
 use crate::models::req::{BuildReq, StartExecutorReq};
 use crate::models::res::{ExecutorWarmRes, StandardRes};
+use crate::state::{DefaultStateManager, StateManager};
 
+#[derive(Clone)]
 pub struct CyanCoordinatorClient {
     pub endpoint: String,
+    pub state_manager: Arc<dyn StateManager + Send + Sync>,
 }
 
 pub fn new_client() -> Result<Client, Box<dyn Error + Send>> {
@@ -23,6 +28,23 @@ pub fn new_client() -> Result<Client, Box<dyn Error + Send>> {
 }
 
 impl CyanCoordinatorClient {
+    pub fn new(endpoint: String) -> Self {
+        Self {
+            endpoint,
+            state_manager: Arc::new(DefaultStateManager::new()),
+        }
+    }
+
+    pub fn with_state_manager(
+        endpoint: String,
+        state_manager: Arc<dyn StateManager + Send + Sync>,
+    ) -> Self {
+        Self {
+            endpoint,
+            state_manager,
+        }
+    }
+
     pub fn clean(&self, session_id: String) -> Result<StandardRes, Box<dyn Error + Send>> {
         let host = (self.endpoint).to_string().to_owned();
         let endpoint = host + "/executor/" + session_id.as_str();
@@ -46,11 +68,13 @@ impl CyanCoordinatorClient {
                 }
             })
     }
+
     pub fn start(
         &self,
         full_dir: &Path,
         session_id: String,
         build_req: &BuildReq,
+        template_state: Option<(&TemplateState, &str)>,
     ) -> Result<(), Box<dyn Error + Send>> {
         let host = (self.endpoint).to_string().to_owned();
         let endpoint = host + "/executor/" + session_id.as_str();
@@ -101,8 +125,24 @@ impl CyanCoordinatorClient {
             })) as Box<dyn Error + Send>
         })?;
 
+        // If template state is provided, save metadata directly
+        if let Some((state, username)) = template_state {
+            if let TemplateState::Complete(_, answers) = state {
+                // Directly call state_manager methods instead of using a separate method
+                self.state_manager.save_template_metadata(
+                    full_dir,
+                    &build_req.template,
+                    answers,
+                    state,
+                    username,
+                )?;
+                println!("📝 Template metadata saved to .cyan_state.yaml");
+            }
+        }
+
         Ok(())
     }
+
     pub fn bootstrap(
         &self,
         start_executor_req: &StartExecutorReq,
