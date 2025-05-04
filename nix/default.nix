@@ -1,5 +1,7 @@
 { pkgs, pkgs-2411, packages }:
-(pkgs.makeRustPlatform {
+
+let buildingPkg = if pkgs-2411.stdenv.isLinux then pkgs.pkgsStatic else pkgs; in
+(buildingPkg.makeRustPlatform {
   cargo = packages.rust;
   rustc = packages.rust;
 }).buildRustPackage {
