@@ -49,9 +49,6 @@ jobs:
       - uses: AtomiCloud/actions.setup-nix@v2
         with:
           namespacelabs: ${{ matrix.platform.namespacelabs }}
-      - uses: AtomiCloud/actions.cache-cargo@v1
-        with:
-          namespacelabs: ${{ matrix.platform.namespacelabs }}
 
       # build
       - name: Build
