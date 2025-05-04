@@ -349,6 +349,7 @@ name = "cyanprint"
 version = "1.9.1"
 dependencies = [
  "bollard",
+ "chrono",
  "clap",
  "cyancoordinator",
  "cyanprompt",
@@ -359,6 +360,7 @@ dependencies = [
  "reqwest",
  "serde",
  "serde_json",
+ "serde_yaml",
  "tokio",
  "uuid",
 ]
