@@ -125,6 +125,10 @@ fn main() -> Result<(), Box<dyn Error + Send>> {
             coordinator_endpoint,
         } => {
             let session_id = generate_session_id();
+            let username = parse_ref(template_ref.clone())
+                .map(|(u, _, _)| u)
+                .unwrap_or_else(|_| "unknown".to_string());
+
             let r = parse_ref(template_ref)
                 .and_then(|(u, n, v)| {
                     println!(
@@ -143,7 +147,13 @@ fn main() -> Result<(), Box<dyn Error + Send>> {
                     r
                 })
                 .and_then(|tv| {
-                    cyan_run(session_id.clone(), path, tv, coordinator_endpoint.clone())
+                    cyan_run(
+                        session_id.clone(),
+                        path,
+                        tv,
+                        coordinator_endpoint.clone(),
+                        username.clone(),
+                    )
                 });
 
             match r {
