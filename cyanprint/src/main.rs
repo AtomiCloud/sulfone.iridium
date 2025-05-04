@@ -17,14 +17,11 @@ use crate::run::cyan_run;
 use crate::util::{generate_session_id, parse_ref};
 
 pub mod commands;
-
-pub mod util;
-
-pub mod errors;
-
-pub mod run;
-
 pub mod coord;
+pub mod errors;
+pub mod run;
+pub mod state;
+pub mod util;
 
 fn new_template_engine(endpoint: &str, client: Rc<Client>) -> TemplateEngine {
     let client: Rc<dyn CyanRepo> = Rc::new(CyanHttpRepo {
