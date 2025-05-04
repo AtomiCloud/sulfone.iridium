@@ -25,12 +25,12 @@ pub struct CyanTemplateConfig {
 pub struct CyanProcessorRef {
     pub username: String,
     pub name: String,
-    pub version: Option<i64>,
+    pub version: i64,
 }
 
 #[derive(Debug, Clone)]
 pub struct CyanPluginRef {
     pub username: String,
     pub name: String,
-    pub version: Option<i64>,
+    pub version: i64,
 }
