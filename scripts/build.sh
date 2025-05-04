@@ -4,4 +4,6 @@
 
 set -eou pipefail
 
+# Enable static linking
+export RUSTFLAGS="-C target-feature=+crt-static"
 cargo build --release --target "$TARGET"
