@@ -1,3 +1,10 @@
+## [1.9.1](https://github.com/AtomiCloud/sulfone.iridium/compare/v1.9.0...v1.9.1) (2025-05-04)
+
+
+### 🐛 Bug Fixes 🐛
+
+* ensure publish finished after build ([dbd8e3d](https://github.com/AtomiCloud/sulfone.iridium/commit/dbd8e3db81cb0868018ffc56d85a9ebac6e742a3))
+
 ## [1.9.0](https://github.com/AtomiCloud/sulfone.iridium/compare/v1.8.0...v1.9.0) (2025-05-03)
 
 

@@ -49,14 +49,12 @@ jobs:
       - uses: AtomiCloud/actions.setup-nix@v2
         with:
           namespacelabs: ${{ matrix.platform.namespacelabs }}
-      - uses: AtomiCloud/actions.cache-cargo@v1
-        with:
-          namespacelabs: ${{ matrix.platform.namespacelabs }}
 
       # build
       - name: Build
         env:
           TARGET: ${{ matrix.platform.target }}
+          BIN_NAME: ${{ inputs.bin_name }}
         run: nix develop .#ci -c ./scripts/build.sh
 
       - name: Upload Artifact
