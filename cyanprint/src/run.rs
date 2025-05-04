@@ -30,6 +30,7 @@ pub fn cyan_run(
     path: Option<String>,
     template: TemplateVersionRes,
     coordinator_endpoint: String,
+    username: String,
 ) -> Result<(), Box<dyn Error + Send>> {
     // handle the target directory
     let path = path.unwrap_or(".".to_string());
@@ -176,7 +177,13 @@ pub fn cyan_run(
     println!("✅ Build completed");
 
     if let TemplateState::Complete(_, answers) = &prompter_state {
-        save_template_metadata(path_buf.as_path(), &template, answers, &prompter_state)?;
+        save_template_metadata(
+            path_buf.as_path(),
+            &template,
+            answers,
+            &prompter_state,
+            &username,
+        )?;
         println!("📝 Template metadata saved to .cyan_state.yaml");
     }
 
@@ -188,12 +195,13 @@ fn save_template_metadata(
     template: &TemplateVersionRes,
     answers: &HashMap<String, Answer>,
     _template_state: &TemplateState, // Unused but kept for future extension
+    username: &str,
 ) -> Result<(), Box<dyn Error + Send>> {
     let state_file_path = target_dir.join(".cyan_state.yaml");
 
     let mut state = load_or_create_state_file(&state_file_path)?;
 
-    let template_key = format!("{}/{}", template.template.user_id, template.template.name);
+    let template_key = format!("{}/{}", username, template.template.name);
 
     let deterministic_states = HashMap::new();
 
