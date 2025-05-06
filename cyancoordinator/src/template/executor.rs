@@ -1,10 +1,12 @@
+use std::collections::HashMap;
 use std::error::Error;
 use std::rc::Rc;
 
-use cyancoordinator::client::CyanCoordinatorClient;
-use cyancoordinator::models::req::{BuildReq, MergerReq, StartExecutorReq};
 use cyanprompt::domain::models::answer::Answer;
+use cyanprompt::domain::services::repo::{CyanHttpRepo, CyanRepo};
+use cyanprompt::domain::services::template::engine::TemplateEngine;
 use cyanprompt::domain::services::template::states::TemplateState;
+use cyanprompt::http::client::CyanClient;
 use cyanprompt::http::mapper::cyan_req_mapper;
 use cyanregistry::http::models::template_res::TemplateVersionRes;
 use reqwest::blocking::Client;
@@ -12,7 +14,9 @@ use tokio::runtime::Builder;
 use tokio::sync::mpsc;
 use uuid::Uuid;
 
-use crate::new_template_engine;
+use crate::client::CyanCoordinatorClient;
+use crate::errors::GenericError;
+use crate::models::req::{BuildReq, MergerReq, StartExecutorReq};
 
 pub trait TemplateExecutor {
     /// Execute a template with the given parameters, returning archive data for the template
@@ -21,8 +25,8 @@ pub trait TemplateExecutor {
         &self,
         template: &TemplateVersionRes,
         session_id: &str,
-        answers: Option<&std::collections::HashMap<String, Answer>>,
-        deterministic_states: Option<&std::collections::HashMap<String, String>>,
+        answers: Option<&HashMap<String, Answer>>,
+        deterministic_states: Option<&HashMap<String, String>>,
     ) -> Result<(Vec<u8>, TemplateState, String), Box<dyn Error + Send>>;
 }
 
@@ -36,6 +40,19 @@ impl DefaultTemplateExecutor {
             coordinator_endpoint,
         }
     }
+
+    fn new_template_engine(&self, template_endpoint: &str, client: Rc<Client>) -> TemplateEngine {
+        let cyan_client = CyanClient {
+            endpoint: template_endpoint.to_string(),
+            client: client.clone(),
+        };
+
+        let repo: Rc<dyn CyanRepo> = Rc::new(CyanHttpRepo {
+            client: cyan_client,
+        });
+
+        TemplateEngine { client: repo }
+    }
 }
 
 impl TemplateExecutor for DefaultTemplateExecutor {
@@ -43,8 +60,8 @@ impl TemplateExecutor for DefaultTemplateExecutor {
         &self,
         template: &TemplateVersionRes,
         session_id: &str,
-        answers: Option<&std::collections::HashMap<String, Answer>>,
-        deterministic_states: Option<&std::collections::HashMap<String, String>>,
+        answers: Option<&HashMap<String, Answer>>,
+        deterministic_states: Option<&HashMap<String, String>>,
     ) -> Result<(Vec<u8>, TemplateState, String), Box<dyn Error + Send>> {
         // Create runtime
         let runtime = Builder::new_multi_thread()
@@ -84,17 +101,15 @@ impl TemplateExecutor for DefaultTemplateExecutor {
         let executor_warm = rx12.blocking_recv().unwrap()?;
 
         if template_warm.status.to_lowercase() != "ok" {
-            return Err(Box::new(
-                cyancoordinator::errors::GenericError::ProblemDetails(
-                    cyancoordinator::errors::ProblemDetails {
-                        title: "Template Warm Error".to_string(),
-                        status: 400,
-                        t: "local".to_string(),
-                        trace_id: None,
-                        data: None,
-                    },
-                ),
-            ));
+            return Err(Box::new(GenericError::ProblemDetails(
+                crate::errors::ProblemDetails {
+                    title: "Template Warm Error".to_string(),
+                    status: 400,
+                    t: "local".to_string(),
+                    trace_id: None,
+                    data: None,
+                },
+            )));
         }
 
         // Phase 2: Setup merger and executor
@@ -129,6 +144,7 @@ impl TemplateExecutor for DefaultTemplateExecutor {
         let template_endpoint = format!("{}/proxy/template/{}", coord_endpoint, template_id);
         let answers_clone = answers.cloned();
         let states_clone = deterministic_states.cloned();
+        let self_clone = self.clone();
 
         let h22 = runtime.spawn_blocking(move || {
             if answers_clone.is_some() {
@@ -137,7 +153,7 @@ impl TemplateExecutor for DefaultTemplateExecutor {
                 println!("🤖 Starting interactive template Q&A...");
             }
             let c22 = Rc::new(Client::new());
-            let prompter = new_template_engine(template_endpoint.as_str(), c22.clone());
+            let prompter = self_clone.new_template_engine(template_endpoint.as_str(), c22.clone());
             let state = prompter.start_with(answers_clone, states_clone);
             println!("✅ Received all answers!");
             tx22.blocking_send(state)
@@ -148,17 +164,15 @@ impl TemplateExecutor for DefaultTemplateExecutor {
 
         let executor_started = rx21.blocking_recv().unwrap()?;
         if executor_started.status.to_lowercase() != "ok" {
-            return Err(Box::new(
-                cyancoordinator::errors::GenericError::ProblemDetails(
-                    cyancoordinator::errors::ProblemDetails {
-                        title: "Executor Start Error".to_string(),
-                        status: 400,
-                        t: "local".to_string(),
-                        trace_id: None,
-                        data: None,
-                    },
-                ),
-            ));
+            return Err(Box::new(GenericError::ProblemDetails(
+                crate::errors::ProblemDetails {
+                    title: "Executor Start Error".to_string(),
+                    status: 400,
+                    t: "local".to_string(),
+                    trace_id: None,
+                    data: None,
+                },
+            )));
         }
         let prompter_state: TemplateState = rx22.blocking_recv().unwrap();
 
@@ -170,19 +184,17 @@ impl TemplateExecutor for DefaultTemplateExecutor {
             }
             TemplateState::Err(ref e) => {
                 println!("Error: {}", e);
-                Err(
-                    Box::new(cyancoordinator::errors::GenericError::ProblemDetails(
-                        cyancoordinator::errors::ProblemDetails {
-                            title: "🚨 Template Prompting Error".to_string(),
-                            status: 400,
-                            t: "local".to_string(),
-                            trace_id: None,
-                            data: Some(serde_json::json!({
-                                "error": e.to_string(),
-                            })),
-                        },
-                    )) as Box<dyn Error + Send>,
-                )
+                Err(Box::new(GenericError::ProblemDetails(
+                    crate::errors::ProblemDetails {
+                        title: "🚨 Template Prompting Error".to_string(),
+                        status: 400,
+                        t: "local".to_string(),
+                        trace_id: None,
+                        data: Some(serde_json::json!({
+                            "error": e.to_string(),
+                        })),
+                    },
+                )) as Box<dyn Error + Send>)
             }
         };
         let cyan = res?;
@@ -217,12 +229,12 @@ impl TemplateExecutor for DefaultTemplateExecutor {
                         .map_err(|e| Box::new(e) as Box<dyn Error + Send>)?;
                     Ok(bytes.to_vec())
                 } else {
-                    let r: Result<cyancoordinator::errors::ProblemDetails, Box<dyn Error + Send>> =
+                    let r: Result<crate::errors::ProblemDetails, Box<dyn Error + Send>> =
                         x.json().map_err(|e| Box::new(e) as Box<dyn Error + Send>);
                     match r {
-                        Ok(ok) => Err(Box::new(
-                            cyancoordinator::errors::GenericError::ProblemDetails(ok),
-                        ) as Box<dyn Error + Send>),
+                        Ok(ok) => {
+                            Err(Box::new(GenericError::ProblemDetails(ok)) as Box<dyn Error + Send>)
+                        }
                         Err(err) => Err(err),
                     }
                 }
@@ -232,5 +244,13 @@ impl TemplateExecutor for DefaultTemplateExecutor {
         let actual_session_id = executor_warm.session_id.clone();
 
         Ok((response, prompter_state, actual_session_id))
+    }
+}
+
+impl Clone for DefaultTemplateExecutor {
+    fn clone(&self) -> Self {
+        Self {
+            coordinator_endpoint: self.coordinator_endpoint.clone(),
+        }
     }
 }
