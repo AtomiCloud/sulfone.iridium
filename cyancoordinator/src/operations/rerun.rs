@@ -79,28 +79,6 @@ where
         .vfs
         .load_local_files(context.target_dir, &all_paths)?;
 
-    // Print the contents of all three VFS objects before merging
-    println!("📂 Base VFS (Previous Template Version):");
-    for path in base_vfs.get_paths() {
-        if let Some(content) = base_vfs.get_file(&path) {
-            println!("  - {} ({} bytes)", path.display(), content.len());
-        }
-    }
-
-    println!("📂 Local VFS (Current Files in Target Directory):");
-    for path in local_vfs.get_paths() {
-        if let Some(content) = local_vfs.get_file(&path) {
-            println!("  - {} ({} bytes)", path.display(), content.len());
-        }
-    }
-
-    println!("📂 Incoming VFS (New Template Version):");
-    for path in incoming_vfs.get_paths() {
-        if let Some(content) = incoming_vfs.get_file(&path) {
-            println!("  - {} ({} bytes)", path.display(), content.len());
-        }
-    }
-
     // Perform 3-way merge with base=prev template, local=target folder, incoming=current template
     let merged_vfs = context.vfs.merge(&base_vfs, &local_vfs, &incoming_vfs)?;
 
