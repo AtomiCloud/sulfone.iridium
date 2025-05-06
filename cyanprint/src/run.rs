@@ -5,16 +5,33 @@ use std::rc::Rc;
 
 use cyancoordinator::client::CyanCoordinatorClient;
 use cyancoordinator::fs::{DiskFileLoader, DiskFileWriter, GitLikeMerger, TarGzUnpacker};
-use cyancoordinator::operations::rerun::RerunContext;
-use cyancoordinator::operations::upgrade::UpgradeContext;
-use cyancoordinator::operations::{create_new_template, rerun_template, upgrade_template};
+use cyancoordinator::operations::{TemplateOperations, TemplateOperator};
 use cyanregistry::http::client::CyanRegistryClient;
 use cyanregistry::http::models::template_res::TemplateVersionRes;
 
 use cyancoordinator::fs::DefaultVfs;
-use cyancoordinator::session::SessionIdGenerator;
+use cyancoordinator::session::{DefaultSessionIdGenerator, SessionIdGenerator};
 use cyancoordinator::template::DefaultTemplateExecutor;
 use cyancoordinator::template::{DefaultTemplateHistory, TemplateHistory, TemplateUpdateType};
+
+/// Simple wrapper for SessionIdGenerator to pass into the TemplateOperator
+struct SessionIdGeneratorWrapper {
+    delegate: Box<dyn SessionIdGenerator>,
+}
+
+impl SessionIdGeneratorWrapper {
+    fn new(_generator: &dyn SessionIdGenerator) -> Self {
+        // We'll just use a default generator since we're wrapping the behavior
+        let delegate = Box::new(DefaultSessionIdGenerator);
+        Self { delegate }
+    }
+}
+
+impl SessionIdGenerator for SessionIdGeneratorWrapper {
+    fn generate(&self) -> String {
+        self.delegate.generate()
+    }
+}
 
 /// Run the cyan template generation process
 /// Returns all session IDs that were created and need to be cleaned up
@@ -36,16 +53,26 @@ pub fn cyan_run(
     // Create all components for dependency injection at the highest level
     let unpacker: Box<dyn cyancoordinator::fs::FileUnpacker> = Box::new(TarGzUnpacker);
     let loader: Box<dyn cyancoordinator::fs::FileLoader> = Box::new(DiskFileLoader);
-    let merger: Box<dyn cyancoordinator::fs::FileMerger> = Box::new(GitLikeMerger::new(true, 50)); // Debug enabled
+    let merger: Box<dyn cyancoordinator::fs::FileMerger> = Box::new(GitLikeMerger::new(true, 50));
     let writer: Box<dyn cyancoordinator::fs::FileWriter> = Box::new(DiskFileWriter);
 
     // Setup services with explicit dependencies
-    let template_history = DefaultTemplateHistory::new();
-    let template_executor = DefaultTemplateExecutor::new(coord_client.endpoint.clone());
-    let vfs = DefaultVfs::new(unpacker, loader, merger, writer);
+    let session_id_generator_box = Box::new(SessionIdGeneratorWrapper::new(session_id_generator));
+    let template_history = Box::new(DefaultTemplateHistory::new());
+    let template_executor = Box::new(DefaultTemplateExecutor::new(coord_client.endpoint.clone()));
+    let vfs = Box::new(DefaultVfs::new(unpacker, loader, merger, writer));
+
+    // Create the TemplateOperator with all dependencies
+    let template_operator = TemplateOperator::new(
+        session_id_generator_box,
+        template_executor,
+        template_history,
+        vfs,
+    );
 
     // Check template history to determine update scenario
-    let update_type = template_history.check_template_history(target_dir, &template, &username)?;
+    let update_type =
+        DefaultTemplateHistory::new().check_template_history(target_dir, &template, &username)?;
 
     // Helper function to get previous template version
     let get_previous_template_ver =
@@ -76,15 +103,7 @@ pub fn cyan_run(
     match update_type {
         TemplateUpdateType::NewTemplate => {
             // Scenario 1: No previous template matching the current template
-            create_new_template(
-                session_id_generator,
-                &template,
-                target_dir,
-                &template_executor,
-                &template_history,
-                &vfs,
-                &username,
-            )
+            template_operator.create_new(&template, target_dir, &username)
         }
         TemplateUpdateType::UpgradeTemplate {
             previous_version,
@@ -92,21 +111,15 @@ pub fn cyan_run(
             previous_states,
         } => {
             // Scenario 2: Previous template matching the current template exists, but a different version
-            let context = UpgradeContext {
-                session_id_generator,
-                template: &template,
+            template_operator.upgrade(
+                &template,
                 target_dir,
-                template_executor: &template_executor,
-                template_history: &template_history,
-                vfs: &vfs,
-                username: &username,
+                &username,
                 previous_version,
                 previous_answers,
                 previous_states,
-                get_previous_template: get_previous_template_ver,
-            };
-
-            upgrade_template(context)
+                get_previous_template_ver,
+            )
         }
         TemplateUpdateType::RerunTemplate {
             previous_version,
@@ -114,21 +127,15 @@ pub fn cyan_run(
             previous_states,
         } => {
             // Scenario 3: Previous template matching the current template exists, with the same version
-            let context = RerunContext {
-                session_id_generator,
-                template: &template,
+            template_operator.rerun(
+                &template,
                 target_dir,
-                template_executor: &template_executor,
-                template_history: &template_history,
-                vfs: &vfs,
-                username: &username,
+                &username,
                 previous_version,
                 previous_answers,
                 previous_states,
-                get_previous_template: get_previous_template_ver,
-            };
-
-            rerun_template(context)
+                get_previous_template_ver,
+            )
         }
     }
 }
