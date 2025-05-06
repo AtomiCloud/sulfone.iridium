@@ -1,6 +1,7 @@
 use flate2::read::GzDecoder;
 use std::error::Error;
 use std::io::Read;
+use std::path::Path;
 use tar::Archive;
 
 use super::traits::FileUnpacker;
@@ -30,6 +31,11 @@ impl FileUnpacker for TarGzUnpacker {
                 continue;
             }
 
+            // Skip any .git directory files
+            if is_git_path(&path) {
+                continue;
+            }
+
             let mut buffer = Vec::new();
             entry
                 .read_to_end(&mut buffer)
@@ -39,4 +45,9 @@ impl FileUnpacker for TarGzUnpacker {
 
         Ok(vfs)
     }
+}
+
+// Helper function to determine if a path is in the .git directory
+fn is_git_path(path: &Path) -> bool {
+    path.components().any(|c| c.as_os_str() == ".git")
 }

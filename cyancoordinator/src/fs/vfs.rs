@@ -7,6 +7,16 @@ pub struct VirtualFileSystem {
     pub(crate) files: HashMap<PathBuf, Vec<u8>>,
 }
 
+impl Clone for VirtualFileSystem {
+    fn clone(&self) -> Self {
+        let mut new_files = HashMap::new();
+        for (path, content) in &self.files {
+            new_files.insert(path.clone(), content.clone());
+        }
+        Self { files: new_files }
+    }
+}
+
 impl VirtualFileSystem {
     pub fn new() -> Self {
         Self {
