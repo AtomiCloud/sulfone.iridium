@@ -1,19 +1,20 @@
 use std::error::Error;
 use std::fs;
 use std::path::PathBuf;
-
-use cyancoordinator::client::CyanCoordinatorClient;
-use cyancoordinator::fs::{
-    DiskFileLoader, DiskFileWriter, GitLikeMerger, TarGzUnpacker, VirtualFileSystem,
-};
-use cyanregistry::http::client::CyanRegistryClient;
-use cyanregistry::http::models::template_res::TemplateVersionRes;
 use std::rc::Rc;
 
-use crate::fs::{DefaultVfs, Vfs};
-use crate::session::SessionIdGenerator;
-use crate::template::{DefaultTemplateExecutor, TemplateExecutor};
-use crate::template_history::{DefaultTemplateHistory, TemplateHistory, TemplateUpdateType};
+use cyancoordinator::client::CyanCoordinatorClient;
+use cyancoordinator::fs::{DiskFileLoader, DiskFileWriter, GitLikeMerger, TarGzUnpacker};
+use cyancoordinator::operations::rerun::RerunContext;
+use cyancoordinator::operations::upgrade::UpgradeContext;
+use cyancoordinator::operations::{create_new_template, rerun_template, upgrade_template};
+use cyanregistry::http::client::CyanRegistryClient;
+use cyanregistry::http::models::template_res::TemplateVersionRes;
+
+use cyancoordinator::fs::DefaultVfs;
+use cyancoordinator::session::SessionIdGenerator;
+use cyancoordinator::template::DefaultTemplateExecutor;
+use cyancoordinator::template::{DefaultTemplateHistory, TemplateHistory, TemplateUpdateType};
 
 /// Run the cyan template generation process
 /// Returns all session IDs that were created and need to be cleaned up
@@ -72,46 +73,18 @@ pub fn cyan_run(
         };
 
     // Handle different update scenarios and collect all session IDs for cleanup
-    let (session_ids, _) = match update_type {
+    match update_type {
         TemplateUpdateType::NewTemplate => {
             // Scenario 1: No previous template matching the current template
-            println!("✨ Creating a new project from template");
-
-            // Generate a new session ID
-            let new_session_id = session_id_generator.generate();
-
-            // Execute the template with fresh QA session
-            let (archive_data, template_state, actual_session_id) =
-                template_executor.execute_template(&template, &new_session_id, None, None)?;
-
-            // Unpack the archive into VFS
-            let incoming_vfs = vfs.unpack_archive(archive_data)?;
-
-            // Create an empty base VFS for comparison
-            let base_vfs = VirtualFileSystem::new();
-
-            // Load any existing files that match paths in incoming_vfs
-            let paths = incoming_vfs.get_paths();
-            let local_vfs = vfs.load_local_files(target_dir, &paths)?;
-
-            // Merge with base=empty, local=target folder, incoming=VFS
-            let merged_vfs = vfs.merge(&base_vfs, &local_vfs, &incoming_vfs)?;
-
-            // Write the merged VFS to disk
-            vfs.write_to_disk(target_dir, &merged_vfs)?;
-
-            // Save template metadata
-            template_history.save_template_metadata(
-                target_dir,
+            create_new_template(
+                session_id_generator,
                 &template,
-                &template_state,
+                target_dir,
+                &template_executor,
+                &template_history,
+                &vfs,
                 &username,
-            )?;
-
-            println!("✅ Project created successfully");
-
-            // Return the session ID for cleanup
-            (vec![actual_session_id], ())
+            )
         }
         TemplateUpdateType::UpgradeTemplate {
             previous_version,
@@ -119,91 +92,21 @@ pub fn cyan_run(
             previous_states,
         } => {
             // Scenario 2: Previous template matching the current template exists, but a different version
-            println!(
-                "🔄 Upgrading from version {} to {}",
-                previous_version, template.principal.version
-            );
-
-            // First, execute the old template version using saved answers to get the base VFS
-            println!("🏗️ Recreating previous template version");
-
-            // Generate session IDs for both executions
-            let prev_session_id = session_id_generator.generate();
-            let curr_session_id = session_id_generator.generate();
-
-            // Fetch the previous template version
-            let prev_template_ver = get_previous_template_ver(previous_version)?;
-
-            let (prev_archive_data, _, prev_actual_session_id) = template_executor
-                .execute_template(
-                    &prev_template_ver,
-                    &prev_session_id,
-                    Some(&previous_answers),
-                    Some(&previous_states),
-                )?;
-
-            // Unpack the archive into base VFS
-            let base_vfs = vfs.unpack_archive(prev_archive_data)?;
-
-            // Second, execute the new template version using saved answers where possible
-            println!("🏗️ Creating new template version");
-            let (curr_archive_data, template_state, curr_actual_session_id) = template_executor
-                .execute_template(
-                    &template,
-                    &curr_session_id,
-                    Some(&previous_answers),
-                    Some(&previous_states),
-                )?;
-
-            // Unpack the archive into incoming VFS
-            let incoming_vfs = vfs.unpack_archive(curr_archive_data)?;
-
-            // Get all paths that should be considered for the local VFS (union of base and incoming)
-            let all_paths = Vec::new();
-
-            // Load the current state of files from target directory
-            let local_vfs = vfs.load_local_files(target_dir, &all_paths)?;
-
-            // Print the contents of all three VFS objects before merging
-            println!("📂 Base VFS (Previous Template Version):");
-            for path in base_vfs.get_paths() {
-                if let Some(content) = base_vfs.get_file(&path) {
-                    println!("  - {} ({} bytes)", path.display(), content.len());
-                }
-            }
-
-            println!("📂 Local VFS (Current Files in Target Directory):");
-            for path in local_vfs.get_paths() {
-                if let Some(content) = local_vfs.get_file(&path) {
-                    println!("  - {} ({} bytes)", path.display(), content.len());
-                }
-            }
-
-            println!("📂 Incoming VFS (New Template Version):");
-            for path in incoming_vfs.get_paths() {
-                if let Some(content) = incoming_vfs.get_file(&path) {
-                    println!("  - {} ({} bytes)", path.display(), content.len());
-                }
-            }
-
-            // Perform 3-way merge with base=prev template, local=target folder, incoming=current template
-            let merged_vfs = vfs.merge(&base_vfs, &local_vfs, &incoming_vfs)?;
-
-            // Write the merged VFS to disk
-            vfs.write_to_disk(target_dir, &merged_vfs)?;
-
-            // Save updated template metadata
-            template_history.save_template_metadata(
+            let context = UpgradeContext {
+                session_id_generator,
+                template: &template,
                 target_dir,
-                &template,
-                &template_state,
-                &username,
-            )?;
+                template_executor: &template_executor,
+                template_history: &template_history,
+                vfs: &vfs,
+                username: &username,
+                previous_version,
+                previous_answers,
+                previous_states,
+                get_previous_template: get_previous_template_ver,
+            };
 
-            println!("✅ Project upgraded successfully");
-
-            // Return both session IDs for cleanup
-            (vec![prev_actual_session_id, curr_actual_session_id], ())
+            upgrade_template(context)
         }
         TemplateUpdateType::RerunTemplate {
             previous_version,
@@ -211,87 +114,21 @@ pub fn cyan_run(
             previous_states,
         } => {
             // Scenario 3: Previous template matching the current template exists, with the same version
-            println!("🔄 Re-running template (same version {})", previous_version);
-
-            // Generate session IDs for both executions
-            let prev_session_id = session_id_generator.generate();
-            let curr_session_id = session_id_generator.generate();
-
-            // Fetch the previous template version
-            let prev_template = get_previous_template_ver(previous_version)?;
-
-            // First, recreate the previous template VFS state using saved answers and states
-            println!("🏗️ Recreating previous template state");
-            let (prev_archive_data, _, prev_actual_session_id) = template_executor
-                .execute_template(
-                    &prev_template,
-                    &prev_session_id,
-                    Some(&previous_answers),
-                    Some(&previous_states),
-                )?;
-
-            // Second, execute the template with fresh Q&A
-            println!("🏗️ Running template with new answers");
-            let (curr_archive_data, template_state, curr_actual_session_id) = template_executor
-                .execute_template(
-                    &template,
-                    &curr_session_id,
-                    None, // No answers - user will provide fresh answers
-                    None,
-                )?;
-
-            // Unpack the archive into base VFS
-            let base_vfs = vfs.unpack_archive(prev_archive_data)?;
-
-            // Unpack the archive into incoming VFS
-            let incoming_vfs = vfs.unpack_archive(curr_archive_data)?;
-
-            // Load the current state of files from target directory
-            let all_paths = Vec::new();
-            let local_vfs = vfs.load_local_files(target_dir, &all_paths)?;
-
-            // Print the contents of all three VFS objects before merging
-            println!("📂 Base VFS (Previous Template Version):");
-            for path in base_vfs.get_paths() {
-                if let Some(content) = base_vfs.get_file(&path) {
-                    println!("  - {} ({} bytes)", path.display(), content.len());
-                }
-            }
-
-            println!("📂 Local VFS (Current Files in Target Directory):");
-            for path in local_vfs.get_paths() {
-                if let Some(content) = local_vfs.get_file(&path) {
-                    println!("  - {} ({} bytes)", path.display(), content.len());
-                }
-            }
-
-            println!("📂 Incoming VFS (New Template Version):");
-            for path in incoming_vfs.get_paths() {
-                if let Some(content) = incoming_vfs.get_file(&path) {
-                    println!("  - {} ({} bytes)", path.display(), content.len());
-                }
-            }
-
-            // Perform 3-way merge with base=prev template, local=target folder, incoming=current template
-            let merged_vfs = vfs.merge(&base_vfs, &local_vfs, &incoming_vfs)?;
-
-            // Write the merged VFS to disk
-            vfs.write_to_disk(target_dir, &merged_vfs)?;
-
-            // Save updated template metadata
-            template_history.save_template_metadata(
+            let context = RerunContext {
+                session_id_generator,
+                template: &template,
                 target_dir,
-                &template,
-                &template_state,
-                &username,
-            )?;
+                template_executor: &template_executor,
+                template_history: &template_history,
+                vfs: &vfs,
+                username: &username,
+                previous_version,
+                previous_answers,
+                previous_states,
+                get_previous_template: get_previous_template_ver,
+            };
 
-            println!("✅ Project recreated successfully with new answers");
-
-            // Return both session IDs for cleanup
-            (vec![prev_actual_session_id, curr_actual_session_id], ())
+            rerun_template(context)
         }
-    };
-
-    Ok(session_ids)
+    }
 }

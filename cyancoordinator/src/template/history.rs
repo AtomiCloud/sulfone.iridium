@@ -1,12 +1,13 @@
 use std::error::Error;
 use std::path::Path;
+use std::sync::Arc;
 
-use cyancoordinator::state::{DefaultStateManager, StateManager};
 use cyanprompt::domain::models::answer::Answer;
 use cyanprompt::domain::services::template::states::TemplateState;
 use cyanregistry::http::models::template_res::TemplateVersionRes;
 use std::collections::HashMap;
-use std::sync::Arc;
+
+use crate::state::{DefaultStateManager, StateManager};
 
 pub enum TemplateUpdateType {
     /// No previous template found
@@ -128,7 +129,6 @@ impl TemplateHistory for DefaultTemplateHistory {
                 template_state,
                 username,
             )?;
-            println!("📝 Template metadata saved to .cyan_state.yaml");
         }
 
         Ok(())

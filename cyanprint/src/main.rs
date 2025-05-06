@@ -3,39 +3,21 @@ use std::rc::Rc;
 
 use bollard::Docker;
 use clap::Parser;
-use reqwest::blocking::Client;
 
 use cyancoordinator::client::{new_client, CyanCoordinatorClient};
-use cyanprompt::domain::services::repo::{CyanHttpRepo, CyanRepo};
-use cyanprompt::domain::services::template::engine::TemplateEngine;
-use cyanprompt::http::client::CyanClient;
+use cyancoordinator::session::DefaultSessionIdGenerator;
 use cyanregistry::http::client::CyanRegistryClient;
 
 use crate::commands::{Cli, Commands, PushArgs, PushCommands};
 use crate::coord::start_coordinator;
 use crate::run::cyan_run;
-use crate::session::DefaultSessionIdGenerator;
 use crate::util::parse_ref;
 
 pub mod commands;
 pub mod coord;
 pub mod errors;
-pub mod fs;
 pub mod run;
-pub mod session;
-pub mod template;
-pub mod template_history;
 pub mod util;
-
-fn new_template_engine(endpoint: &str, client: Rc<Client>) -> TemplateEngine {
-    let client: Rc<dyn CyanRepo> = Rc::new(CyanHttpRepo {
-        client: CyanClient {
-            endpoint: endpoint.to_string(),
-            client,
-        },
-    });
-    TemplateEngine { client }
-}
 
 fn main() -> Result<(), Box<dyn Error + Send>> {
     let http_client = new_client()?;
