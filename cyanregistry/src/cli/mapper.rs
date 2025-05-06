@@ -19,10 +19,10 @@ pub fn processor_reference_mapper(s: String) -> Option<CyanProcessorRef> {
     let name = parts.next()?.to_string();
     let version_str = parts.next();
 
-    // Convert version string to u64 if present
+    // Convert version string to i64, require version
     let version = match version_str {
-        Some(v) => v.parse::<i64>().ok(),
-        None => None,
+        Some(v) => v.parse::<i64>().ok()?,
+        None => return None, // Version is required
     };
 
     Some(CyanProcessorRef {
@@ -42,10 +42,10 @@ pub fn plugin_reference_mapper(s: String) -> Option<CyanPluginRef> {
     let name = parts.next()?.to_string();
     let version_str = parts.next();
 
-    // Convert version string to u64 if present
+    // Convert version string to i64, require version
     let version = match version_str {
-        Some(v) => v.parse::<i64>().ok(),
-        None => None,
+        Some(v) => v.parse::<i64>().ok()?,
+        None => return None, // Version is required
     };
 
     Some(CyanPluginRef {

@@ -49,7 +49,7 @@ pub fn plugin_ref_req_mapper(r: &CyanPluginRef) -> PluginRefReq {
     PluginRefReq {
         username: r.username.clone(),
         name: r.name.clone(),
-        version: r.version.unwrap_or(0),
+        version: r.version,
     }
 }
 
@@ -57,7 +57,7 @@ pub fn processor_ref_req_mapper(r: &CyanProcessorRef) -> ProcessorRefReq {
     ProcessorRefReq {
         username: r.username.clone(),
         name: r.name.clone(),
-        version: r.version.unwrap_or(0),
+        version: r.version,
     }
 }
 
