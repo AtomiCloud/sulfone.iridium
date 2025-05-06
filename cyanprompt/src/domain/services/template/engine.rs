@@ -21,13 +21,17 @@ impl TemplateEngine {
         TemplateEngine { client }
     }
 
-    pub fn start(&self) -> TemplateState {
+    pub fn start_with(
+        &self,
+        initial_answers: Option<HashMap<String, Answer>>,
+        initial_states: Option<HashMap<String, String>>,
+    ) -> TemplateState {
         println!("TemplateEngine started");
         let mut state = TemplateState::QnA();
 
         // Track answer
-        let mut answers: HashMap<String, Answer> = HashMap::new();
-        let mut state_data: HashMap<String, String> = HashMap::new();
+        let mut answers: HashMap<String, Answer> = initial_answers.unwrap_or_default();
+        let mut state_data: HashMap<String, String> = initial_states.clone().unwrap_or_default();
         let mut last_question_id: Option<String> = None;
 
         while state.cont() {

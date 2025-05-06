@@ -1,177 +1,297 @@
 use std::error::Error;
 use std::fs;
 use std::path::PathBuf;
-use std::rc::Rc;
-
-use reqwest::blocking::Client;
-use tokio::runtime::Builder;
-use tokio::sync::mpsc;
-use uuid::Uuid;
 
 use cyancoordinator::client::CyanCoordinatorClient;
-use cyancoordinator::errors::{GenericError, ProblemDetails};
-use cyancoordinator::models::req::{BuildReq, MergerReq, StartExecutorReq};
-use cyanprompt::domain::services::template::states::TemplateState;
-use cyanprompt::http::mapper::cyan_req_mapper;
+use cyancoordinator::fs::{
+    DiskFileLoader, DiskFileWriter, GitLikeMerger, TarGzUnpacker, VirtualFileSystem,
+};
+use cyanregistry::http::client::CyanRegistryClient;
 use cyanregistry::http::models::template_res::TemplateVersionRes;
+use std::rc::Rc;
 
-use crate::new_template_engine;
+use crate::fs::{DefaultVfs, Vfs};
+use crate::session::SessionIdGenerator;
+use crate::template::{DefaultTemplateExecutor, TemplateExecutor};
+use crate::template_history::{DefaultTemplateHistory, TemplateHistory, TemplateUpdateType};
 
+/// Run the cyan template generation process
+/// Returns all session IDs that were created and need to be cleaned up
 pub fn cyan_run(
-    session_id: String,
+    session_id_generator: &dyn SessionIdGenerator,
     path: Option<String>,
     template: TemplateVersionRes,
     coord_client: CyanCoordinatorClient,
     username: String,
-) -> Result<(), Box<dyn Error + Send>> {
+    registry_client: Option<Rc<CyanRegistryClient>>,
+) -> Result<Vec<String>, Box<dyn Error + Send>> {
     // handle the target directory
     let path = path.unwrap_or(".".to_string());
     let path_buf = PathBuf::from(&path);
-    let p = path_buf.as_path();
-    println!("📁 Generating target directory: {:?}", p);
-    fs::create_dir_all(p).map_err(|e| Box::new(e) as Box<dyn Error + Send>)?;
+    let target_dir = path_buf.as_path();
+    println!("📁 Target directory: {:?}", target_dir);
+    fs::create_dir_all(target_dir).map_err(|e| Box::new(e) as Box<dyn Error + Send>)?;
 
-    // runtime
-    let runtime = Builder::new_multi_thread()
-        .worker_threads(1)
-        .enable_all()
-        .build()
-        .unwrap();
+    // Create all components for dependency injection at the highest level
+    let unpacker: Box<dyn cyancoordinator::fs::FileUnpacker> = Box::new(TarGzUnpacker);
+    let loader: Box<dyn cyancoordinator::fs::FileLoader> = Box::new(DiskFileLoader);
+    let merger: Box<dyn cyancoordinator::fs::FileMerger> = Box::new(GitLikeMerger::new(true, 50)); // Debug enabled
+    let writer: Box<dyn cyancoordinator::fs::FileWriter> = Box::new(DiskFileWriter);
 
-    // PHASE 1
-    let (tx11, mut rx11) = mpsc::channel(1);
-    let t11 = template.clone();
-    let endpoint11 = coord_client.endpoint.clone();
-    let h11 = runtime.spawn_blocking(move || {
-        println!("♨️ Warming Templates...");
-        let client = CyanCoordinatorClient::new(endpoint11);
-        let res = client.warm_template(&t11);
-        println!("✅ Template Warmed");
-        tx11.blocking_send(res)
-    });
+    // Setup services with explicit dependencies
+    let template_history = DefaultTemplateHistory::new();
+    let template_executor = DefaultTemplateExecutor::new(coord_client.endpoint.clone());
+    let vfs = DefaultVfs::new(unpacker, loader, merger, writer);
 
-    let (tx12, mut rx12) = mpsc::channel(1);
-    let t12 = template.clone();
-    let s_id12 = session_id.clone();
-    let endpoint12 = coord_client.endpoint.clone();
-    let h12 = runtime.spawn_blocking(move || {
-        println!("♨️ Warming Processors and Plugins...");
-        let client = CyanCoordinatorClient::new(endpoint12);
-        let res = client.warn_executor(s_id12, &t12);
-        println!("✅ Processors and Plugins Warmed");
-        tx12.blocking_send(res)
-    });
+    // Check template history to determine update scenario
+    let update_type = template_history.check_template_history(target_dir, &template, &username)?;
 
-    let _ = runtime.block_on(h11).unwrap();
-    let _ = runtime.block_on(h12).unwrap();
+    // Helper function to get previous template version
+    let get_previous_template_ver =
+        |previous_version: i64| -> Result<TemplateVersionRes, Box<dyn Error + Send>> {
+            if let Some(registry) = &registry_client {
+                // Fetch the actual previous version from registry
+                let template_name = template.template.name.clone();
+                println!(
+                    "🔍 Fetching template '{}/{}:{}' from registry...",
+                    username, template_name, previous_version
+                );
+                let prev_template = registry.get_template(
+                    username.clone(),
+                    template_name,
+                    Some(previous_version),
+                )?;
+                println!("✅ Retrieved previous template version from registry");
+                Ok(prev_template)
+            } else {
+                // Fallback to modifying the current template if registry client not available
+                let mut prev_template_ver = template.clone();
+                prev_template_ver.principal.version = previous_version;
+                Ok(prev_template_ver)
+            }
+        };
 
-    let template_warm = rx11.blocking_recv().unwrap()?;
-    let executor_warm = rx12.blocking_recv().unwrap()?;
+    // Handle different update scenarios and collect all session IDs for cleanup
+    let (session_ids, _) = match update_type {
+        TemplateUpdateType::NewTemplate => {
+            // Scenario 1: No previous template matching the current template
+            println!("✨ Creating a new project from template");
 
-    if template_warm.status.to_lowercase() != "ok" {
-        return Err(Box::new(GenericError::ProblemDetails(ProblemDetails {
-            title: "Template Warm Error".to_string(),
-            status: 400,
-            t: "local".to_string(),
-            trace_id: None,
-            data: None,
-        })));
-    }
+            // Generate a new session ID
+            let new_session_id = session_id_generator.generate();
 
-    // phase 2
-    let merger_id = Uuid::new_v4().to_string();
-    let session_id = executor_warm.session_id.clone();
+            // Execute the template with fresh QA session
+            let (archive_data, template_state, actual_session_id) =
+                template_executor.execute_template(&template, &new_session_id, None, None)?;
 
-    println!("📖 Session: {}, Merger: {}", session_id, merger_id);
+            // Unpack the archive into VFS
+            let incoming_vfs = vfs.unpack_archive(archive_data)?;
 
-    let (tx21, mut rx21) = mpsc::channel(1);
+            // Create an empty base VFS for comparison
+            let base_vfs = VirtualFileSystem::new();
 
-    let merger_req = MergerReq {
-        merger_id: merger_id.clone(),
-    };
+            // Load any existing files that match paths in incoming_vfs
+            let paths = incoming_vfs.get_paths();
+            let local_vfs = vfs.load_local_files(target_dir, &paths)?;
 
-    let start_executor_req = StartExecutorReq {
-        session_id: session_id.clone(),
-        template: template.clone(),
-        write_vol_reference: executor_warm.vol_ref.clone(),
-        merger: merger_req,
-    };
-    let endpoint21 = coord_client.endpoint.clone();
-    let start_req = start_executor_req.clone();
-    let h21 = runtime.spawn_blocking(move || {
-        println!("🚀 Bootstrapping Executor...");
-        let client = CyanCoordinatorClient::new(endpoint21);
-        let res = client.bootstrap(&start_req);
-        tx21.blocking_send(res)
-    });
+            // Merge with base=empty, local=target folder, incoming=VFS
+            let merged_vfs = vfs.merge(&base_vfs, &local_vfs, &incoming_vfs)?;
 
-    let (tx22, mut rx22) = mpsc::channel(1);
-    let coord_endpoint = coord_client.endpoint.clone();
-    let template_id = template.principal.id.clone();
-    let h22 = runtime.spawn_blocking(move || {
-        println!("🤖 Starting template...");
-        let c22 = Rc::new(Client::new());
-        let endpoint = format!("{}/proxy/template/{}", coord_endpoint, template_id);
-        let prompter = new_template_engine(endpoint.as_str(), c22.clone());
-        let state = prompter.start();
-        println!("✅ Received all answers!");
-        tx22.blocking_send(state)
-    });
+            // Write the merged VFS to disk
+            vfs.write_to_disk(target_dir, &merged_vfs)?;
 
-    let _ = runtime.block_on(h21).unwrap();
-    let _ = runtime.block_on(h22).unwrap();
+            // Save template metadata
+            template_history.save_template_metadata(
+                target_dir,
+                &template,
+                &template_state,
+                &username,
+            )?;
 
-    let executor_started = rx21.blocking_recv().unwrap()?;
-    if executor_started.status.to_lowercase() != "ok" {
-        return Err(Box::new(GenericError::ProblemDetails(ProblemDetails {
-            title: "Executor Start Error".to_string(),
-            status: 400,
-            t: "local".to_string(),
-            trace_id: None,
-            data: None,
-        })));
-    }
-    let prompter_state: TemplateState = rx22.blocking_recv().unwrap();
+            println!("✅ Project created successfully");
 
-    let res = match prompter_state {
-        TemplateState::QnA() => panic!("Should terminate in QnA state"),
-        TemplateState::Complete(ref c, _) => {
-            println!("✅ Cyan Response obtained");
-            Ok(c.clone())
+            // Return the session ID for cleanup
+            (vec![actual_session_id], ())
         }
-        TemplateState::Err(ref e) => {
-            println!("Error: {}", e);
-            Err(Box::new(GenericError::ProblemDetails(ProblemDetails {
-                title: "🚨 Template Prompting Error".to_string(),
-                status: 400,
-                t: "local".to_string(),
-                trace_id: None,
-                data: Some(serde_json::json!({
-                    "error": e.to_string(),
-                })),
-            })) as Box<dyn Error + Send>)
+        TemplateUpdateType::UpgradeTemplate {
+            previous_version,
+            previous_answers,
+            previous_states,
+        } => {
+            // Scenario 2: Previous template matching the current template exists, but a different version
+            println!(
+                "🔄 Upgrading from version {} to {}",
+                previous_version, template.principal.version
+            );
+
+            // First, execute the old template version using saved answers to get the base VFS
+            println!("🏗️ Recreating previous template version");
+
+            // Generate session IDs for both executions
+            let prev_session_id = session_id_generator.generate();
+            let curr_session_id = session_id_generator.generate();
+
+            // Fetch the previous template version
+            let prev_template_ver = get_previous_template_ver(previous_version)?;
+
+            let (prev_archive_data, _, prev_actual_session_id) = template_executor
+                .execute_template(
+                    &prev_template_ver,
+                    &prev_session_id,
+                    Some(&previous_answers),
+                    Some(&previous_states),
+                )?;
+
+            // Unpack the archive into base VFS
+            let base_vfs = vfs.unpack_archive(prev_archive_data)?;
+
+            // Second, execute the new template version using saved answers where possible
+            println!("🏗️ Creating new template version");
+            let (curr_archive_data, template_state, curr_actual_session_id) = template_executor
+                .execute_template(
+                    &template,
+                    &curr_session_id,
+                    Some(&previous_answers),
+                    Some(&previous_states),
+                )?;
+
+            // Unpack the archive into incoming VFS
+            let incoming_vfs = vfs.unpack_archive(curr_archive_data)?;
+
+            // Get all paths that should be considered for the local VFS (union of base and incoming)
+            let all_paths = Vec::new();
+
+            // Load the current state of files from target directory
+            let local_vfs = vfs.load_local_files(target_dir, &all_paths)?;
+
+            // Print the contents of all three VFS objects before merging
+            println!("📂 Base VFS (Previous Template Version):");
+            for path in base_vfs.get_paths() {
+                if let Some(content) = base_vfs.get_file(&path) {
+                    println!("  - {} ({} bytes)", path.display(), content.len());
+                }
+            }
+
+            println!("📂 Local VFS (Current Files in Target Directory):");
+            for path in local_vfs.get_paths() {
+                if let Some(content) = local_vfs.get_file(&path) {
+                    println!("  - {} ({} bytes)", path.display(), content.len());
+                }
+            }
+
+            println!("📂 Incoming VFS (New Template Version):");
+            for path in incoming_vfs.get_paths() {
+                if let Some(content) = incoming_vfs.get_file(&path) {
+                    println!("  - {} ({} bytes)", path.display(), content.len());
+                }
+            }
+
+            // Perform 3-way merge with base=prev template, local=target folder, incoming=current template
+            let merged_vfs = vfs.merge(&base_vfs, &local_vfs, &incoming_vfs)?;
+
+            // Write the merged VFS to disk
+            vfs.write_to_disk(target_dir, &merged_vfs)?;
+
+            // Save updated template metadata
+            template_history.save_template_metadata(
+                target_dir,
+                &template,
+                &template_state,
+                &username,
+            )?;
+
+            println!("✅ Project upgraded successfully");
+
+            // Return both session IDs for cleanup
+            (vec![prev_actual_session_id, curr_actual_session_id], ())
+        }
+        TemplateUpdateType::RerunTemplate {
+            previous_version,
+            previous_answers,
+            previous_states,
+        } => {
+            // Scenario 3: Previous template matching the current template exists, with the same version
+            println!("🔄 Re-running template (same version {})", previous_version);
+
+            // Generate session IDs for both executions
+            let prev_session_id = session_id_generator.generate();
+            let curr_session_id = session_id_generator.generate();
+
+            // Fetch the previous template version
+            let prev_template = get_previous_template_ver(previous_version)?;
+
+            // First, recreate the previous template VFS state using saved answers and states
+            println!("🏗️ Recreating previous template state");
+            let (prev_archive_data, _, prev_actual_session_id) = template_executor
+                .execute_template(
+                    &prev_template,
+                    &prev_session_id,
+                    Some(&previous_answers),
+                    Some(&previous_states),
+                )?;
+
+            // Second, execute the template with fresh Q&A
+            println!("🏗️ Running template with new answers");
+            let (curr_archive_data, template_state, curr_actual_session_id) = template_executor
+                .execute_template(
+                    &template,
+                    &curr_session_id,
+                    None, // No answers - user will provide fresh answers
+                    None,
+                )?;
+
+            // Unpack the archive into base VFS
+            let base_vfs = vfs.unpack_archive(prev_archive_data)?;
+
+            // Unpack the archive into incoming VFS
+            let incoming_vfs = vfs.unpack_archive(curr_archive_data)?;
+
+            // Load the current state of files from target directory
+            let all_paths = Vec::new();
+            let local_vfs = vfs.load_local_files(target_dir, &all_paths)?;
+
+            // Print the contents of all three VFS objects before merging
+            println!("📂 Base VFS (Previous Template Version):");
+            for path in base_vfs.get_paths() {
+                if let Some(content) = base_vfs.get_file(&path) {
+                    println!("  - {} ({} bytes)", path.display(), content.len());
+                }
+            }
+
+            println!("📂 Local VFS (Current Files in Target Directory):");
+            for path in local_vfs.get_paths() {
+                if let Some(content) = local_vfs.get_file(&path) {
+                    println!("  - {} ({} bytes)", path.display(), content.len());
+                }
+            }
+
+            println!("📂 Incoming VFS (New Template Version):");
+            for path in incoming_vfs.get_paths() {
+                if let Some(content) = incoming_vfs.get_file(&path) {
+                    println!("  - {} ({} bytes)", path.display(), content.len());
+                }
+            }
+
+            // Perform 3-way merge with base=prev template, local=target folder, incoming=current template
+            let merged_vfs = vfs.merge(&base_vfs, &local_vfs, &incoming_vfs)?;
+
+            // Write the merged VFS to disk
+            vfs.write_to_disk(target_dir, &merged_vfs)?;
+
+            // Save updated template metadata
+            template_history.save_template_metadata(
+                target_dir,
+                &template,
+                &template_state,
+                &username,
+            )?;
+
+            println!("✅ Project recreated successfully with new answers");
+
+            // Return both session IDs for cleanup
+            (vec![prev_actual_session_id, curr_actual_session_id], ())
         }
     };
-    let cyan = res?;
 
-    // final phase
-    let br = BuildReq {
-        template: template.clone(),
-        cyan: cyan_req_mapper(cyan),
-        merger_id,
-    };
-    println!("🚀 Starting build...");
-
-    // Pass template state to coordinator for automatic metadata saving
-    let template_state_opt = Some((&prompter_state, username.as_str()));
-    coord_client.start(
-        path_buf.as_path(),
-        session_id.clone(),
-        &br,
-        template_state_opt,
-    )?;
-
-    println!("✅ Build completed");
-
-    Ok(())
+    Ok(session_ids)
 }

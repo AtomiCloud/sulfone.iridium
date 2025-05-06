@@ -14,12 +14,17 @@ use cyanregistry::http::client::CyanRegistryClient;
 use crate::commands::{Cli, Commands, PushArgs, PushCommands};
 use crate::coord::start_coordinator;
 use crate::run::cyan_run;
-use crate::util::{generate_session_id, parse_ref};
+use crate::session::DefaultSessionIdGenerator;
+use crate::util::parse_ref;
 
 pub mod commands;
 pub mod coord;
 pub mod errors;
+pub mod fs;
 pub mod run;
+pub mod session;
+pub mod template;
+pub mod template_history;
 pub mod util;
 
 fn new_template_engine(endpoint: &str, client: Rc<Client>) -> TemplateEngine {
@@ -120,7 +125,8 @@ fn main() -> Result<(), Box<dyn Error + Send>> {
             path,
             coordinator_endpoint,
         } => {
-            let session_id = generate_session_id();
+            let session_id_generator = DefaultSessionIdGenerator;
+
             let username = parse_ref(template_ref.clone())
                 .map(|(u, _, _)| u)
                 .unwrap_or_else(|_| "unknown".to_string());
@@ -144,24 +150,32 @@ fn main() -> Result<(), Box<dyn Error + Send>> {
                 })
                 .and_then(|tv| {
                     let coord_client = CyanCoordinatorClient::new(coordinator_endpoint.clone());
+                    let registry_ref = Rc::new(registry);
 
-                    cyan_run(session_id.clone(), path, tv, coord_client, username.clone())
+                    cyan_run(
+                        &session_id_generator,
+                        path,
+                        tv,
+                        coord_client,
+                        username.clone(),
+                        Some(Rc::clone(&registry_ref)),
+                    )
                 });
 
             match r {
-                Ok(o) => {
-                    println!("✅ Completed: {:#?}", o);
+                Ok(session_ids) => {
+                    println!("✅ Completed successfully");
                     let coord_client = CyanCoordinatorClient::new(coordinator_endpoint.clone());
-                    println!("🧹 Cleaning up...");
-                    let _ = coord_client.clean(session_id);
-                    println!("✅ Cleaned up");
+                    println!("🧹 Cleaning up all sessions...");
+                    for sid in session_ids {
+                        println!("🧹 Cleaning up session: {}", sid);
+                        let _ = coord_client.clean(sid);
+                    }
+                    println!("✅ Cleaned up all sessions");
                 }
                 Err(e) => {
                     eprintln!("🚨 Error: {:#?}", e);
-                    let coord_client = CyanCoordinatorClient::new(coordinator_endpoint.clone());
-                    println!("🧹 Cleaning up...");
-                    let _ = coord_client.clean(session_id);
-                    println!("✅ Cleaned up");
+                    println!("✅ No sessions to clean up");
                 }
             }
             Ok(())
