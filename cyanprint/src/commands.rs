@@ -13,6 +13,14 @@ pub struct Cli {
         default_value = "https://api.zinc.sulfone.raichu.cluster.atomi.cloud"
     )]
     pub registry: String,
+
+    #[arg(
+        short = 'd',
+        long,
+        help = "Enable debug output",
+        default_value_t = false
+    )]
+    pub debug: bool,
 }
 
 #[derive(Subcommand)]

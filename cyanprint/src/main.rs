@@ -141,6 +141,7 @@ fn main() -> Result<(), Box<dyn Error + Send>> {
                         coord_client,
                         username.clone(),
                         Some(Rc::clone(&registry_ref)),
+                        cli.debug,
                     )
                 });
 

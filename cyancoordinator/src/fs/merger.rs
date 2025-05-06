@@ -69,7 +69,7 @@ impl GitLikeMerger {
         let temp_dir = tempdir().map_err(MergeError::IoError)?;
 
         if self.debug {
-            println!("Created temp dir at: {}", temp_dir.path().display());
+            println!("🏗️ Created temp dir at: {}", temp_dir.path().display());
         }
 
         // Initialize a git repository in the temp directory
@@ -124,7 +124,7 @@ impl GitLikeMerger {
         )?;
 
         if self.debug {
-            println!("Created commit: {}", commit_id);
+            println!("📝 Created commit: {}", commit_id);
         }
 
         Ok(commit_id)
@@ -138,7 +138,7 @@ impl GitLikeMerger {
         incoming: &VirtualFileSystem,
     ) -> Result<VirtualFileSystem, MergeError> {
         if self.debug {
-            println!("Starting Git folder-level 3-way merge");
+            println!("🔄 Starting Git folder-level 3-way merge");
         }
 
         // Create temporary repository with base VFS
@@ -153,7 +153,7 @@ impl GitLikeMerger {
 
         if self.debug {
             println!(
-                "Created branches: current and incoming from base {}",
+                "🌿 Created branches: current and incoming from base {}",
                 base_commit
             );
         }
@@ -220,7 +220,7 @@ impl GitLikeMerger {
 
         if self.debug {
             println!(
-                "Committed states: current={}, incoming={}",
+                "📊 Committed states: current={}, incoming={}",
                 current_commit, incoming_commit
             );
         }
@@ -247,14 +247,14 @@ impl GitLikeMerger {
 
         if analysis.0.is_up_to_date() {
             if self.debug {
-                println!("Merge analysis: up-to-date, no merge needed");
+                println!("✅ Merge analysis: up-to-date, no merge needed");
             }
             // No changes needed, return current VFS
             let result = current.clone();
             Ok(result)
         } else if analysis.0.is_normal() {
             if self.debug {
-                println!("Merge analysis: normal merge required");
+                println!("🔄 Merge analysis: normal merge required");
             }
 
             // Perform the merge
@@ -267,13 +267,13 @@ impl GitLikeMerger {
             // Check if we have conflicts
             if repo.index()?.has_conflicts() {
                 if self.debug {
-                    println!("Merge resulted in conflicts");
+                    println!("⚠️ Merge resulted in conflicts");
                 }
 
                 // In case of conflicts, we keep the conflicts in the working directory
             } else {
                 if self.debug {
-                    println!("Merge successful, committing");
+                    println!("✅ Merge successful, committing");
                 }
 
                 // No conflicts, commit the merge
@@ -330,7 +330,7 @@ impl GitLikeMerger {
                 vfs.add_file(relative_path.to_path_buf(), content);
 
                 if self.debug {
-                    println!("Added to result VFS: {}", relative_path.display());
+                    println!("📄 Added to result VFS: {}", relative_path.display());
                 }
             }
         }

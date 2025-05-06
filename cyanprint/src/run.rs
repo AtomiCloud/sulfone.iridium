@@ -42,6 +42,7 @@ pub fn cyan_run(
     coord_client: CyanCoordinatorClient,
     username: String,
     registry_client: Option<Rc<CyanRegistryClient>>,
+    debug: bool,
 ) -> Result<Vec<String>, Box<dyn Error + Send>> {
     // handle the target directory
     let path = path.unwrap_or(".".to_string());
@@ -53,7 +54,7 @@ pub fn cyan_run(
     // Create all components for dependency injection at the highest level
     let unpacker: Box<dyn cyancoordinator::fs::FileUnpacker> = Box::new(TarGzUnpacker);
     let loader: Box<dyn cyancoordinator::fs::FileLoader> = Box::new(DiskFileLoader);
-    let merger: Box<dyn cyancoordinator::fs::FileMerger> = Box::new(GitLikeMerger::new(true, 50));
+    let merger: Box<dyn cyancoordinator::fs::FileMerger> = Box::new(GitLikeMerger::new(debug, 50));
     let writer: Box<dyn cyancoordinator::fs::FileWriter> = Box::new(DiskFileWriter);
 
     // Setup services with explicit dependencies
