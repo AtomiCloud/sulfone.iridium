@@ -1,3 +1,18 @@
+## [1.10.0](https://github.com/AtomiCloud/sulfone.iridium/compare/v1.9.3...v1.10.0) (2025-05-06)
+
+
+### ✨ Features ✨
+
+* allow for update, re-run and new ([b29b534](https://github.com/AtomiCloud/sulfone.iridium/commit/b29b53434e7efc1b1abbf10e008477e28ad46f25))
+* debug flag ([77b3ce0](https://github.com/AtomiCloud/sulfone.iridium/commit/77b3ce0559ff58b625a50b5c34c66856e9e3037b))
+* store template generation metadata in .cyan_state.yaml ([17533a5](https://github.com/AtomiCloud/sulfone.iridium/commit/17533a5392ce046af72601626167ac3f07621e04))
+* use username instead of user_id in template metadata ([9f16d34](https://github.com/AtomiCloud/sulfone.iridium/commit/9f16d3479dfb3272d32d3a6c762c85269c806a42))
+
+
+### 🐛 Bug Fixes 🐛
+
+* add serde tagging to Answer enum to fix serialization ([5a3aa82](https://github.com/AtomiCloud/sulfone.iridium/commit/5a3aa8286e199e7f13c6be97f46ecc1a20e555e4))
+
 ## [1.9.3](https://github.com/AtomiCloud/sulfone.iridium/compare/v1.9.2...v1.9.3) (2025-05-04)
 
 
