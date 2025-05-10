@@ -11,7 +11,10 @@ use crate::cli::models::plugin_config::CyanPluginFileConfig;
 use crate::cli::models::processor_config::CyanProcessorFileConfig;
 use crate::cli::models::template_config::CyanTemplateFileConfig;
 use crate::http::errors::{GenericError, ProblemDetails};
-use crate::http::mapper::{plugin_req_mapper, processor_req_mapper, template_req_mapper};
+use crate::http::mapper::{
+    plugin_req_mapper, processor_req_mapper, template_req_with_properties_mapper,
+    template_req_without_properties_mapper,
+};
 use crate::http::models::plugin_req::PluginReq;
 use crate::http::models::plugin_res::{PluginVersionPrincipalRes, PluginVersionRes};
 use crate::http::models::processor_req::ProcessorReq;
@@ -179,7 +182,7 @@ impl CyanRegistryClient {
         let a: Result<CyanTemplateFileConfig, Box<dyn Error + Send>> = read_yaml(config_path);
         let config = a?;
         let domain = template_config_mapper(&config)?;
-        let req = template_req_mapper(
+        let req = template_req_with_properties_mapper(
             &domain,
             desc,
             blob_docker_ref,
@@ -187,6 +190,19 @@ impl CyanRegistryClient {
             template_docker_ref,
             template_docker_tag,
         );
+        self.push_template_internal(domain.username, token, &req)
+    }
+
+    pub fn push_template_without_properties(
+        &self,
+        config_path: String,
+        token: String,
+        desc: String,
+    ) -> Result<TemplateVersionPrincipalRes, Box<dyn Error + Send>> {
+        let a: Result<CyanTemplateFileConfig, Box<dyn Error + Send>> = read_yaml(config_path);
+        let config = a?;
+        let domain = template_config_mapper(&config)?;
+        let req = template_req_without_properties_mapper(&domain, desc);
         self.push_template_internal(domain.username, token, &req)
     }
 

@@ -7,7 +7,9 @@ use crate::cli::models::processor_config::CyanProcessorFileConfig;
 use crate::cli::models::template_config::CyanTemplateFileConfig;
 use crate::domain::config::plugin_config::CyanPluginConfig;
 use crate::domain::config::processor_config::CyanProcessorConfig;
-use crate::domain::config::template_config::{CyanPluginRef, CyanProcessorRef, CyanTemplateConfig};
+use crate::domain::config::template_config::{
+    CyanPluginRef, CyanProcessorRef, CyanTemplateConfig, CyanTemplateRef,
+};
 
 pub fn processor_reference_mapper(s: String) -> Option<CyanProcessorRef> {
     let mut parts = s.splitn(2, '/');
@@ -55,10 +57,34 @@ pub fn plugin_reference_mapper(s: String) -> Option<CyanPluginRef> {
     })
 }
 
+pub fn template_reference_mapper(s: String) -> Option<CyanTemplateRef> {
+    let mut parts = s.splitn(2, '/');
+    let username = parts.next()?.to_string();
+    let rest = parts.next()?;
+
+    // Split the rest by ':'
+    let mut parts = rest.splitn(2, ':');
+    let name = parts.next()?.to_string();
+    let version_str = parts.next();
+
+    // Convert version string to i64, require version
+    let version = match version_str {
+        Some(v) => v.parse::<i64>().ok()?,
+        None => return None, // Version is required
+    };
+
+    Some(CyanTemplateRef {
+        username,
+        name,
+        version,
+    })
+}
+
 #[derive(Debug)]
 pub enum ParsingError {
     FailedParsingPluginReference(String),
     FailedParsingProcessorReference(String),
+    FailedParsingTemplateReference(String),
 }
 
 impl Error for ParsingError {}
@@ -71,6 +97,9 @@ impl fmt::Display for ParsingError {
             }
             ParsingError::FailedParsingProcessorReference(s) => {
                 write!(f, "Incorrect Processor Reference: {}", s)
+            }
+            ParsingError::FailedParsingTemplateReference(s) => {
+                write!(f, "Incorrect Template Reference: {}", s)
             }
         }
     }
@@ -111,7 +140,19 @@ pub fn template_config_mapper(
         .iter()
         .map(|p| plugin_reference_mapper(p.clone()))
         .map(|opt| {
-            opt.ok_or(ParsingError::FailedParsingProcessorReference(
+            opt.ok_or(ParsingError::FailedParsingPluginReference(
+                "unknown".to_string(),
+            ))
+            .map_err(|e| Box::new(e) as Box<dyn Error + Send>)
+        })
+        .collect();
+
+    let temp: Result<Vec<CyanTemplateRef>, Box<dyn Error + Send>> = r
+        .templates
+        .iter()
+        .map(|t| template_reference_mapper(t.clone()))
+        .map(|opt| {
+            opt.ok_or(ParsingError::FailedParsingTemplateReference(
                 "unknown".to_string(),
             ))
             .map_err(|e| Box::new(e) as Box<dyn Error + Send>)
@@ -123,17 +164,20 @@ pub fn template_config_mapper(
 
     proc.and_then(|proc_result| {
         plug.and_then(|plug_result| {
-            readme_result.map(|readme_r| CyanTemplateConfig {
-                readme: readme_r,
-                email: r.email.clone(),
-                name: r.name.clone(),
-                description: r.description.clone(),
-                project: r.project.clone(),
-                source: r.source.clone(),
-                tags: r.tags.clone(),
-                username: r.username.clone(),
-                processors: proc_result,
-                plugins: plug_result,
+            temp.and_then(|temp_result| {
+                readme_result.map(|readme_r| CyanTemplateConfig {
+                    readme: readme_r,
+                    email: r.email.clone(),
+                    name: r.name.clone(),
+                    description: r.description.clone(),
+                    project: r.project.clone(),
+                    source: r.source.clone(),
+                    tags: r.tags.clone(),
+                    username: r.username.clone(),
+                    processors: proc_result,
+                    plugins: plug_result,
+                    templates: temp_result,
+                })
             })
         })
     })

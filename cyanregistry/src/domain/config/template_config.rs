@@ -18,6 +18,8 @@ pub struct CyanTemplateConfig {
 
     pub plugins: Vec<CyanPluginRef>,
 
+    pub templates: Vec<CyanTemplateRef>,
+
     pub readme: String,
 }
 
@@ -30,6 +32,13 @@ pub struct CyanProcessorRef {
 
 #[derive(Debug, Clone)]
 pub struct CyanPluginRef {
+    pub username: String,
+    pub name: String,
+    pub version: i64,
+}
+
+#[derive(Debug, Clone)]
+pub struct CyanTemplateRef {
     pub username: String,
     pub name: String,
     pub version: i64,
