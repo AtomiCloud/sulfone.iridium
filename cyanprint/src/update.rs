@@ -200,17 +200,20 @@ fn select_version_interactive(
     let version_options = versions
         .iter()
         .map(|v| {
+            let status = if v.version == current_version {
+                " [CURRENT]"
+            } else if v.is_latest {
+                " [LATEST]"
+            } else {
+                ""
+            };
+
             format!(
-                "Version {}{}{}: {}  ({})",
+                "({}) - Version {}: {}{}",
+                format_friendly_date(&v.created_at),
                 v.version,
-                if v.is_latest { " (LATEST)" } else { "" },
-                if v.version == current_version {
-                    " (CURRENT)"
-                } else {
-                    ""
-                },
                 v.description,
-                v.created_at
+                status
             )
         })
         .collect::<Vec<_>>();
@@ -234,6 +237,22 @@ fn select_version_interactive(
                 ))) as Box<dyn Error + Send>),
             },
         )
+}
+
+/// Format date string into a more friendly format with local timezone
+fn format_friendly_date(date_str: &str) -> String {
+    // Try to parse the date string
+    // Assuming format like "2023-04-25T15:30:45Z" or similar ISO format
+    if let Ok(datetime) = chrono::DateTime::parse_from_rfc3339(date_str) {
+        // Convert to local time
+        let local_time = datetime.with_timezone(&chrono::Local);
+
+        // Format as a friendly date with time in local timezone
+        return local_time.format("%b %d, %Y at %H:%M:%S %Z").to_string();
+    }
+
+    // Fallback if parsing fails
+    date_str.to_string()
 }
 
 /// Perform the actual upgrade
