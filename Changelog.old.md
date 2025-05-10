@@ -1,3 +1,10 @@
+## [2.0.0](https://github.com/AtomiCloud/sulfone.iridium/compare/v1.10.0...v2.0.0) (2025-05-07)
+
+
+### ✨ Features ✨
+
+* **breaking:** release v2 ([87c6394](https://github.com/AtomiCloud/sulfone.iridium/commit/87c63941d948ebb34ffca63628478d28ee26d648))
+
 ## [1.10.0](https://github.com/AtomiCloud/sulfone.iridium/compare/v1.9.3...v1.10.0) (2025-05-06)
 
 
