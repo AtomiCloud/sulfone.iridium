@@ -229,6 +229,41 @@ impl CyanRegistryClient {
             })
     }
 
+    pub fn get_template_versions(
+        &self,
+        username: String,
+        name: String,
+        skip: i64,
+        limit: i64,
+    ) -> Result<Vec<TemplateVersionPrincipalRes>, Box<dyn Error + Send>> {
+        let host = (self.endpoint).to_string().to_owned();
+        let version = (self.version).to_string().to_owned();
+
+        let endpoint = format!(
+            "{}/api/v{}/Template/slug/{}/{}/versions?skip={}&limit={}",
+            host, version, username, name, skip, limit
+        );
+
+        self.client
+            .get(endpoint)
+            .send()
+            .map_err(|x| Box::new(x) as Box<dyn Error + Send>)
+            .and_then(|x| {
+                if x.status().is_success() {
+                    x.json().map_err(|e| Box::new(e) as Box<dyn Error + Send>)
+                } else {
+                    let r: Result<ProblemDetails, Box<dyn Error + Send>> =
+                        x.json().map_err(|e| Box::new(e) as Box<dyn Error + Send>);
+                    match r {
+                        Ok(ok) => {
+                            Err(Box::new(GenericError::ProblemDetails(ok)) as Box<dyn Error + Send>)
+                        }
+                        Err(err) => Err(err),
+                    }
+                }
+            })
+    }
+
     pub fn get_plugin(
         &self,
         username: String,

@@ -1,20 +1,30 @@
 use std::error::Error;
-use std::path::PathBuf;
+use std::fmt;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 use cyancoordinator::client::CyanCoordinatorClient;
 use cyancoordinator::fs::DefaultVfs;
-use cyancoordinator::fs::{
-    DiskFileLoader, DiskFileWriter, FileLoader, FileMerger, FileUnpacker, FileWriter,
-    GitLikeMerger, TarGzUnpacker,
-};
+use cyancoordinator::fs::{DiskFileLoader, DiskFileWriter, GitLikeMerger, TarGzUnpacker};
 use cyancoordinator::operations::{TemplateOperations, TemplateOperator};
 use cyancoordinator::session::SessionIdGenerator;
+use cyancoordinator::state::models::TemplateHistoryEntry;
 use cyancoordinator::state::{DefaultStateManager, StateReader};
 use cyancoordinator::template::{DefaultTemplateExecutor, DefaultTemplateHistory};
 use cyanregistry::http::client::CyanRegistryClient;
-use cyanregistry::http::models::template_res::TemplateVersionRes;
 use inquire::Select;
+
+/// Custom error type for selection errors
+#[derive(Debug)]
+struct SelectionError(String);
+
+impl fmt::Display for SelectionError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl Error for SelectionError {}
 
 /// Update all templates in a project to their latest versions
 /// Returns all session IDs that were created and need to be cleaned up
@@ -26,213 +36,286 @@ pub fn cyan_update(
     debug: bool,
     interactive: bool,
 ) -> Result<Vec<String>, Box<dyn Error + Send>> {
-    // Handle the target directory
-    let path_buf = PathBuf::from(&path);
-    let target_dir = path_buf.as_path();
+    // 1. Read state
+    let target_dir = PathBuf::from(&path).as_path().to_owned();
     println!("📁 Target directory: {:?}", target_dir);
 
-    // Create a StateManager and use it to load the state file
     let state_file_path = target_dir.join(".cyan_state.yaml");
-    let state_manager = DefaultStateManager::new();
-
-    // Read the state file using the StateManager
     println!("🔍 Reading template state from: {:?}", state_file_path);
-    let state = state_manager.load_state_file(&state_file_path)?;
+    let state = DefaultStateManager::new().load_state_file(&state_file_path)?;
 
     if state.templates.is_empty() {
         println!("⚠️ No templates found in state file");
         return Ok(Vec::new());
     }
 
-    // Create all components for dependency injection at the highest level
-    let unpacker: Box<dyn FileUnpacker> = Box::new(TarGzUnpacker);
-    let loader: Box<dyn FileLoader> = Box::new(DiskFileLoader);
-    let merger: Box<dyn FileMerger> = Box::new(GitLikeMerger::new(debug, 50));
-    let writer: Box<dyn FileWriter> = Box::new(DiskFileWriter);
+    // Initialize components
+    let template_operator = create_template_operator(session_id_generator, coord_client, debug);
 
-    // Setup services with explicit dependencies
+    // 2. Process each template
+    state
+        .templates
+        .iter()
+        .filter(|(_, state)| state.active)
+        .filter_map(|(template_key, template_state)| {
+            template_state
+                .history
+                .last()
+                .map(|entry| (template_key, entry))
+        })
+        .filter_map(|(template_key, latest_entry)| {
+            parse_template_key(template_key)
+                .map(|(username, template_name)| (username, template_name, latest_entry))
+                .or_else(|| {
+                    println!("⚠️ Invalid template key format: {}", template_key);
+                    None
+                })
+        })
+        .try_fold(
+            Vec::new(),
+            |mut acc, (username, template_name, latest_entry)| {
+                // For each template, process upgrade
+                let session_ids = process_template_upgrade(
+                    &registry_client,
+                    &template_operator,
+                    &target_dir,
+                    &username,
+                    &template_name,
+                    latest_entry,
+                    interactive,
+                )?;
+
+                acc.extend(session_ids);
+                Ok(acc)
+            },
+        )
+}
+
+/// Create and configure a template operator with dependencies
+fn create_template_operator(
+    session_id_generator: Box<dyn SessionIdGenerator>,
+    coord_client: CyanCoordinatorClient,
+    debug: bool,
+) -> TemplateOperator {
+    let unpacker = Box::new(TarGzUnpacker);
+    let loader = Box::new(DiskFileLoader);
+    let merger = Box::new(GitLikeMerger::new(debug, 50));
+    let writer = Box::new(DiskFileWriter);
+
     let template_history = Box::new(DefaultTemplateHistory::new());
     let template_executor = Box::new(DefaultTemplateExecutor::new(coord_client.endpoint.clone()));
     let vfs = Box::new(DefaultVfs::new(unpacker, loader, merger, writer));
 
-    // Create the TemplateOperator with all dependencies
-    let template_operator = TemplateOperator::new(
+    TemplateOperator::new(
         session_id_generator,
         template_executor,
         template_history,
         vfs,
+    )
+}
+
+/// Process a single template upgrade
+fn process_template_upgrade(
+    registry_client: &CyanRegistryClient,
+    template_operator: &TemplateOperator,
+    target_dir: &Path,
+    username: &str,
+    template_name: &str,
+    latest_entry: &TemplateHistoryEntry,
+    interactive: bool,
+) -> Result<Vec<String>, Box<dyn Error + Send>> {
+    println!(
+        "🔄 Processing template: {}/{} current version: {}",
+        username, template_name, latest_entry.version
     );
 
-    let mut all_session_ids = Vec::new();
+    // a. Fetch all versions
+    let all_versions = fetch_all_template_versions(registry_client, username, template_name)?;
 
-    // Iterate through each template in the state file
-    for (template_key, template_state) in state.templates.iter() {
-        // Skip inactive templates
-        if !template_state.active {
-            println!("⏩ Skipping inactive template: {}", template_key);
-            continue;
-        }
-
-        // Get the last entry in the history
-        if let Some(latest_entry) = template_state.history.last() {
-            // Parse the template key to get the username and template name
-            let parts: Vec<&str> = template_key.split('/').collect();
-            if parts.len() != 2 {
-                println!("⚠️ Invalid template key format: {}", template_key);
-                continue;
-            }
-
-            let username = parts[0].to_string();
-            let template_name = parts[1].to_string();
-
-            println!(
-                "🔄 Processing template: {}/{} current version: {}",
-                username, template_name, latest_entry.version
-            );
-
-            // Fetch the latest version to check if update is needed
-            let latest_template =
-                match registry_client.get_template(username.clone(), template_name.clone(), None) {
-                    Ok(template) => template,
-                    Err(e) => {
-                        eprintln!(
-                            "❌ Failed to fetch latest version of {}/{}: {}",
-                            username, template_name, e
-                        );
-                        continue;
-                    }
-                };
-
-            // If the latest version is the same as the current version and not in interactive mode, skip
-            if latest_template.principal.version == latest_entry.version && !interactive {
-                println!(
-                    "✅ Template {}/{} is already at the latest version ({})",
-                    username, template_name, latest_entry.version
-                );
-                continue;
-            }
-
-            let target_version: i64;
-
-            if interactive {
-                // Get available versions for this template
-                println!(
-                    "📚 Fetching available versions for {}/{}...",
-                    username, template_name
-                );
-                let versions =
-                    fetch_template_versions(&registry_client, &username, &template_name)?;
-
-                if versions.is_empty() {
-                    println!("⚠️ No versions found for {}/{}", username, template_name);
-                    continue;
-                }
-
-                // Display a list of versions to choose from and get the selected version
-                match select_template_version(
-                    &versions,
-                    &username,
-                    &template_name,
-                    latest_entry.version,
-                )? {
-                    Some(selection) => {
-                        if selection.version == latest_entry.version {
-                            println!(
-                                "🔄 Keeping current version {} of {}/{}",
-                                latest_entry.version, username, template_name
-                            );
-                            continue;
-                        }
-
-                        target_version = selection.version;
-                        println!(
-                            "🔄 Selected version {} of {}/{}",
-                            target_version, username, template_name
-                        );
-                    }
-                    None => {
-                        println!("⏩ Skipping update for {}/{}", username, template_name);
-                        continue;
-                    }
-                }
-            } else {
-                target_version = latest_template.principal.version;
-            }
-
-            // Skip if the target version is the same as the current version
-            if target_version == latest_entry.version {
-                println!(
-                    "✅ Template {}/{} keeping version {}",
-                    username, template_name, latest_entry.version
-                );
-                continue;
-            }
-
-            println!(
-                "🔄 Upgrading {}/{} from version {} to {}",
-                username, template_name, latest_entry.version, target_version
-            );
-
-            // Fetch the target template version
-            let target_template = match registry_client.get_template(
-                username.clone(),
-                template_name.clone(),
-                Some(target_version),
-            ) {
-                Ok(template) => template,
-                Err(e) => {
-                    eprintln!(
-                        "❌ Failed to fetch version {} of {}/{}: {}",
-                        target_version, username, template_name, e
-                    );
-                    continue;
-                }
-            };
-
-            // Helper function to get previous template version
-            let get_previous_template_ver =
-                |previous_version: i64| -> Result<TemplateVersionRes, Box<dyn Error + Send>> {
-                    println!(
-                        "🔍 Fetching template '{}/{}:{}' from registry...",
-                        username, template_name, previous_version
-                    );
-                    let prev_template = registry_client.get_template(
-                        username.clone(),
-                        template_name.clone(),
-                        Some(previous_version),
-                    )?;
-                    println!("✅ Retrieved previous template version from registry");
-                    Ok(prev_template)
-                };
-
-            // Perform the upgrade
-            match template_operator.upgrade(
-                &target_template,
-                target_dir,
-                &username,
-                latest_entry.version,
-                latest_entry.answers.clone(),
-                latest_entry.deterministic_states.clone(),
-                get_previous_template_ver,
-            ) {
-                Ok(session_ids) => {
-                    println!(
-                        "✅ Successfully upgraded {}/{} to version {}",
-                        username, template_name, target_version
-                    );
-                    all_session_ids.extend(session_ids);
-                }
-                Err(e) => {
-                    eprintln!("❌ Failed to upgrade {}/{}: {}", username, template_name, e);
-                }
-            }
-        }
+    if all_versions.is_empty() {
+        println!("⚠️ No versions found for {}/{}", username, template_name);
+        return Ok(Vec::new());
     }
 
-    Ok(all_session_ids)
+    // Get the latest version
+    let latest_version = all_versions
+        .iter()
+        .max_by_key(|v| v.version)
+        .expect("Should have at least one version");
+
+    // c. If non-interactive and already at latest version, return early
+    if !interactive && latest_version.version == latest_entry.version {
+        println!(
+            "✅ Template {}/{} is already at latest version ({})",
+            username, template_name, latest_entry.version
+        );
+        return Ok(Vec::new());
+    }
+
+    // d. Determine target version
+    let target_version = if interactive {
+        select_version_interactive(username, template_name, latest_entry.version, &all_versions)?
+    } else {
+        latest_version.version
+    };
+
+    // Skip if version is the same
+    if target_version == latest_entry.version {
+        println!(
+            "✅ Template {}/{} keeping version {}",
+            username, template_name, latest_entry.version
+        );
+        return Ok(Vec::new());
+    }
+
+    // e. Perform the upgrade
+    let target_version_info = all_versions
+        .iter()
+        .find(|v| v.version == target_version)
+        .expect("Target version should exist in fetched versions");
+
+    perform_upgrade(
+        registry_client,
+        template_operator,
+        target_dir,
+        username,
+        template_name,
+        latest_entry,
+        target_version_info,
+    )
+}
+
+/// Let user select a version interactively
+fn select_version_interactive(
+    username: &str,
+    template_name: &str,
+    current_version: i64,
+    versions: &[TemplateVersionInfo],
+) -> Result<i64, Box<dyn Error + Send>> {
+    println!(
+        "\n📋 Available versions for {}/{}:",
+        username, template_name
+    );
+
+    let version_options = versions
+        .iter()
+        .map(|v| {
+            format!(
+                "Version {}{}{}: {}  ({})",
+                v.version,
+                if v.is_latest { " (LATEST)" } else { "" },
+                if v.version == current_version {
+                    " (CURRENT)"
+                } else {
+                    ""
+                },
+                v.description,
+                v.created_at
+            )
+        })
+        .collect::<Vec<_>>();
+
+    let prompt = format!(
+        "Select version to upgrade to for {}/{} (ESC to skip)",
+        username, template_name
+    );
+
+    Select::new(&prompt, version_options.clone())
+        .with_help_message("↑↓ to move, enter to select, ESC to skip this template")
+        .prompt()
+        .map_err(|e| {
+            Box::new(SelectionError(format!("Selection cancelled: {}", e))) as Box<dyn Error + Send>
+        })
+        .and_then(
+            |selected| match version_options.iter().position(|item| item == &selected) {
+                Some(idx) => Ok(versions[idx].version),
+                None => Err(Box::new(SelectionError(String::from(
+                    "Failed to find selected version",
+                ))) as Box<dyn Error + Send>),
+            },
+        )
+}
+
+/// Perform the actual upgrade
+fn perform_upgrade(
+    registry_client: &CyanRegistryClient,
+    template_operator: &TemplateOperator,
+    target_dir: &Path,
+    username: &str,
+    template_name: &str,
+    latest_entry: &TemplateHistoryEntry,
+    target_version_info: &TemplateVersionInfo,
+) -> Result<Vec<String>, Box<dyn Error + Send>> {
+    println!(
+        "🔄 Upgrading {}/{} from version {} to {}",
+        username, template_name, latest_entry.version, target_version_info.version
+    );
+
+    // Fetch target template version (we may already have it from the version list, but it only has metadata)
+    let target_template = registry_client
+        .get_template(
+            username.to_string(),
+            template_name.to_string(),
+            Some(target_version_info.version),
+        )
+        .map_err(|e| {
+            eprintln!(
+                "❌ Failed to fetch version {} of {}/{}: {}",
+                target_version_info.version, username, template_name, e
+            );
+            e
+        })?;
+
+    // Helper closure for fetching previous template version
+    let get_previous_template = |previous_version: i64| {
+        println!(
+            "🔍 Fetching template '{}/{}:{}' from registry...",
+            username, template_name, previous_version
+        );
+        let result = registry_client.get_template(
+            username.to_string(),
+            template_name.to_string(),
+            Some(previous_version),
+        );
+
+        if result.is_ok() {
+            println!("✅ Retrieved previous template version from registry");
+        }
+
+        result
+    };
+
+    // Perform upgrade
+    template_operator
+        .upgrade(
+            &target_template,
+            target_dir,
+            username,
+            latest_entry.version,
+            latest_entry.answers.clone(),
+            latest_entry.deterministic_states.clone(),
+            get_previous_template,
+        )
+        .inspect(|_session_ids| {
+            println!(
+                "✅ Successfully upgraded {}/{} to version {}",
+                username, template_name, target_version_info.version
+            );
+        })
+        .map_err(|e| {
+            eprintln!("❌ Failed to upgrade {}/{}: {}", username, template_name, e);
+            e
+        })
+}
+
+/// Parse template key into username and template name
+fn parse_template_key(template_key: &str) -> Option<(String, String)> {
+    let parts: Vec<&str> = template_key.split('/').collect();
+    (parts.len() == 2).then(|| (parts[0].to_string(), parts[1].to_string()))
 }
 
 /// Template version information for display in interactive mode
+#[derive(Clone)]
 struct TemplateVersionInfo {
     version: i64,
     description: String,
@@ -240,109 +323,66 @@ struct TemplateVersionInfo {
     is_latest: bool,
 }
 
-/// Fetch available versions for a template
-fn fetch_template_versions(
+/// Fetch all versions for a template in one go
+fn fetch_all_template_versions(
     registry_client: &CyanRegistryClient,
     username: &str,
     template_name: &str,
 ) -> Result<Vec<TemplateVersionInfo>, Box<dyn Error + Send>> {
-    // In a real implementation, this would fetch the list of available versions
-    // For now, let's make a simplified version that gets the latest and a few previous versions
+    // Fetch versions in batches of 100
+    let batch_size: i64 = 100;
+    let mut all_versions = Vec::new();
+    let mut skip = 0;
 
-    let mut versions = Vec::new();
+    loop {
+        let versions = registry_client.get_template_versions(
+            username.to_string(),
+            template_name.to_string(),
+            skip,
+            batch_size,
+        )?;
 
-    // Get the latest version first
-    let latest =
-        registry_client.get_template(username.to_string(), template_name.to_string(), None)?;
-
-    let latest_version = latest.principal.version;
-
-    // Add the latest version
-    versions.push(TemplateVersionInfo {
-        version: latest_version,
-        description: latest.principal.description.clone(),
-        created_at: latest.principal.created_at.clone(),
-        is_latest: true,
-    });
-
-    // Try to get a few previous versions
-    for i in 1..5 {
-        let prev_version = latest_version - i;
-        if prev_version <= 0 {
+        if versions.is_empty() {
             break;
         }
 
-        match registry_client.get_template(
-            username.to_string(),
-            template_name.to_string(),
-            Some(prev_version),
-        ) {
-            Ok(template) => {
-                versions.push(TemplateVersionInfo {
-                    version: template.principal.version,
-                    description: template.principal.description.clone(),
-                    created_at: template.principal.created_at.clone(),
-                    is_latest: false,
-                });
-            }
-            Err(_) => {
-                // Skip versions that don't exist
-                continue;
-            }
+        // Process this batch
+        let batch_versions: Vec<TemplateVersionInfo> = versions
+            .iter()
+            .map(|v| TemplateVersionInfo {
+                version: v.version,
+                description: v.description.clone(),
+                created_at: v.created_at.clone(),
+                is_latest: false, // We'll set this later
+            })
+            .collect();
+
+        all_versions.extend(batch_versions);
+
+        // Prepare for next batch
+        skip += batch_size;
+
+        // If we got fewer results than the batch size, we're done
+        if versions.len() < batch_size as usize {
+            break;
         }
     }
 
-    // Sort by version descending
-    versions.sort_by(|a, b| b.version.cmp(&a.version));
+    if all_versions.is_empty() {
+        return Err(Box::new(SelectionError(format!(
+            "No versions found for {}/{}",
+            username, template_name
+        ))));
+    }
 
-    Ok(versions)
-}
-
-/// Display and allow selection of a template version
-fn select_template_version<'a>(
-    versions: &'a [TemplateVersionInfo],
-    username: &str,
-    template_name: &str,
-    current_version: i64,
-) -> Result<Option<&'a TemplateVersionInfo>, Box<dyn Error + Send>> {
-    println!(
-        "\n📋 Available versions for {}/{}:",
-        username, template_name
-    );
-
-    let items: Vec<String> = versions
-        .iter()
-        .map(|v| {
-            let latest_tag = if v.is_latest { " (LATEST)" } else { "" };
-            let current_tag = if v.version == current_version {
-                " (CURRENT)"
-            } else {
-                ""
-            };
-            format!(
-                "Version {}{}{}: {}  ({})",
-                v.version, latest_tag, current_tag, v.description, v.created_at
-            )
-        })
-        .collect();
-
-    let prompt = format!(
-        "Select version to upgrade to for {}/{} (ESC to skip)",
-        username, template_name
-    );
-
-    match Select::new(&prompt, items.clone())
-        .with_help_message("↑↓ to move, enter to select, ESC to skip this template")
-        .prompt()
-    {
-        Ok(selected) => {
-            // Find the index of the selected item
-            let index = items.iter().position(|item| item == &selected).unwrap_or(0);
-            Ok(Some(&versions[index]))
-        }
-        Err(_) => {
-            // User cancelled, skip this template
-            Ok(None)
+    // Set is_latest flag on the highest version
+    if let Some(max_version) = all_versions.iter().map(|v| v.version).max() {
+        for version in all_versions.iter_mut() {
+            version.is_latest = version.version == max_version;
         }
     }
+
+    // Sort by version descending (newest first)
+    all_versions.sort_by(|a, b| b.version.cmp(&a.version));
+    Ok(all_versions)
 }
