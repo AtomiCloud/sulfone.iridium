@@ -1,5 +1,4 @@
 use std::error::Error;
-use std::fs;
 use std::path::PathBuf;
 use std::rc::Rc;
 
@@ -11,7 +10,7 @@ use cyancoordinator::fs::{
 };
 use cyancoordinator::operations::{TemplateOperations, TemplateOperator};
 use cyancoordinator::session::SessionIdGenerator;
-use cyancoordinator::state::models::CyanState;
+use cyancoordinator::state::{DefaultStateManager, StateReader};
 use cyancoordinator::template::{DefaultTemplateExecutor, DefaultTemplateHistory};
 use cyanregistry::http::client::CyanRegistryClient;
 use cyanregistry::http::models::template_res::TemplateVersionRes;
@@ -30,24 +29,13 @@ pub fn cyan_update(
     let target_dir = path_buf.as_path();
     println!("📁 Target directory: {:?}", target_dir);
 
-    // Check if the .cyan_state.yaml file exists
+    // Create a StateManager and use it to load the state file
     let state_file_path = target_dir.join(".cyan_state.yaml");
-    if !state_file_path.exists() {
-        return Err(Box::new(std::io::Error::new(
-            std::io::ErrorKind::NotFound,
-            format!(
-                "No .cyan_state.yaml file found in directory: {:?}",
-                target_dir
-            ),
-        )));
-    }
+    let state_manager = DefaultStateManager::new();
 
-    // Read the state file
+    // Read the state file using the StateManager
     println!("🔍 Reading template state from: {:?}", state_file_path);
-    let file =
-        fs::File::open(&state_file_path).map_err(|e| Box::new(e) as Box<dyn Error + Send>)?;
-    let state: CyanState =
-        serde_yaml::from_reader(file).map_err(|e| Box::new(e) as Box<dyn Error + Send>)?;
+    let state = state_manager.load_state_file(&state_file_path)?;
 
     if state.templates.is_empty() {
         println!("⚠️ No templates found in state file");
