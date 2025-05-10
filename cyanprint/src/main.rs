@@ -168,6 +168,7 @@ fn main() -> Result<(), Box<dyn Error + Send>> {
         Commands::Update {
             path,
             coordinator_endpoint,
+            interactive,
         } => {
             let session_id_generator = Box::new(DefaultSessionIdGenerator);
             let coord_client = CyanCoordinatorClient::new(coordinator_endpoint.clone());
@@ -181,6 +182,7 @@ fn main() -> Result<(), Box<dyn Error + Send>> {
                 coord_client.clone(),
                 Rc::clone(&registry_ref),
                 cli.debug,
+                interactive,
             );
 
             match r {

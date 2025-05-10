@@ -58,6 +58,14 @@ pub enum Commands {
             default_value = "http://coord.cyanprint.dev:9000"
         )]
         coordinator_endpoint: String,
+
+        #[arg(
+            short,
+            long,
+            help = "Enable interactive mode to select specific versions",
+            default_value_t = false
+        )]
+        interactive: bool,
     },
 
     #[command(alias = "d", about = "Starts the CyanPrint Coordinator locally daemon")]
