@@ -11,12 +11,14 @@ use cyanregistry::http::client::CyanRegistryClient;
 use crate::commands::{Cli, Commands, PushArgs, PushCommands};
 use crate::coord::start_coordinator;
 use crate::run::cyan_run;
+use crate::update::cyan_update;
 use crate::util::parse_ref;
 
 pub mod commands;
 pub mod coord;
 pub mod errors;
 pub mod run;
+pub mod update;
 pub mod util;
 
 fn main() -> Result<(), Box<dyn Error + Send>> {
@@ -107,7 +109,7 @@ fn main() -> Result<(), Box<dyn Error + Send>> {
             path,
             coordinator_endpoint,
         } => {
-            let session_id_generator = DefaultSessionIdGenerator;
+            let session_id_generator = Box::new(DefaultSessionIdGenerator);
 
             let username = parse_ref(template_ref.clone())
                 .map(|(u, _, _)| u)
@@ -135,7 +137,7 @@ fn main() -> Result<(), Box<dyn Error + Send>> {
                     let registry_ref = Rc::new(registry);
 
                     cyan_run(
-                        &session_id_generator,
+                        session_id_generator,
                         path,
                         tv,
                         coord_client,
@@ -159,6 +161,40 @@ fn main() -> Result<(), Box<dyn Error + Send>> {
                 Err(e) => {
                     eprintln!("🚨 Error: {:#?}", e);
                     println!("✅ No sessions to clean up");
+                }
+            }
+            Ok(())
+        }
+        Commands::Update {
+            path,
+            coordinator_endpoint,
+        } => {
+            let session_id_generator = Box::new(DefaultSessionIdGenerator);
+            let coord_client = CyanCoordinatorClient::new(coordinator_endpoint.clone());
+            let registry_ref = Rc::new(registry);
+
+            println!("🔄 Updating templates to latest versions");
+
+            let r = cyan_update(
+                session_id_generator,
+                path,
+                coord_client.clone(),
+                Rc::clone(&registry_ref),
+                cli.debug,
+            );
+
+            match r {
+                Ok(session_ids) => {
+                    println!("✅ Update completed successfully");
+                    println!("🧹 Cleaning up all sessions...");
+                    for sid in session_ids {
+                        println!("🧹 Cleaning up session: {}", sid);
+                        let _ = coord_client.clean(sid);
+                    }
+                    println!("✅ Cleaned up all sessions");
+                }
+                Err(e) => {
+                    eprintln!("🚨 Error during update: {:#?}", e);
                 }
             }
             Ok(())

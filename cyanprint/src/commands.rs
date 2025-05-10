@@ -43,6 +43,23 @@ pub enum Commands {
         coordinator_endpoint: String,
     },
 
+    #[command(
+        alias = "u",
+        about = "Update all templates in a project to their latest versions"
+    )]
+    Update {
+        #[arg(default_value = ".")]
+        path: String,
+
+        #[arg(
+            short,
+            long,
+            value_name = "COORDINATOR_ENDPOINT",
+            default_value = "http://coord.cyanprint.dev:9000"
+        )]
+        coordinator_endpoint: String,
+    },
+
     #[command(alias = "d", about = "Starts the CyanPrint Coordinator locally daemon")]
     Daemon {
         #[arg(value_name = "COORDINATOR_VERSION", default_value = "latest")]

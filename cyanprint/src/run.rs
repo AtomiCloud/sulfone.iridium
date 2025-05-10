@@ -10,33 +10,14 @@ use cyanregistry::http::client::CyanRegistryClient;
 use cyanregistry::http::models::template_res::TemplateVersionRes;
 
 use cyancoordinator::fs::DefaultVfs;
-use cyancoordinator::session::{DefaultSessionIdGenerator, SessionIdGenerator};
+use cyancoordinator::session::SessionIdGenerator;
 use cyancoordinator::template::DefaultTemplateExecutor;
 use cyancoordinator::template::{DefaultTemplateHistory, TemplateHistory, TemplateUpdateType};
-
-/// Simple wrapper for SessionIdGenerator to pass into the TemplateOperator
-struct SessionIdGeneratorWrapper {
-    delegate: Box<dyn SessionIdGenerator>,
-}
-
-impl SessionIdGeneratorWrapper {
-    fn new(_generator: &dyn SessionIdGenerator) -> Self {
-        // We'll just use a default generator since we're wrapping the behavior
-        let delegate = Box::new(DefaultSessionIdGenerator);
-        Self { delegate }
-    }
-}
-
-impl SessionIdGenerator for SessionIdGeneratorWrapper {
-    fn generate(&self) -> String {
-        self.delegate.generate()
-    }
-}
 
 /// Run the cyan template generation process
 /// Returns all session IDs that were created and need to be cleaned up
 pub fn cyan_run(
-    session_id_generator: &dyn SessionIdGenerator,
+    session_id_generator: Box<dyn SessionIdGenerator>,
     path: Option<String>,
     template: TemplateVersionRes,
     coord_client: CyanCoordinatorClient,
@@ -58,14 +39,13 @@ pub fn cyan_run(
     let writer: Box<dyn cyancoordinator::fs::FileWriter> = Box::new(DiskFileWriter);
 
     // Setup services with explicit dependencies
-    let session_id_generator_box = Box::new(SessionIdGeneratorWrapper::new(session_id_generator));
     let template_history = Box::new(DefaultTemplateHistory::new());
     let template_executor = Box::new(DefaultTemplateExecutor::new(coord_client.endpoint.clone()));
     let vfs = Box::new(DefaultVfs::new(unpacker, loader, merger, writer));
 
     // Create the TemplateOperator with all dependencies
     let template_operator = TemplateOperator::new(
-        session_id_generator_box,
+        session_id_generator,
         template_executor,
         template_history,
         vfs,
