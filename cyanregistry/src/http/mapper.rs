@@ -5,7 +5,12 @@ use crate::http::models::plugin_req::PluginReq;
 use crate::http::models::processor_req::ProcessorReq;
 use crate::http::models::template_req::{PluginRefReq, ProcessorRefReq, TemplateReq};
 
-pub fn processor_req_mapper(r: &CyanProcessorConfig, desc: String, docker_ref: String, docker_tag: String) -> ProcessorReq {
+pub fn processor_req_mapper(
+    r: &CyanProcessorConfig,
+    desc: String,
+    docker_ref: String,
+    docker_tag: String,
+) -> ProcessorReq {
     ProcessorReq {
         name: r.name.clone(),
         project: r.project.clone(),
@@ -20,7 +25,12 @@ pub fn processor_req_mapper(r: &CyanProcessorConfig, desc: String, docker_ref: S
     }
 }
 
-pub fn plugin_req_mapper(r: &CyanPluginConfig, desc: String, docker_ref: String, docker_tag: String) -> PluginReq {
+pub fn plugin_req_mapper(
+    r: &CyanPluginConfig,
+    desc: String,
+    docker_ref: String,
+    docker_tag: String,
+) -> PluginReq {
     PluginReq {
         name: r.name.clone(),
         project: r.project.clone(),
@@ -35,24 +45,29 @@ pub fn plugin_req_mapper(r: &CyanPluginConfig, desc: String, docker_ref: String,
     }
 }
 
-pub fn plugin_ref_req_mapper(r : &CyanPluginRef) -> PluginRefReq {
+pub fn plugin_ref_req_mapper(r: &CyanPluginRef) -> PluginRefReq {
     PluginRefReq {
         username: r.username.clone(),
         name: r.name.clone(),
-        version: r.version.unwrap_or(0),
+        version: r.version,
     }
 }
 
-pub fn processor_ref_req_mapper(r : &CyanProcessorRef) -> ProcessorRefReq {
+pub fn processor_ref_req_mapper(r: &CyanProcessorRef) -> ProcessorRefReq {
     ProcessorRefReq {
         username: r.username.clone(),
         name: r.name.clone(),
-        version: r.version.unwrap_or(0),
+        version: r.version,
     }
 }
 
-pub fn template_req_mapper(r: &CyanTemplateConfig, desc: String, blob_docker_ref: String, blob_docker_tag: String,
-    template_docker_ref: String, template_docker_tag: String
+pub fn template_req_mapper(
+    r: &CyanTemplateConfig,
+    desc: String,
+    blob_docker_ref: String,
+    blob_docker_tag: String,
+    template_docker_ref: String,
+    template_docker_tag: String,
 ) -> TemplateReq {
     TemplateReq {
         name: r.name.clone(),
@@ -67,7 +82,7 @@ pub fn template_req_mapper(r: &CyanTemplateConfig, desc: String, blob_docker_ref
         blob_docker_tag: blob_docker_tag.to_string(),
         template_docker_reference: template_docker_ref.to_string(),
         template_docker_tag: template_docker_tag.to_string(),
-        plugins: r.plugins.iter().map(|p| plugin_ref_req_mapper(p)).collect(),
-        processors: r.processors.iter().map(|p| processor_ref_req_mapper(p)).collect(),
+        plugins: r.plugins.iter().map(plugin_ref_req_mapper).collect(),
+        processors: r.processors.iter().map(processor_ref_req_mapper).collect(),
     }
 }

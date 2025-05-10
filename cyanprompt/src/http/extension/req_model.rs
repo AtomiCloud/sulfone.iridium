@@ -30,4 +30,3 @@ pub struct ExtensionValidateReq {
 
     pub validate: String,
 }
-

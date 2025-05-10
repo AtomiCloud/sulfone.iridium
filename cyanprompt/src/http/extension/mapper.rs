@@ -1,5 +1,7 @@
 use crate::domain::models::extension::input::{ExtensionAnswerInput, ExtensionValidateInput};
-use crate::domain::models::extension::output::{ExtensionFinalOutput, ExtensionOutput, ExtensionQnAOutput};
+use crate::domain::models::extension::output::{
+    ExtensionFinalOutput, ExtensionOutput, ExtensionQnAOutput,
+};
 use crate::http::extension::req_model::{ExtensionAnswerReq, ExtensionValidateReq};
 use crate::http::extension::res_model::ExtensionRes;
 use crate::http::mapper::{ans_req_mapper, cyan_req_mapper, cyan_res_mapper, question_mapper};
@@ -23,19 +25,14 @@ pub fn extension_validate_input_mapper(r: &ExtensionValidateInput) -> ExtensionV
     }
 }
 
-
 pub fn extension_ans_output_mapper(r: ExtensionRes) -> ExtensionOutput {
     match r {
-        ExtensionRes::Qna(qna) => ExtensionOutput::QnA(
-            ExtensionQnAOutput {
-                deterministic_state: qna.deterministic_state.clone(),
-                question: question_mapper(&qna.question),
-            }
-        ),
-        ExtensionRes::Cyan(cyan) => ExtensionOutput::Final(
-            ExtensionFinalOutput {
-                cyan: cyan_res_mapper(cyan.cyan),
-            }
-        )
+        ExtensionRes::Qna(qna) => ExtensionOutput::QnA(ExtensionQnAOutput {
+            deterministic_state: qna.deterministic_state.clone(),
+            question: question_mapper(&qna.question),
+        }),
+        ExtensionRes::Cyan(cyan) => ExtensionOutput::Final(ExtensionFinalOutput {
+            cyan: cyan_res_mapper(cyan.cyan),
+        }),
     }
 }

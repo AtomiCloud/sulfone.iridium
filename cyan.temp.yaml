@@ -9,5 +9,5 @@ tags:
   - typescript
 readme: README.md
 processors:
-  - "ernest/dotnet-handlebar"
+  - 'ernest/dotnet-handlebar'
 plugins: []

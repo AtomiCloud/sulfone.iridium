@@ -1,3 +1,13 @@
+# This is an example .goreleaser.yml file with some sensible defaults.
+# Make sure to check the documentation at https://goreleaser.com
+
+# The lines below are called `modelines`. See `:help modeline`
+# Feel free to remove those if you don't want/need to use them.
+# yaml-language-server: $schema=https://goreleaser.com/static/schema.json
+# vim: set ts=2 sw=2 tw=0 fo=cnqoj
+
+version: 2
+
 project_name: cyanprint
 
 builds:
@@ -6,53 +16,43 @@ builds:
     goos:
       - linux
       - darwin
-      - windows
     goarch:
       - amd64
       - arm64
     binary: cyanprint
-    ignore:
-      - goos: windows
-        goarch: arm64
     hooks:
       post:
-        - ./scripts/build.sh {{ .Arch }} {{ .Os }} {{ .ProjectName }}
+        - ./scripts/goreleaser-shim.sh {{ .Arch }} {{ .Os }} {{ .ProjectName }}
+
+archives:
+  - formats: [tar.gz]
+    # this name template makes the OS and Arch compatible with the results of `uname`.
+    name_template: >-
+      {{ .ProjectName }}_
+      {{- title .Os }}_
+      {{- if eq .Arch "amd64" }}x86_64
+      {{- else if eq .Arch "386" }}i386
+      {{- else }}{{ .Arch }}{{ end }}
+
 brews:
   - name: cyanprint
-    url_template: "https://github.com/AtomiCloud/sulfone.iridium/releases/download/{{ .Tag }}/{{ .ArtifactName }}"
+    url_template: 'https://github.com/AtomiCloud/sulfone.iridium/releases/download/{{ .Tag }}/{{ .ArtifactName }}'
     commit_author:
       name: Ernest Ng
       email: kirinnee97@gmail.com
-    folder: Formula
-    commit_msg_template: "update({{ .ProjectName }}): to {{ .Tag }}"
-    homepage: "https://cyanprint.dev"
-    description: "Next-Generation Language-Agnostic Templating Platform"
+    directory: Formula
+    commit_msg_template: 'update({{ .ProjectName }}): to {{ .Tag }}'
+    homepage: 'https://cyanprint.dev'
+    description: 'Next-Generation Language-Agnostic Templating Platform'
     skip_upload: false
     repository:
       owner: AtomiCloud
       name: homebrew-tap
       branch: main
-      token: "{{ .Env.SCOOP_BREW_TOKEN }}"
-
-#snapcrafts:
-#  - id: cyanprint
-#    builds:
-#      - cyanprint
-#    title: CyanPrint
-#    icon: ./cyanprint.png
-#    publish: true
-#    summary: Next-Generation Language-Agnostic Templating Platform
-#    description: |
-#      CyanPrint is a next-generation language-agnostic templating platform. It is designed to be simple, fast, and extensible. It is built with the following principles in mind:
-#      - **Language Agnostic**: CyanPrint is designed to be used with any language. It is not tied to any language and can be used with any language.
-#      - **Simple**: CyanPrint is designed to be simple to use. It is designed to be easy to use and easy to learn.
-#      - **Lightweight**: CyanPrint is designed to be lightweight. It has 0 dependencies and only takes up 20MB.
-#      - **Extensible**: CyanPrint is designed to be extensible. It is designed to be extensible and can be extended with plugins.
-#    license: MIT
+      token: '{{ .Env.SCOOP_BREW_TOKEN }}'
 
 nfpms:
-  - id: cyanprint
-    vendor: AtomiCloud
+  - vendor: AtomiCloud
     homepage: https://cyanprint.dev/
     maintainer: Ernest Ng <kirinnee97@gmail.com>
 
@@ -61,7 +61,7 @@ nfpms:
       Next-Generation Language-Agnostic Templating Platform
 
     license: MIT
-    builds:
+    ids:
       - cyanprint
     meta: false
     formats:
@@ -70,21 +70,5 @@ nfpms:
       - rpm
       - termux.deb # Since: v1.11
       - archlinux # Since: v1.13
-scoops:
-  - name: cyanprint
-    url_template: "https://github.com/AtomiCloud/sulfone.iridium/releases/download/{{ .Tag }}/{{ .ArtifactName }}"
-    folder: bucket
-    commit_author:
-      name: Ernest Ng
-      email: kirinnee97@gmail.com
-    commit_msg_template: "update({{ .ProjectName }}): to {{ .Tag }}"
-    homepage: "https://cyanprint.dev"
-    description: "Next-Generation Language-Agnostic Templating Platform"
-    skip_upload: false
-    repository:
-      owner: AtomiCloud
-      name: scoop-bucket
-      branch: main
-      token: "{{ .Env.SCOOP_BREW_TOKEN }}"
 checksum:
-  name_template: "checksums.txt"
+  name_template: 'checksums.txt'

@@ -1,12 +1,11 @@
 use std::error::Error;
 use std::fmt;
 
-
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug)]
 pub enum GenericError {
-    ProblemDetails(ProblemDetails)
+    ProblemDetails(ProblemDetails),
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -20,7 +19,6 @@ pub struct ProblemDetails {
     pub data: Option<serde_json::Value>,
 }
 
-
 impl fmt::Display for GenericError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
@@ -30,4 +28,3 @@ impl fmt::Display for GenericError {
 }
 
 impl Error for GenericError {}
-

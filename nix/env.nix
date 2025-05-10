@@ -2,47 +2,37 @@
 with packages;
 {
   system = [
-    coreutils
-    sd
-    bash
-    findutils
-    gnused
+    atomiutils
   ];
 
   dev = [
     pls
     git
-  ];
-
-  infra = [
+    rust
   ];
 
   main = [
     toml-cli
-    nfpm
+    infisical
     goreleaser
     go
-    rust
-    cargo2junit
   ];
 
   lint = [
     # http
     treefmt
-    infisical
     gitlint
     shellcheck
+    hadolint
     sg
   ];
 
   ci = [
-
+    rust
   ];
 
   releaser = [
-    nodejs
     sg
-    npm
   ];
 
 }

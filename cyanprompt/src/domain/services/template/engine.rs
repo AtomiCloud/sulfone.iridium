@@ -3,6 +3,7 @@ use std::process::exit;
 use std::rc::Rc;
 
 use crate::domain::models::answer::Answer;
+use crate::domain::models::question::QuestionTrait;
 use crate::domain::models::template::input::TemplateAnswerInput;
 use crate::domain::models::template::output::TemplateOutput;
 use crate::domain::services::prompter::prompt;
@@ -17,29 +18,45 @@ pub struct TemplateEngine {
 
 impl TemplateEngine {
     pub fn new(client: Rc<dyn CyanRepo>) -> TemplateEngine {
-        TemplateEngine {
-            client,
-        }
+        TemplateEngine { client }
     }
 
-    pub fn start(&self) -> TemplateState {
+    pub fn start_with(
+        &self,
+        initial_answers: Option<HashMap<String, Answer>>,
+        initial_states: Option<HashMap<String, String>>,
+    ) -> TemplateState {
         println!("TemplateEngine started");
         let mut state = TemplateState::QnA();
 
         // Track answer
-        let mut answers: Vec<Answer> = vec![];
-        let mut states: Vec<HashMap<String, String>> = vec![HashMap::new()];
+        let mut answers: HashMap<String, Answer> = initial_answers.unwrap_or_default();
+        let mut state_data: HashMap<String, String> = initial_states.clone().unwrap_or_default();
+        let mut last_question_id: Option<String> = None;
 
         while state.cont() {
             let input = TemplateAnswerInput {
                 answers: answers.clone(),
-                deterministic_states: states.clone(),
+                deterministic_state: state_data.clone(),
             };
-            let result = self.client.prompt_template(input)
+            let result = self
+                .client
+                .prompt_template(input)
                 .and_then(|resp| match resp {
                     TemplateOutput::QnA(q) => {
+                        // Get ID from the Question struct using pattern matching
+                        let question_id = &q.question.id();
+                        last_question_id = Some(question_id.clone());
+
                         let ans = prompt_mapper(&q.question)
-                            .map(|p| add_template_validator(p, Rc::clone(&self.client), answers.clone(), states.clone()))
+                            .map(|p| {
+                                add_template_validator(
+                                    p,
+                                    Rc::clone(&self.client),
+                                    answers.clone(),
+                                    state_data.clone(),
+                                )
+                            })
                             .and_then(|p| prompt(p))
                             // handle responses
                             .map(|x| match x {
@@ -48,15 +65,13 @@ impl TemplateEngine {
                                     if answers.is_empty() {
                                         println!("User aborted! Exiting...");
                                         exit(0)
-                                    } else {
-                                        answers.pop();
-                                        states.pop();
+                                    } else if let Some(last_id) = &last_question_id {
+                                        answers.remove(last_id);
                                     }
                                 }
                                 Some(val) => {
-                                    answers.push(val);
-                                    states = q.deterministic_state;
-                                    states.push(HashMap::new());
+                                    answers.insert(question_id.clone(), val);
+                                    state_data = q.deterministic_state;
                                 }
                             });
                         match ans {
@@ -64,7 +79,9 @@ impl TemplateEngine {
                             Err(err) => Err(err),
                         }
                     }
-                    TemplateOutput::Final(c) => Ok(TemplateState::Complete(c.cyan, answers.clone())),
+                    TemplateOutput::Final(c) => {
+                        Ok(TemplateState::Complete(c.cyan, answers.clone()))
+                    }
                 });
 
             state = match result {

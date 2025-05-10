@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 
-use serde::{Deserialize, Serialize};
 use crate::http::core::cyan_res::CyanRes;
 use crate::http::core::question_res::QuestionRes;
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -27,7 +27,6 @@ pub struct TemplateFinalRes {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TemplateQnARes {
-    pub deterministic_state: Vec<HashMap<String, String>>,
+    pub deterministic_state: HashMap<String, String>,
     pub question: QuestionRes,
 }
-

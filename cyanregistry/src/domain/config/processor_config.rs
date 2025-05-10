@@ -1,7 +1,5 @@
-
 #[derive(Debug, Clone)]
-pub struct CyanProcessorConfig
-{
+pub struct CyanProcessorConfig {
     pub username: String,
 
     pub name: String,
@@ -17,5 +15,4 @@ pub struct CyanProcessorConfig
     pub tags: Vec<String>,
 
     pub readme: String,
-
 }

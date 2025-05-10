@@ -8,7 +8,8 @@ let
       nixpkgs-fmt.enable = true;
       prettier.enable = true;
       shfmt.enable = true;
-      gofmt.enable = true;
+      rustfmt.enable = true;
+      actionlint.enable = true;
     };
   };
 in

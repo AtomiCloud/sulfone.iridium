@@ -1,11 +1,9 @@
-use std::error::Error;
-use rand::distributions::Alphanumeric;
-use rand::Rng;
 use crate::errors::GenericError;
-
+use rand::{distr::Alphanumeric, Rng};
+use std::error::Error;
 
 pub fn generate_session_id() -> String {
-    rand::thread_rng()
+    rand::rng()
         .sample_iter(&Alphanumeric)
         .take(10)
         .map(char::from)
@@ -32,5 +30,6 @@ fn parse_ref_internal(s: String) -> Option<(String, String, Option<i64>)> {
 
 pub fn parse_ref(s: String) -> Result<(String, String, Option<i64>), Box<dyn Error + Send>> {
     let err = s.clone();
-    parse_ref_internal(s).ok_or(Box::new(GenericError::FailedParsingReference(err)) as Box<dyn Error + Send>)
+    parse_ref_internal(s)
+        .ok_or(Box::new(GenericError::FailedParsingReference(err)) as Box<dyn Error + Send>)
 }

@@ -15,4 +15,8 @@ pkg/
 
 dist/
 artifacts
-sample
+sample# Added by goreleaser init:
+.intentionally-empty-file.o
+target/
+sample/
+IncrementalChangelog.md

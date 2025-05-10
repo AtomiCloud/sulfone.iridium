@@ -1,8 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CyanProcessorFileConfig
-{
+pub struct CyanProcessorFileConfig {
     pub username: String,
 
     pub name: String,
@@ -18,5 +17,4 @@ pub struct CyanProcessorFileConfig
     pub tags: Vec<String>,
 
     pub readme: String,
-
 }
