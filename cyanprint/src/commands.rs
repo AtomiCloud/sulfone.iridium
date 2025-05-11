@@ -76,8 +76,14 @@ pub enum Commands {
         #[arg(value_name = "COORDINATOR_VERSION", default_value = "latest")]
         version: String,
 
-        #[arg(value_name = "COORDINATOR_ARCH")]
-        architecture: Option<String>,
+        #[arg(
+            short,
+            long,
+            value_name = "PORT",
+            help = "Port to host the daemon container",
+            default_value = "9000"
+        )]
+        port: u16,
     },
 }
 

@@ -201,10 +201,7 @@ fn main() -> Result<(), Box<dyn Error + Send>> {
             }
             Ok(())
         }
-        Commands::Daemon {
-            version,
-            architecture,
-        } => {
+        Commands::Daemon { version, port } => {
             let docker = Docker::connect_with_local_defaults()
                 .map_err(|e| Box::new(e) as Box<dyn Error + Send>)?;
             tokio::runtime::Builder::new_multi_thread()
@@ -212,25 +209,13 @@ fn main() -> Result<(), Box<dyn Error + Send>> {
                 .build()
                 .unwrap()
                 .block_on(async {
-                    let arch = architecture
-                        .unwrap_or(
-                            if cfg!(target_arch = "arm") || cfg!(target_arch = "aarch64") {
-                                "arm".to_string()
-                            } else {
-                                "amd".to_string()
-                            },
-                        )
-                        .to_string();
-
                     let img = "ghcr.io/atomicloud/sulfone.boron/sulfone-boron".to_string()
-                        + "-"
-                        + arch.as_str()
                         + ":"
                         + version.as_str();
-                    let r = start_coordinator(docker, img).await;
+                    let r = start_coordinator(docker, img, port).await;
                     match r {
                         Ok(_) => {
-                            println!("✅ Coordinator started");
+                            println!("✅ Coordinator started on port {}", port);
                         }
                         Err(e) => {
                             eprintln!("🚨 Error: {:#?}", e);

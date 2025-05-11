@@ -7,7 +7,11 @@ use bollard::Docker;
 use futures_util::stream::StreamExt;
 use futures_util::stream::TryStreamExt;
 
-pub async fn start_coordinator(docker: Docker, img: String) -> Result<(), Box<dyn Error + Send>> {
+pub async fn start_coordinator(
+    docker: Docker,
+    img: String,
+    port: u16,
+) -> Result<(), Box<dyn Error + Send>> {
     let setup = "cyanprint-coordinator-setup";
     let coord = "cyanprint-coordinator";
 
@@ -32,7 +36,7 @@ pub async fn start_coordinator(docker: Docker, img: String) -> Result<(), Box<dy
         String::from("9000/tcp"),
         Some(vec![PortBinding {
             host_ip: None,
-            host_port: Some(String::from("9000")),
+            host_port: Some(port.to_string()),
         }]),
     );
     println!("🔧 Using image to configure the coordinator: {}", img);
