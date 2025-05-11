@@ -21,4 +21,6 @@ pub struct CyanTemplateFileConfig {
     pub processors: Vec<String>,
 
     pub plugins: Vec<String>,
+
+    pub templates: Vec<String>,
 }

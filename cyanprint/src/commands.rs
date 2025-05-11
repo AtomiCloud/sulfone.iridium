@@ -10,7 +10,8 @@ pub struct Cli {
         short,
         long,
         value_name = "REGISTRY_ENDPOINT",
-        default_value = "https://api.zinc.sulfone.raichu.cluster.atomi.cloud"
+        default_value = "https://api.zinc.sulfone.raichu.cluster.atomi.cloud",
+        env = "CYANPRINT_REGISTRY"
     )]
     pub registry: String,
 
@@ -38,7 +39,8 @@ pub enum Commands {
             short,
             long,
             value_name = "COORDINATOR_ENDPOINT",
-            default_value = "http://coord.cyanprint.dev:9000"
+            default_value = "http://coord.cyanprint.dev:9000",
+            env = "CYANPRINT_COORDINATOR"
         )]
         coordinator_endpoint: String,
     },
@@ -55,7 +57,8 @@ pub enum Commands {
             short,
             long,
             value_name = "COORDINATOR_ENDPOINT",
-            default_value = "http://coord.cyanprint.dev:9000"
+            default_value = "http://coord.cyanprint.dev:9000",
+            env = "CYANPRINT_COORDINATOR"
         )]
         coordinator_endpoint: String,
 
@@ -73,8 +76,14 @@ pub enum Commands {
         #[arg(value_name = "COORDINATOR_VERSION", default_value = "latest")]
         version: String,
 
-        #[arg(value_name = "COORDINATOR_ARCH")]
-        architecture: Option<String>,
+        #[arg(
+            short,
+            long,
+            value_name = "PORT",
+            help = "Port to host the daemon container",
+            default_value = "9000"
+        )]
+        port: u16,
     },
 }
 
