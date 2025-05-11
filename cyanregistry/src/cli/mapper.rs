@@ -1,6 +1,7 @@
 use crate::cli::models::plugin_config::CyanPluginFileConfig;
 use serde::de::DeserializeOwned;
 use std::error::Error;
+use std::fs::File;
 use std::{fmt, fs};
 
 use crate::cli::models::processor_config::CyanProcessorFileConfig;
@@ -115,7 +116,7 @@ pub fn read_yaml<T>(config_path: String) -> Result<T, Box<dyn Error + Send>>
 where
     T: DeserializeOwned,
 {
-    let f = std::fs::File::open(config_path).map_err(|e| Box::new(e) as Box<dyn Error + Send>)?;
+    let f = File::open(config_path).map_err(|e| Box::new(e) as Box<dyn Error + Send>)?;
     let d: T = serde_yaml::from_reader(f).map_err(|e| Box::new(e) as Box<dyn Error + Send>)?;
     Ok(d)
 }
