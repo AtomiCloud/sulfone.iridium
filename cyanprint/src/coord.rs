@@ -1,6 +1,9 @@
+use std::collections::HashMap;
 use std::error::Error;
 
-use bollard::container::{Config, CreateContainerOptions, LogsOptions};
+use bollard::container::{
+    Config, CreateContainerOptions, ListContainersOptions, LogsOptions, RemoveContainerOptions,
+};
 use bollard::image::CreateImageOptions;
 use bollard::models::{HostConfig, Mount, MountTypeEnum, PortBinding};
 use bollard::Docker;
@@ -14,6 +17,52 @@ pub async fn start_coordinator(
 ) -> Result<(), Box<dyn Error + Send>> {
     let setup = "cyanprint-coordinator-setup";
     let coord = "cyanprint-coordinator";
+
+    // Check if coordinator is already running
+    println!("🔍 Checking if coordinator is already running...");
+    let containers = docker
+        .list_containers(Some(ListContainersOptions::<String> {
+            all: true, // Include both running and stopped containers
+            filters: {
+                let mut filters = HashMap::new();
+                filters.insert("name".to_string(), vec![coord.to_string()]);
+                filters
+            },
+            ..Default::default()
+        }))
+        .await
+        .map_err(|e| Box::new(e) as Box<dyn Error + Send>)?;
+
+    if !containers.is_empty() {
+        // Check if any container is running
+        let running_containers: Vec<_> = containers
+            .iter()
+            .filter(|c| c.state.as_ref().is_some_and(|s| s == "running"))
+            .collect();
+
+        if !running_containers.is_empty() {
+            println!("✅ Coordinator is already running on port {}.", port);
+            return Ok(());
+        } else {
+            // Container exists but is not running, remove it
+            println!("🧹 Found stopped coordinator container, removing it...");
+            for container in containers {
+                if let Some(id) = &container.id {
+                    docker
+                        .remove_container(
+                            id,
+                            Some(RemoveContainerOptions {
+                                force: false,
+                                ..Default::default()
+                            }),
+                        )
+                        .await
+                        .map_err(|e| Box::new(e) as Box<dyn Error + Send>)?;
+                    println!("✅ Removed stopped container: {}", id);
+                }
+            }
+        }
+    }
 
     let mount = Mount {
         target: Some(if cfg!(windows) {
