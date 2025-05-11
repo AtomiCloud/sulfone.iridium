@@ -44,13 +44,14 @@ fn main() -> Result<(), Box<dyn Error + Send>> {
                 match res {
                     Ok(r) => {
                         println!("Pushed processor successfully");
-                        println!("id: {}", r.id)
+                        println!("id: {}", r.id);
+                        Ok(())
                     }
                     Err(e) => {
-                        eprintln!("Error: {:#?}", e)
+                        eprintln!("Error: {:#?}", e);
+                        Err(e)
                     }
                 }
-                Ok(())
             }
             PushCommands::Template {
                 template_image,
@@ -76,13 +77,14 @@ fn main() -> Result<(), Box<dyn Error + Send>> {
                 match res {
                     Ok(r) => {
                         println!("Pushed template successfully");
-                        println!("id: {}", r.id)
+                        println!("id: {}", r.id);
+                        Ok(())
                     }
                     Err(e) => {
-                        eprintln!("Error: {:#?}", e)
+                        eprintln!("Error: {:#?}", e);
+                        Err(e)
                     }
                 }
-                Ok(())
             }
             PushCommands::Plugin { image, tag } => {
                 let PushArgs {
@@ -95,13 +97,14 @@ fn main() -> Result<(), Box<dyn Error + Send>> {
                 match res {
                     Ok(r) => {
                         println!("Pushed plugin successfully");
-                        println!("id: {}", r.id)
+                        println!("id: {}", r.id);
+                        Ok(())
                     }
                     Err(e) => {
-                        eprintln!("Error: {:#?}", e)
+                        eprintln!("Error: {:#?}", e);
+                        Err(e)
                     }
                 }
-                Ok(())
             }
         },
         Commands::Create {
