@@ -9,6 +9,12 @@ pub struct TemplateVersionPrincipalRes {
     pub version: i64,
     pub created_at: String,
     pub description: String,
+    pub properties: Option<TemplatePropertyRes>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TemplatePropertyRes {
     pub blob_docker_reference: String,
     pub blob_docker_tag: String,
     pub template_docker_reference: String,
@@ -21,6 +27,7 @@ pub struct TemplateVersionRes {
     pub template: TemplatePrincipalRes,
     pub plugins: Vec<PluginVersionPrincipalRes>,
     pub processors: Vec<ProcessorVersionPrincipalRes>,
+    pub templates: Vec<TemplateVersionPrincipalRes>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

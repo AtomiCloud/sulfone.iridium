@@ -1,0 +1,11 @@
+username: ernest
+name: template1
+description: Template1
+project: https://google.com
+source: https://google.com
+email: ernest@atomi.cloud
+tags: []
+readme: cyan/README.MD
+processors: ['ernest/processor1']
+plugins: ['ernest/plugin1']
+templates: []
