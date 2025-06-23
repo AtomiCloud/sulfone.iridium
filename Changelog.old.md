@@ -1,3 +1,12 @@
+## [2.1.0](https://github.com/AtomiCloud/sulfone.iridium/compare/v2.0.0...v2.1.0) (2025-05-10)
+
+
+### ✨ Features ✨
+
+* **default:** allow interactive updates ([dad92d1](https://github.com/AtomiCloud/sulfone.iridium/commit/dad92d14f413c4f7875d6adba43425bd04240f27))
+* **update:** better choice formatting ([13d479d](https://github.com/AtomiCloud/sulfone.iridium/commit/13d479dae5d54807b9a03a8372db8c9a9d20ae25))
+* **update:** new commands to upgrade project's template ([d0f8ce6](https://github.com/AtomiCloud/sulfone.iridium/commit/d0f8ce6ee51c7a5408a97cd924b7cd315c5a645c))
+
 ## [2.0.0](https://github.com/AtomiCloud/sulfone.iridium/compare/v1.10.0...v2.0.0) (2025-05-07)
 
 

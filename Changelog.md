@@ -1,3 +1,24 @@
+## [2.2.0](https://github.com/AtomiCloud/sulfone.iridium/compare/v2.1.0...v2.2.0) (2025-06-23)
+
+
+### ✨ Features ✨
+
+* **http client:** add 3 endpoints to retrieve full version data ([18616c9](https://github.com/AtomiCloud/sulfone.iridium/commit/18616c972957452bf401f7a8d93cba9e72c82c00))
+* **daemon:** allow choosing cyanprint coord daemon port ([c5a5599](https://github.com/AtomiCloud/sulfone.iridium/commit/c5a55998c5eeb0dcfbca679c028aaf70a8970f13))
+* **default:** allow empty model ([661bf5a](https://github.com/AtomiCloud/sulfone.iridium/commit/661bf5ac7e0ba67a6bc52beff517d2b1a534d5c6))
+* allow registry and coordinator be set by env ([183b442](https://github.com/AtomiCloud/sulfone.iridium/commit/183b4422437e8195571f70a0560dde32f33f93c1))
+
+
+### 🐛 Bug Fixes 🐛
+
+* allow non-specification of templates/processor/plugins versions ([2502428](https://github.com/AtomiCloud/sulfone.iridium/commit/25024280e934da772ea5c8811147a84cce52b8f8))
+* **default:** ensure starting daemon is idempotent ([ce885f3](https://github.com/AtomiCloud/sulfone.iridium/commit/ce885f3d130007b4c9c0467db9b7e2bd3987e112))
+
+
+### 🧪 Tests 🧪
+
+* initial setup for e2e for publishing artifacts ([69357d1](https://github.com/AtomiCloud/sulfone.iridium/commit/69357d18a5006f24a0790a7644aa871a7412d7bf))
+
 ## [2.1.0](https://github.com/AtomiCloud/sulfone.iridium/compare/v2.0.0...v2.1.0) (2025-05-10)
 
 
