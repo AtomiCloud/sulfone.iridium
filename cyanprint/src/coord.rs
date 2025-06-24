@@ -1,11 +1,13 @@
 use std::collections::HashMap;
 use std::error::Error;
 
-use bollard::container::{
-    Config, CreateContainerOptions, ListContainersOptions, LogsOptions, RemoveContainerOptions,
+use bollard::models::{
+    ContainerCreateBody, ContainerSummaryStateEnum, HostConfig, Mount, MountTypeEnum, PortBinding,
 };
-use bollard::image::CreateImageOptions;
-use bollard::models::{HostConfig, Mount, MountTypeEnum, PortBinding};
+use bollard::query_parameters::{
+    CreateContainerOptions, CreateImageOptions, ListContainersOptions, LogsOptions,
+    RemoveContainerOptions, StartContainerOptions,
+};
 use bollard::Docker;
 use futures_util::stream::StreamExt;
 use futures_util::stream::TryStreamExt;
@@ -21,12 +23,12 @@ pub async fn start_coordinator(
     // Check if coordinator is already running
     println!("🔍 Checking if coordinator is already running...");
     let containers = docker
-        .list_containers(Some(ListContainersOptions::<String> {
+        .list_containers(Some(ListContainersOptions {
             all: true, // Include both running and stopped containers
             filters: {
                 let mut filters = HashMap::new();
                 filters.insert("name".to_string(), vec![coord.to_string()]);
-                filters
+                Some(filters)
             },
             ..Default::default()
         }))
@@ -37,7 +39,11 @@ pub async fn start_coordinator(
         // Check if any container is running
         let running_containers: Vec<_> = containers
             .iter()
-            .filter(|c| c.state.as_ref().is_some_and(|s| s == "running"))
+            .filter(|c| {
+                c.state
+                    .as_ref()
+                    .is_some_and(|s| *s == ContainerSummaryStateEnum::RUNNING)
+            })
             .collect();
 
         if !running_containers.is_empty() {
@@ -80,7 +86,7 @@ pub async fn start_coordinator(
         ..Default::default()
     };
 
-    let mut port_bindings = ::std::collections::HashMap::new();
+    let mut port_bindings = HashMap::new();
     port_bindings.insert(
         String::from("9000/tcp"),
         Some(vec![PortBinding {
@@ -94,7 +100,7 @@ pub async fn start_coordinator(
         .clone()
         .create_image(
             Some(CreateImageOptions {
-                from_image: img.clone(),
+                from_image: Some(img.clone()),
                 ..Default::default()
             }),
             None,
@@ -109,10 +115,10 @@ pub async fn start_coordinator(
     let network = docker
         .create_container(
             Some(CreateContainerOptions {
-                name: setup.to_string(),
-                platform: None,
+                name: Some(setup.to_string()),
+                ..Default::default()
             }),
-            Config {
+            ContainerCreateBody {
                 image: Some(img.clone()),
                 cmd: Some(vec!["setup".to_string()]),
                 host_config: Some(HostConfig {
@@ -126,10 +132,10 @@ pub async fn start_coordinator(
         .map_err(|e| Box::new(e) as Box<dyn Error + Send>)?
         .id;
     docker
-        .start_container::<String>(&network, None)
+        .start_container(&network, None::<StartContainerOptions>)
         .await
         .map_err(|e| Box::new(e) as Box<dyn Error + Send>)?;
-    let mut streams = docker.logs::<String>(
+    let mut streams = docker.logs(
         setup,
         Some(LogsOptions {
             follow: true,
@@ -142,7 +148,7 @@ pub async fn start_coordinator(
         println!("{:#?}", msg);
     }
     docker
-        .remove_container(setup, None)
+        .remove_container(setup, None::<RemoveContainerOptions>)
         .await
         .map_err(|e| Box::new(e) as Box<dyn Error + Send>)?;
     println!("✅ CyanPrint Coordinator Network Started");
@@ -150,13 +156,13 @@ pub async fn start_coordinator(
     let c = docker
         .create_container(
             Some(CreateContainerOptions {
-                name: coord.to_string(),
-                platform: None,
+                name: Some(coord.to_string()),
+                ..Default::default()
             }),
-            Config {
+            ContainerCreateBody {
                 image: Some(img),
                 exposed_ports: Some(
-                    vec![("9000/tcp".to_string(), ::std::collections::HashMap::new())]
+                    vec![("9000/tcp".to_string(), HashMap::new())]
                         .into_iter()
                         .collect(),
                 ),
@@ -172,7 +178,7 @@ pub async fn start_coordinator(
         .await
         .map_err(|e| Box::new(e) as Box<dyn Error + Send>)?;
     docker
-        .start_container::<String>(&c.id, None)
+        .start_container(&c.id, None::<StartContainerOptions>)
         .await
         .map_err(|e| Box::new(e) as Box<dyn Error + Send>)?;
     Ok(())
