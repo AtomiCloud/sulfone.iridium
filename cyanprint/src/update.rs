@@ -1,16 +1,16 @@
 use std::error::Error;
 use std::fmt;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::rc::Rc;
 
+use chrono;
 use cyancoordinator::client::CyanCoordinatorClient;
-use cyancoordinator::fs::DefaultVfs;
 use cyancoordinator::fs::{DiskFileLoader, DiskFileWriter, GitLikeMerger, TarGzUnpacker};
 use cyancoordinator::operations::{TemplateOperations, TemplateOperator};
-use cyancoordinator::session::SessionIdGenerator;
 use cyancoordinator::state::models::TemplateHistoryEntry;
 use cyancoordinator::state::{DefaultStateManager, StateReader};
 use cyancoordinator::template::{DefaultTemplateExecutor, DefaultTemplateHistory};
+use cyancoordinator::{fs::DefaultVfs, session::SessionIdGenerator};
 use cyanregistry::http::client::CyanRegistryClient;
 use inquire::Select;
 
@@ -36,10 +36,17 @@ pub fn cyan_update(
     debug: bool,
     interactive: bool,
 ) -> Result<Vec<String>, Box<dyn Error + Send>> {
-    // 1. Read state
-    let target_dir = PathBuf::from(&path).as_path().to_owned();
-    println!("📁 Target directory: {:?}", target_dir);
+    let target_dir = Path::new(&path);
 
+    // Create the template operator with all dependencies including registry client
+    let template_operator = create_template_operator(
+        session_id_generator,
+        coord_client,
+        Some(registry_client.clone()),
+        debug,
+    );
+
+    // 1. Read state
     let state_file_path = target_dir.join(".cyan_state.yaml");
     println!("🔍 Reading template state from: {:?}", state_file_path);
     let state = DefaultStateManager::new().load_state_file(&state_file_path)?;
@@ -48,9 +55,6 @@ pub fn cyan_update(
         println!("⚠️ No templates found in state file");
         return Ok(Vec::new());
     }
-
-    // Initialize components
-    let template_operator = create_template_operator(session_id_generator, coord_client, debug);
 
     // 2. Process each template
     state
@@ -78,7 +82,7 @@ pub fn cyan_update(
                 let session_ids = process_template_upgrade(
                     &registry_client,
                     &template_operator,
-                    &target_dir,
+                    target_dir,
                     &username,
                     &template_name,
                     latest_entry,
@@ -91,10 +95,11 @@ pub fn cyan_update(
         )
 }
 
-/// Create and configure a template operator with dependencies
+/// Create a template operator with the given dependencies
 fn create_template_operator(
     session_id_generator: Box<dyn SessionIdGenerator>,
     coord_client: CyanCoordinatorClient,
+    registry_client: Option<Rc<CyanRegistryClient>>,
     debug: bool,
 ) -> TemplateOperator {
     let unpacker = Box::new(TarGzUnpacker);
@@ -111,6 +116,7 @@ fn create_template_operator(
         template_executor,
         template_history,
         vfs,
+        registry_client,
     )
 }
 
@@ -285,26 +291,7 @@ fn perform_upgrade(
             e
         })?;
 
-    // Helper closure for fetching previous template version
-    let get_previous_template = |previous_version: i64| {
-        println!(
-            "🔍 Fetching template '{}/{}:{}' from registry...",
-            username, template_name, previous_version
-        );
-        let result = registry_client.get_template(
-            username.to_string(),
-            template_name.to_string(),
-            Some(previous_version),
-        );
-
-        if result.is_ok() {
-            println!("✅ Retrieved previous template version from registry");
-        }
-
-        result
-    };
-
-    // Perform upgrade
+    // Perform upgrade using the simplified interface
     template_operator
         .upgrade(
             &target_template,
@@ -313,7 +300,6 @@ fn perform_upgrade(
             latest_entry.version,
             latest_entry.answers.clone(),
             latest_entry.deterministic_states.clone(),
-            get_previous_template,
         )
         .inspect(|_session_ids| {
             println!(

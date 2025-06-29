@@ -43,42 +43,18 @@ pub fn cyan_run(
     let template_executor = Box::new(DefaultTemplateExecutor::new(coord_client.endpoint.clone()));
     let vfs = Box::new(DefaultVfs::new(unpacker, loader, merger, writer));
 
-    // Create the TemplateOperator with all dependencies
+    // Create the TemplateOperator with all dependencies including registry client
     let template_operator = TemplateOperator::new(
         session_id_generator,
         template_executor,
         template_history,
         vfs,
+        registry_client,
     );
 
     // Check template history to determine update scenario
     let update_type =
         DefaultTemplateHistory::new().check_template_history(target_dir, &template, &username)?;
-
-    // Helper function to get previous template version
-    let get_previous_template_ver =
-        |previous_version: i64| -> Result<TemplateVersionRes, Box<dyn Error + Send>> {
-            if let Some(registry) = &registry_client {
-                // Fetch the actual previous version from registry
-                let template_name = template.template.name.clone();
-                println!(
-                    "🔍 Fetching template '{}/{}:{}' from registry...",
-                    username, template_name, previous_version
-                );
-                let prev_template = registry.get_template(
-                    username.clone(),
-                    template_name,
-                    Some(previous_version),
-                )?;
-                println!("✅ Retrieved previous template version from registry");
-                Ok(prev_template)
-            } else {
-                // Fallback to modifying the current template if registry client not available
-                let mut prev_template_ver = template.clone();
-                prev_template_ver.principal.version = previous_version;
-                Ok(prev_template_ver)
-            }
-        };
 
     // Handle different update scenarios and collect all session IDs for cleanup
     match update_type {
@@ -99,7 +75,6 @@ pub fn cyan_run(
                 previous_version,
                 previous_answers,
                 previous_states,
-                get_previous_template_ver,
             )
         }
         TemplateUpdateType::RerunTemplate {
@@ -115,7 +90,6 @@ pub fn cyan_run(
                 previous_version,
                 previous_answers,
                 previous_states,
-                get_previous_template_ver,
             )
         }
     }
