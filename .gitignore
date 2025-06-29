@@ -20,3 +20,6 @@ sample# Added by goreleaser init:
 target/
 sample/
 IncrementalChangelog.md
+.env
+.env.*
+.*.env

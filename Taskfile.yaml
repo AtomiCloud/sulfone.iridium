@@ -4,6 +4,9 @@ vars:
   PLATFORM: sulfone
   SERVICE: iridium
 
+dotenv:
+  - .env
+
 tasks:
   build:
     desc: 'Build the binary'
@@ -13,3 +16,11 @@ tasks:
     desc: 'Run the application'
     cmds:
       - cargo run {{.CLI_ARGS}}
+  lint:
+    desc: 'Lint the code'
+    cmds:
+      - pre-commit run --all-files
+  e2e:
+    desc: 'Run the e2e tests'
+    cmds:
+      - ./e2e/e2e.sh
