@@ -16,6 +16,7 @@ pub async fn start_coordinator(
     docker: Docker,
     img: String,
     port: u16,
+    registry: Option<String>,
 ) -> Result<(), Box<dyn Error + Send>> {
     let setup = "cyanprint-coordinator-setup";
     let coord = "cyanprint-coordinator";
@@ -153,6 +154,13 @@ pub async fn start_coordinator(
         .map_err(|e| Box::new(e) as Box<dyn Error + Send>)?;
     println!("✅ CyanPrint Coordinator Network Started");
     println!("⚙️ Starting Coordinator...");
+    let mut coordinator_cmd = vec![];
+    if let Some(registry_url) = registry {
+        coordinator_cmd.push("start".to_string());
+        coordinator_cmd.push("--registry".to_string());
+        coordinator_cmd.push(registry_url);
+    }
+
     let c = docker
         .create_container(
             Some(CreateContainerOptions {
@@ -161,6 +169,11 @@ pub async fn start_coordinator(
             }),
             ContainerCreateBody {
                 image: Some(img),
+                cmd: if coordinator_cmd.is_empty() {
+                    None
+                } else {
+                    Some(coordinator_cmd)
+                },
                 exposed_ports: Some(
                     vec![("9000/tcp".to_string(), HashMap::new())]
                         .into_iter()

@@ -84,6 +84,16 @@ pub enum Commands {
             default_value = "9000"
         )]
         port: u16,
+
+        #[arg(
+            short,
+            long,
+            value_name = "REGISTRY_ENDPOINT",
+            default_value = "https://api.zinc.sulfone.raichu.cluster.atomi.cloud",
+            help = "Registry endpoint for the coordinator to use",
+            env = "CYANPRINT_REGISTRY"
+        )]
+        registry: Option<String>,
     },
 }
 

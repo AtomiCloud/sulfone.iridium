@@ -204,7 +204,11 @@ fn main() -> Result<(), Box<dyn Error + Send>> {
             }
             Ok(())
         }
-        Commands::Daemon { version, port } => {
+        Commands::Daemon {
+            version,
+            port,
+            registry,
+        } => {
             let docker = Docker::connect_with_local_defaults()
                 .map_err(|e| Box::new(e) as Box<dyn Error + Send>)?;
             tokio::runtime::Builder::new_multi_thread()
@@ -215,7 +219,7 @@ fn main() -> Result<(), Box<dyn Error + Send>> {
                     let img = "ghcr.io/atomicloud/sulfone.boron/sulfone-boron".to_string()
                         + ":"
                         + version.as_str();
-                    let r = start_coordinator(docker, img, port).await;
+                    let r = start_coordinator(docker, img, port, registry).await;
                     match r {
                         Ok(_) => {
                             println!("✅ Coordinator started on port {}", port);
