@@ -6,7 +6,7 @@ let buildingPkg = if pkgs-2411.stdenv.isLinux then pkgs.pkgsStatic else pkgs; in
   rustc = packages.rust;
 }).buildRustPackage {
   pname = "cyanprint";
-  version = "2.2.1"; # replace
+  version = "2.3.0"; # replace
   src = ../.;
   nativeBuildInputs = [ pkgs-2411.perl ];
   buildInputs = ([

@@ -1,3 +1,23 @@
+## [2.3.0](https://github.com/AtomiCloud/sulfone.iridium/compare/v2.2.1...v2.3.0) (2025-07-01)
+
+
+### 📜 Documentation 📜
+
+* **LLM.MD:** support for AI ([f413644](https://github.com/AtomiCloud/sulfone.iridium/commit/f4136444aeb7e80e55cf3b265e6c92cf154877b5))
+
+
+### ✨ Features ✨
+
+* allowed empty templates or groups ([ae56bbf](https://github.com/AtomiCloud/sulfone.iridium/commit/ae56bbfd726495e42c8d61c2f5423e9b12f7cc99))
+* working implementation of template groups ([a31165e](https://github.com/AtomiCloud/sulfone.iridium/commit/a31165e718ff13cb08b5976bdb97fb8abcbab70b))
+
+
+### 🐛 Bug Fixes 🐛
+
+* **default:** add e2e file ([b345085](https://github.com/AtomiCloud/sulfone.iridium/commit/b3450856dfddf006720acf450da509a481ca3827))
+* **default:** coordinator not passed to daemon ([11ae2f4](https://github.com/AtomiCloud/sulfone.iridium/commit/11ae2f45f8fdac546d7286595fb49f86bd8381c3))
+* incorrect template for e2e ([1f4dc63](https://github.com/AtomiCloud/sulfone.iridium/commit/1f4dc632b3ae63a43e1f89c86a477724f5bdf400))
+
 ## [2.2.1](https://github.com/AtomiCloud/sulfone.iridium/compare/v2.2.0...v2.2.1) (2025-06-25)
 
 

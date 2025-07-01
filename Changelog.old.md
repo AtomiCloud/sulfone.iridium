@@ -1,3 +1,10 @@
+## [2.2.1](https://github.com/AtomiCloud/sulfone.iridium/compare/v2.2.0...v2.2.1) (2025-06-25)
+
+
+### 🐛 Bug Fixes 🐛
+
+* **bollard:** resolve dependency issue with bollard upgrade ([3b17412](https://github.com/AtomiCloud/sulfone.iridium/commit/3b174122abeb156a0e60c71649d961d9cac8610c))
+
 ## [2.2.0](https://github.com/AtomiCloud/sulfone.iridium/compare/v2.1.0...v2.2.0) (2025-06-23)
 
 
