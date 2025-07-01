@@ -1,6 +1,6 @@
-{ pkgs, pkgs-2411, packages }:
+{ pkgs, pkgs-2505, pkgs-unstable, packages }:
 
-let buildingPkg = if pkgs-2411.stdenv.isLinux then pkgs.pkgsStatic else pkgs; in
+let buildingPkg = if pkgs.stdenv.isLinux then pkgs.pkgsStatic else pkgs; in
 (buildingPkg.makeRustPlatform {
   cargo = packages.rust;
   rustc = packages.rust;
@@ -8,14 +8,10 @@ let buildingPkg = if pkgs-2411.stdenv.isLinux then pkgs.pkgsStatic else pkgs; in
   pname = "cyanprint";
   version = "2.3.0"; # replace
   src = ../.;
-  nativeBuildInputs = [ pkgs-2411.perl ];
+  nativeBuildInputs = [ pkgs-2505.perl ];
   buildInputs = ([
-    pkgs-2411.openssl
-  ] ++ (if pkgs-2411.stdenv.isDarwin then [
-    pkgs-2411.darwin.Security
-    pkgs-2411.darwin.apple_sdk.frameworks.Security
-    pkgs-2411.darwin.apple_sdk.frameworks.SystemConfiguration
-  ] else [ ]));
+    pkgs-2505.openssl
+  ]);
 
   cargoLock.lockFile = ../Cargo.lock;
 }

@@ -37,7 +37,7 @@ impl UpdateOrchestrator {
 
         // 1. Read state
         let state_file_path = target_dir.join(".cyan_state.yaml");
-        println!("🔍 Reading template state from: {:?}", state_file_path);
+        println!("🔍 Reading template state from: {state_file_path:?}");
         let state = DefaultStateManager::new().load_state_file(&state_file_path)?;
 
         if state.templates.is_empty() {
@@ -60,7 +60,7 @@ impl UpdateOrchestrator {
                 parse_template_key(template_key)
                     .map(|(username, template_name)| (username, template_name, latest_entry))
                     .or_else(|| {
-                        println!("⚠️ Invalid template key format: {}", template_key);
+                        println!("⚠️ Invalid template key format: {template_key}");
                         None
                     })
             })

@@ -1,4 +1,4 @@
-use rand::{distr::Alphanumeric, Rng};
+use rand::{Rng, distr::Alphanumeric};
 
 /// Trait for generating session IDs
 pub trait SessionIdGenerator {

@@ -62,8 +62,7 @@ pub fn fetch_all_template_versions(
 
     if all_versions.is_empty() {
         return Err(Box::new(SelectionError(format!(
-            "No versions found for {}/{}",
-            username, template_name
+            "No versions found for {username}/{template_name}"
         ))));
     }
 
@@ -86,10 +85,7 @@ pub fn select_version_interactive(
     current_version: i64,
     versions: &[TemplateVersionInfo],
 ) -> Result<i64, Box<dyn Error + Send>> {
-    println!(
-        "\n📋 Available versions for {}/{}:",
-        username, template_name
-    );
+    println!("\n📋 Available versions for {username}/{template_name}:");
 
     let version_options = versions
         .iter()
@@ -112,16 +108,14 @@ pub fn select_version_interactive(
         })
         .collect::<Vec<_>>();
 
-    let prompt = format!(
-        "Select version to upgrade to for {}/{} (ESC to skip)",
-        username, template_name
-    );
+    let prompt =
+        format!("Select version to upgrade to for {username}/{template_name} (ESC to skip)");
 
     Select::new(&prompt, version_options.clone())
         .with_help_message("↑↓ to move, enter to select, ESC to skip this template")
         .prompt()
         .map_err(|e| {
-            Box::new(SelectionError(format!("Selection cancelled: {}", e))) as Box<dyn Error + Send>
+            Box::new(SelectionError(format!("Selection cancelled: {e}"))) as Box<dyn Error + Send>
         })
         .and_then(
             |selected| match version_options.iter().position(|item| item == &selected) {

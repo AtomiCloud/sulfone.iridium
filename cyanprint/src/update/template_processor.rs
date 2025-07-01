@@ -31,7 +31,7 @@ impl TemplateProcessor {
         let all_versions = fetch_all_template_versions(registry_client, username, template_name)?;
 
         if all_versions.is_empty() {
-            println!("⚠️ No versions found for {}/{}", username, template_name);
+            println!("⚠️ No versions found for {username}/{template_name}");
             return Ok(Vec::new());
         }
 

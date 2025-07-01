@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::error::Error;
 
+use bollard::Docker;
 use bollard::models::{
     ContainerCreateBody, ContainerSummaryStateEnum, HostConfig, Mount, MountTypeEnum, PortBinding,
 };
@@ -8,7 +9,6 @@ use bollard::query_parameters::{
     CreateContainerOptions, CreateImageOptions, ListContainersOptions, LogsOptions,
     RemoveContainerOptions, StartContainerOptions,
 };
-use bollard::Docker;
 use futures_util::stream::StreamExt;
 use futures_util::stream::TryStreamExt;
 
@@ -48,7 +48,7 @@ pub async fn start_coordinator(
             .collect();
 
         if !running_containers.is_empty() {
-            println!("✅ Coordinator is already running on port {}.", port);
+            println!("✅ Coordinator is already running on port {port}.");
             return Ok(());
         } else {
             // Container exists but is not running, remove it
@@ -65,7 +65,7 @@ pub async fn start_coordinator(
                         )
                         .await
                         .map_err(|e| Box::new(e) as Box<dyn Error + Send>)?;
-                    println!("✅ Removed stopped container: {}", id);
+                    println!("✅ Removed stopped container: {id}");
                 }
             }
         }
@@ -95,7 +95,7 @@ pub async fn start_coordinator(
             host_port: Some(port.to_string()),
         }]),
     );
-    println!("🔧 Using image to configure the coordinator: {}", img);
+    println!("🔧 Using image to configure the coordinator: {img}");
     println!("⏬ Pulling image...");
     docker
         .clone()
@@ -146,7 +146,7 @@ pub async fn start_coordinator(
         }),
     );
     while let Some(msg) = streams.next().await {
-        println!("{:#?}", msg);
+        println!("{msg:#?}");
     }
     docker
         .remove_container(setup, None::<RemoveContainerOptions>)

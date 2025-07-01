@@ -254,10 +254,7 @@ impl CompositionOperator {
         previous_answers: HashMap<String, Answer>,
         previous_states: HashMap<String, String>,
     ) -> Result<Vec<String>, Box<dyn Error + Send>> {
-        println!(
-            "🔄 Re-running template composition (same version {})",
-            previous_version
-        );
+        println!("🔄 Re-running template composition (same version {previous_version})");
 
         // Same as upgrade but use fresh Q&A for current execution
         let previous_template =

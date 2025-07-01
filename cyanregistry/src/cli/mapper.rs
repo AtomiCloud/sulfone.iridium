@@ -94,13 +94,13 @@ impl fmt::Display for ParsingError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             ParsingError::FailedParsingPluginReference(s) => {
-                write!(f, "Incorrect Plugin Reference: {}", s)
+                write!(f, "Incorrect Plugin Reference: {s}")
             }
             ParsingError::FailedParsingProcessorReference(s) => {
-                write!(f, "Incorrect Processor Reference: {}", s)
+                write!(f, "Incorrect Processor Reference: {s}")
             }
             ParsingError::FailedParsingTemplateReference(s) => {
-                write!(f, "Incorrect Template Reference: {}", s)
+                write!(f, "Incorrect Template Reference: {s}")
             }
         }
     }

@@ -141,7 +141,7 @@ impl TemplateExecutor for DefaultTemplateExecutor {
         let template_id = template.principal.id.clone();
 
         // Setup Template Engine
-        let template_endpoint = format!("{}/proxy/template/{}", coord_endpoint, template_id);
+        let template_endpoint = format!("{coord_endpoint}/proxy/template/{template_id}");
         let answers_clone = answers.cloned();
         let states_clone = deterministic_states.cloned();
         let self_clone = self.clone();
@@ -183,7 +183,7 @@ impl TemplateExecutor for DefaultTemplateExecutor {
                 Ok(c.clone())
             }
             TemplateState::Err(ref e) => {
-                println!("Error: {}", e);
+                println!("Error: {e}");
                 Err(Box::new(GenericError::ProblemDetails(
                     crate::errors::ProblemDetails {
                         title: "🚨 Template Prompting Error".to_string(),
