@@ -128,6 +128,8 @@ pub enum PushCommands {
 
         template_tag: String,
     },
+    #[command(about = "Push a template group (meta-template that combines other templates)")]
+    Group,
     Plugin {
         image: String,
 

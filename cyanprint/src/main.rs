@@ -76,12 +76,33 @@ fn main() -> Result<(), Box<dyn Error + Send>> {
                 );
                 match res {
                     Ok(r) => {
-                        println!("Pushed template successfully");
-                        println!("id: {}", r.id);
+                        println!("✅ Pushed template successfully");
+                        println!("📦 Template ID: {}", r.id);
                         Ok(())
                     }
                     Err(e) => {
-                        eprintln!("Error: {:#?}", e);
+                        eprintln!("❌ Error: {:#?}", e);
+                        Err(e)
+                    }
+                }
+            }
+            PushCommands::Group => {
+                let PushArgs {
+                    config,
+                    token,
+                    message,
+                    ..
+                } = push_arg;
+                println!("🔗 Pushing template group (no Docker artifacts)...");
+                let res = registry.push_template_without_properties(config, token, message);
+                match res {
+                    Ok(r) => {
+                        println!("✅ Pushed template group successfully");
+                        println!("📦 Template ID: {}", r.id);
+                        Ok(())
+                    }
+                    Err(e) => {
+                        eprintln!("❌ Error pushing template group: {:#?}", e);
                         Err(e)
                     }
                 }

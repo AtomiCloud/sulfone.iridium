@@ -41,6 +41,21 @@ impl CompositionOperator {
         let mut all_session_ids = Vec::new();
 
         for template in templates {
+            // Check if template has execution artifacts (properties field)
+            if template.principal.properties.is_none() {
+                println!(
+                    "⏭️ Skipping template: {}/{} (v{}) - no execution artifacts (group template)",
+                    template.template.name,
+                    template.template.name, // TODO: Need username
+                    template.principal.version
+                );
+                // Update execution order tracking even for skipped templates
+                shared_state
+                    .execution_order
+                    .push(template.principal.id.clone());
+                continue;
+            }
+
             println!(
                 "🚀 Executing template: {}/{} (v{})",
                 template.template.name,
@@ -72,7 +87,13 @@ impl CompositionOperator {
         }
 
         // Layer all VFS outputs (later templates overwrite earlier ones)
-        let layered_vfs = self.vfs_layerer.layer_merge(&vfs_outputs)?;
+        let layered_vfs = if vfs_outputs.is_empty() {
+            // No templates produced output (all were group templates)
+            println!("ℹ️ No execution artifacts produced - all templates were group templates");
+            VirtualFileSystem::new()
+        } else {
+            self.vfs_layerer.layer_merge(&vfs_outputs)?
+        };
 
         Ok((layered_vfs, shared_state, all_session_ids))
     }

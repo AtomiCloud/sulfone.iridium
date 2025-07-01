@@ -155,6 +155,48 @@ Located in `.github/workflows/`:
 4. **Don't commit without testing**: Always verify changes work
 5. **Don't bypass pre-commit hooks**: They enforce quality standards
 
+## Template Push Commands
+
+CyanPrint supports two types of template publishing:
+
+### Full Templates (with Docker artifacts)
+```bash
+# Push template with blob and template Docker images (positional arguments)
+cyanprint push template "myuser/mytemplate-blob" "v1.0.0" "myuser/mytemplate-script" "v1.0.0"
+```
+
+### Template Groups (no Docker artifacts)
+```bash
+# Push template group using dedicated command
+cyanprint push group
+```
+
+**Template groups** are meta-templates that:
+- Have no Docker artifacts of their own  
+- Combine multiple other templates through `templates:` dependencies in `cyan.yaml`
+- Use the composition system to orchestrate template execution
+- Are perfect for creating project archetypes that combine existing templates
+
+**Template Group Execution**:
+- The system automatically detects templates without execution artifacts (`properties: null`)
+- Group templates are skipped during execution but tracked in the execution order
+- Only dependency templates with artifacts are actually executed
+- If all templates in a composition are groups, an empty VFS is created
+
+Example `cyan.yaml` for template group:
+```yaml
+username: myuser
+name: full-stack-app
+description: Complete full-stack application template
+# ... metadata ...
+processors: []
+plugins: []
+templates:
+  - 'myuser/frontend-template'
+  - 'myuser/backend-template'
+  - 'myuser/database-template'
+```
+
 ## Quick Reference Commands
 
 ```bash
@@ -171,6 +213,17 @@ cargo build --release
 cargo test
 cargo clippy --all-targets --all-features -- -D warnings
 ```
+
+## Template Type Detection
+
+The system automatically detects template types for optimal execution:
+
+1. **Single Template**: No dependencies + has execution artifacts → Single template execution
+2. **Composition Template**: Has dependencies + has execution artifacts → Composition execution (executes all)
+3. **Group Template**: Has dependencies + no execution artifacts → Composition execution (skips root)
+4. **Invalid Template**: No dependencies + no execution artifacts → Error (must have either dependencies or artifacts)
+
+This detection ensures group templates work seamlessly with the existing composition system.
 
 ## Environment Variables
 

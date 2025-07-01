@@ -31,4 +31,7 @@ echo "🔍 Publishing templates..."
 ./e2e/publish-template.sh ./e2e/template2 template2
 ./e2e/publish-template.sh ./e2e/template3 template3
 
+echo "🔍 Publishing group..."
+./e2e/publish-group.sh ./e2e/template4 template4
+
 echo "✅ Done"

@@ -17,6 +17,16 @@ use cyancoordinator::session::SessionIdGenerator;
 use cyancoordinator::template::DefaultTemplateExecutor;
 use cyancoordinator::template::{DefaultTemplateHistory, TemplateHistory, TemplateUpdateType};
 
+/// Check if a template has execution artifacts (Docker properties)
+fn has_execution_artifacts(template: &TemplateVersionRes) -> bool {
+    template.principal.properties.is_some()
+}
+
+/// Check if a template has dependencies  
+fn has_dependencies(template: &TemplateVersionRes) -> bool {
+    !template.templates.is_empty()
+}
+
 /// Run the cyan template generation process with automatic composition detection
 /// Returns all session IDs that were created and need to be cleaned up
 pub fn cyan_run(
@@ -59,9 +69,19 @@ pub fn cyan_run(
     let update_type =
         DefaultTemplateHistory::new().check_template_history(target_dir, &template, &username)?;
 
-    // Auto-detect if template has dependencies and use appropriate execution path
-    if template.templates.is_empty() {
-        println!("📦 Template has no dependencies - using single template execution");
+    // Auto-detect template type and use appropriate execution path
+    if !has_dependencies(&template) {
+        // Single template (no dependencies)
+        if has_execution_artifacts(&template) {
+            println!(
+                "📦 Single template with execution artifacts - using single template execution"
+            );
+        } else {
+            return Err(Box::new(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "Invalid template: no dependencies and no execution artifacts. Templates must have either dependencies or execution artifacts."
+            )) as Box<dyn Error + Send>);
+        }
 
         // Handle different update scenarios for single templates
         match update_type {
@@ -94,10 +114,18 @@ pub fn cyan_run(
             ),
         }
     } else {
-        println!(
-            "🔗 Template has {} dependencies - using composition execution",
-            template.templates.len()
-        );
+        // Template with dependencies (composition)
+        if has_execution_artifacts(&template) {
+            println!(
+                "🔗 Template with {} dependencies and execution artifacts - using composition execution",
+                template.templates.len()
+            );
+        } else {
+            println!(
+                "🔗 Template group with {} dependencies (no execution artifacts) - using composition execution",
+                template.templates.len()
+            );
+        }
 
         // Create composition-specific components
         let dependency_resolver = Box::new(DefaultDependencyResolver::new(registry_client.clone()));
