@@ -10,15 +10,17 @@ use cyanregistry::http::client::CyanRegistryClient;
 
 use crate::commands::{Cli, Commands, PushArgs, PushCommands};
 use crate::coord::start_coordinator;
-use crate::run::cyan_run;
-use crate::update::cyan_update;
+use crate::run_composition::cyan_run_auto;
+use crate::update_composition::cyan_update_auto;
 use crate::util::parse_ref;
 
 pub mod commands;
 pub mod coord;
 pub mod errors;
 pub mod run;
+pub mod run_composition;
 pub mod update;
+pub mod update_composition;
 pub mod util;
 
 fn main() -> Result<(), Box<dyn Error + Send>> {
@@ -139,13 +141,13 @@ fn main() -> Result<(), Box<dyn Error + Send>> {
                     let coord_client = CyanCoordinatorClient::new(coordinator_endpoint.clone());
                     let registry_ref = Rc::new(registry);
 
-                    cyan_run(
+                    cyan_run_auto(
                         session_id_generator,
                         path,
                         tv,
                         coord_client,
                         username.clone(),
-                        Some(Rc::clone(&registry_ref)),
+                        Rc::clone(&registry_ref),
                         cli.debug,
                     )
                 });
@@ -179,7 +181,7 @@ fn main() -> Result<(), Box<dyn Error + Send>> {
 
             println!("🔄 Updating templates to latest versions");
 
-            let r = cyan_update(
+            let r = cyan_update_auto(
                 session_id_generator,
                 path,
                 coord_client.clone(),

@@ -42,7 +42,7 @@ pub fn cyan_update(
     let template_operator = create_template_operator(
         session_id_generator,
         coord_client,
-        Some(registry_client.clone()),
+        registry_client.clone(),
         debug,
     );
 
@@ -99,7 +99,7 @@ pub fn cyan_update(
 fn create_template_operator(
     session_id_generator: Box<dyn SessionIdGenerator>,
     coord_client: CyanCoordinatorClient,
-    registry_client: Option<Rc<CyanRegistryClient>>,
+    registry_client: Rc<CyanRegistryClient>,
     debug: bool,
 ) -> TemplateOperator {
     let unpacker = Box::new(TarGzUnpacker);
@@ -192,7 +192,7 @@ fn process_template_upgrade(
 }
 
 /// Let user select a version interactively
-fn select_version_interactive(
+pub fn select_version_interactive(
     username: &str,
     template_name: &str,
     current_version: i64,
@@ -246,7 +246,7 @@ fn select_version_interactive(
 }
 
 /// Format date string into a more friendly format with local timezone
-fn format_friendly_date(date_str: &str) -> String {
+pub fn format_friendly_date(date_str: &str) -> String {
     // Try to parse the date string
     // Assuming format like "2023-04-25T15:30:45Z" or similar ISO format
     if let Ok(datetime) = chrono::DateTime::parse_from_rfc3339(date_str) {
@@ -314,22 +314,22 @@ fn perform_upgrade(
 }
 
 /// Parse template key into username and template name
-fn parse_template_key(template_key: &str) -> Option<(String, String)> {
+pub fn parse_template_key(template_key: &str) -> Option<(String, String)> {
     let parts: Vec<&str> = template_key.split('/').collect();
     (parts.len() == 2).then(|| (parts[0].to_string(), parts[1].to_string()))
 }
 
 /// Template version information for display in interactive mode
 #[derive(Clone)]
-struct TemplateVersionInfo {
-    version: i64,
-    description: String,
-    created_at: String,
-    is_latest: bool,
+pub struct TemplateVersionInfo {
+    pub version: i64,
+    pub description: String,
+    pub created_at: String,
+    pub is_latest: bool,
 }
 
 /// Fetch all versions for a template in one go
-fn fetch_all_template_versions(
+pub fn fetch_all_template_versions(
     registry_client: &CyanRegistryClient,
     username: &str,
     template_name: &str,

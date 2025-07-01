@@ -29,5 +29,6 @@ echo "🔍 Publishing plugins..."
 echo "🔍 Publishing templates..."
 ./e2e/publish-template.sh ./e2e/template1 template1
 ./e2e/publish-template.sh ./e2e/template2 template2
+./e2e/publish-template.sh ./e2e/template3 template3
 
 echo "✅ Done"

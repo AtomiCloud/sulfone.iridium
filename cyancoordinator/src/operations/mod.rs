@@ -11,6 +11,8 @@ use crate::template::{TemplateExecutor, TemplateHistory};
 use cyanregistry::http::client::CyanRegistryClient;
 use cyanregistry::http::models::template_res::TemplateVersionRes;
 
+pub mod composition;
+
 /// Trait defining operations that can be performed on templates
 pub trait TemplateOperations {
     /// Create a new project from a template
@@ -50,7 +52,7 @@ pub struct TemplateOperator {
     pub template_executor: Box<dyn TemplateExecutor>,
     pub template_history: Box<dyn TemplateHistory>,
     pub vfs: Box<dyn Vfs>,
-    pub registry_client: Option<Rc<CyanRegistryClient>>,
+    pub registry_client: Rc<CyanRegistryClient>,
 }
 
 impl TemplateOperator {
@@ -60,7 +62,7 @@ impl TemplateOperator {
         template_executor: Box<dyn TemplateExecutor>,
         template_history: Box<dyn TemplateHistory>,
         vfs: Box<dyn Vfs>,
-        registry_client: Option<Rc<CyanRegistryClient>>,
+        registry_client: Rc<CyanRegistryClient>,
     ) -> Self {
         Self {
             session_id_generator,
@@ -78,26 +80,18 @@ impl TemplateOperator {
         username: &str,
         previous_version: i64,
     ) -> Result<TemplateVersionRes, Box<dyn Error + Send>> {
-        if let Some(registry) = &self.registry_client {
-            // Fetch the actual previous version from registry
-            let template_name = template.template.name.clone();
-            println!(
-                "🔍 Fetching template '{}/{}:{}' from registry...",
-                username, template_name, previous_version
-            );
-            let prev_template = registry.get_template(
-                username.to_string(),
-                template_name,
-                Some(previous_version),
-            )?;
-            println!("✅ Retrieved previous template version from registry");
-            Ok(prev_template)
-        } else {
-            // Fallback to modifying the current template if registry client not available
-            let mut prev_template_ver = template.clone();
-            prev_template_ver.principal.version = previous_version;
-            Ok(prev_template_ver)
-        }
+        let registry = &self.registry_client;
+
+        // Fetch the actual previous version from registry
+        let template_name = template.template.name.clone();
+        println!(
+            "🔍 Fetching template '{}/{}:{}' from registry...",
+            username, template_name, previous_version
+        );
+        let prev_template =
+            registry.get_template(username.to_string(), template_name, Some(previous_version))?;
+        println!("✅ Retrieved previous template version from registry");
+        Ok(prev_template)
     }
 }
 
