@@ -60,4 +60,4 @@ jobs:
       # Build and Push Shell
       - name: Build and Push Shell
         if: ${{ matrix.platform.enabled }}
-        run: nix develop .#ci -c scripts/ci/cache-shell.sh "${{ inputs.cache }}"
+        run: nix develop .#ci -c scripts/cache-shell.sh "${{ inputs.cache }}"
