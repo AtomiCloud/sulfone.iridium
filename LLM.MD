@@ -482,178 +482,150 @@ templates:
 ## Recursive Template Composition System
 
 ### Architecture Overview
+The system implements recursive template composition with the following key components:
 
-The composition system extends the single-template execution to support **recursive template dependencies** with shared state and VFS layering. The system is organized into clean, focused modules for maintainability.
+**Core Modules** (in `cyancoordinator/src/operations/composition/`):
+- `state.rs` - CompositionState for shared answers and deterministic states with type conflict detection
+- `resolver.rs` - DependencyResolver for post-order traversal with deterministic ordering (sorted by ID)
+- `layerer.rs` - VfsLayerer for merging multiple VFS outputs (later overwrites earlier)
+- `operator.rs` - CompositionOperator main orchestrator for create/upgrade/rerun operations
 
-### Module Structure
+### Unified Execution System
+**IMPORTANT**: The system now uses a unified approach without ugly if-else logic:
 
-```
-cyancoordinator/src/operations/composition/
-├── mod.rs              # Module exports and re-exports (9 lines)
-├── state.rs            # CompositionState - shared state management (50 lines)
-├── resolver.rs         # DependencyResolver - post-order traversal (90 lines)
-├── layerer.rs          # VfsLayerer - VFS merging logic (33 lines)
-└── operator.rs         # CompositionOperator - main orchestration (273 lines)
-```
+#### Run Operations (`cyanprint/src/run.rs`)
+- **Single entry point**: `cyan_run()` function handles both single templates and compositions
+- **Auto-detection**: Automatically detects dependencies via `template.templates.is_empty()`
+- **Unified logic**: Creates appropriate operators (TemplateOperator vs CompositionOperator) internally
+- **No external if-else**: Callers simply call `cyan_run()` regardless of template type
 
-**Total: 455 lines across 5 focused files** - each module has a single responsibility and clean boundaries for maintainability.
-
-### Key Components
-
-#### **CompositionOperator**
-```rust
-pub struct CompositionOperator {
-    template_operator: TemplateOperator,        // Core single-template logic
-    dependency_resolver: Box<dyn DependencyResolver>,  // Post-order traversal
-    vfs_layerer: Box<dyn VfsLayerer>,          // Multi-VFS merging
-}
-```
-
-#### **DependencyResolver** 
-- **Input**: Root `TemplateVersionRes`
-- **Process**: Post-order traversal of `template.templates` dependencies
-- **Output**: Flattened execution order `Vec<TemplateVersionRes>`
-- **Resolution**: Uses `registry.get_template_version_by_id()` for each dependency
-
-#### **CompositionState**
-```rust
-pub struct CompositionState {
-    pub shared_answers: HashMap<String, Answer>,        // Global Q&A state
-    pub shared_deterministic_states: HashMap<String, String>,  // Global template state
-    pub execution_order: Vec<String>,                   // Execution tracking
-}
-```
-
-#### **VfsLayerer**
-- **Input**: Multiple `VirtualFileSystem` outputs from template executions
-- **Process**: Sequential layering (later templates overwrite earlier)
-- **Output**: Single layered `VirtualFileSystem`
-- **Precedence**: Root template has highest priority
+#### Update Operations (`cyanprint/src/update.rs`)
+- **Single entry point**: `cyan_update()` function handles both single templates and compositions
+- **Composition-first**: Always uses CompositionOperator since it can handle both cases
+- **Unified logic**: All helper functions (`create_composition_operator`, `process_template_upgrade`, `perform_upgrade`) use CompositionOperator
+- **No external if-else**: Callers simply call `cyan_update()` regardless of template type
 
 ### Execution Flow
-
-#### **1. Dependency Resolution**
-```rust
-// Example: Template A depends on [B, C], B depends on [D]
-// Post-order result: [D, B, C, A]
-let templates = dependency_resolver.resolve_dependencies(&root_template)?;
-```
-
-#### **2. Sequential Execution with State Sharing**
-```rust
-for template in templates {
-    // Each template inherits all previous answers/states
-    let (archive, state, session_id) = executor.execute_template(
-        template, 
-        &session_id,
-        Some(&shared_state.shared_answers),      // Inherited answers
-        Some(&shared_state.shared_deterministic_states), // Inherited state
-    )?;
-    
-    // Update shared state for next template
-    shared_state.update_from_template_state(&state, template.id);
-    vfs_outputs.push(vfs.unpack_archive(archive)?);
-}
-```
-
-#### **3. VFS Layering**
-```rust
-// Layer VFS outputs: [D_vfs, B_vfs, C_vfs, A_vfs]
-// Result: A_vfs overwrites C_vfs overwrites B_vfs overwrites D_vfs
-let layered_vfs = vfs_layerer.layer_merge(&vfs_outputs)?;
-```
-
-#### **4. Final 3-way Merge**
-```rust
-// Same as single template - layer replaces "incoming"
-let merged = vfs.merge(&base_vfs, &local_vfs, &layered_vfs)?;
-```
+1. **Dependency Resolution**: Post-order traversal with deterministic sorting by template ID
+2. **Sequential Execution**: Execute templates in resolved order, sharing state
+3. **VFS Layering**: Layer all VFS outputs (later templates overwrite earlier)
+4. **Final Merge**: 3-way merge with local files and write to disk
 
 ### Session Management
+- **New composition**: N sessions (one per template in dependency tree)
+- **Upgrade composition**: 2N sessions (previous + current versions)
+- **All sessions returned**: For fire-and-forget cleanup
 
-#### **New Composition**: N sessions
-- One session per template in execution order
-- Example: Template with 4 dependencies = 4 sessions
+### Key Features
+- ✅ **No depth limit, no circular dependency detection** (as per user requirements)
+- ✅ **Deterministic execution order** (post-order traversal, sorted by dependency ID)
+- ✅ **Type conflict detection** with abort on mismatch
+- ✅ **VFS layering** with overwrite behavior
+- ✅ **Unified interface** without external if-else logic
+- ✅ **Backward compatibility** with existing single template workflows
 
-#### **Upgrade Composition**: 2N sessions  
-- N sessions for previous composition recreation
-- N sessions for current composition execution
-- Example: Template with 4 dependencies = 8 sessions total
+### Removed Files
+- `run_composition.rs` - Functionality merged into `run.rs`
+- `update_composition.rs` - Functionality merged into `update.rs`
 
-#### **Rerun Composition**: 2N sessions
-- Same as upgrade but current composition uses fresh Q&A
+The system maintains full backward compatibility while providing a clean, unified interface for both single templates and complex dependency graphs.
 
-### Integration Points
+## Modular Update System Architecture
 
-#### **Auto-Detection**
+### Overview
+The update system has been refactored from a monolithic 412-line file into a clean, modular architecture with focused responsibilities:
+
+```
+cyanprint/src/update/
+├── utils.rs              # Helper functions and error types (19 lines)
+├── operator_factory.rs   # Operator creation factory (45 lines)
+├── upgrade_executor.rs   # Actual upgrade execution (74 lines)
+├── template_processor.rs # Individual template processing (84 lines)
+├── orchestrator.rs       # Main orchestration logic (106 lines)
+└── version_manager.rs    # Version fetching and selection (149 lines)
+```
+
+**Main update.rs**: Now only 40 lines including the public `cyan_update` API function
+
+### Module Responsibilities
+
+#### **utils.rs** (19 lines)
+- `SelectionError` - Custom error type for user selection errors
+- `parse_template_key()` - Parses template keys into username/template name pairs
+- Common utility functions used across the update system
+
+#### **operator_factory.rs** (45 lines)
+- `OperatorFactory` - Factory for creating composition operators
+- `create_composition_operator()` - Creates operators with all dependencies
+- Handles dependency injection for VFS, executors, and registry clients
+
+#### **upgrade_executor.rs** (74 lines)
+- `UpgradeExecutor` - Executes actual template upgrades
+- `perform_upgrade()` - Handles both single templates and compositions
+- Auto-detection of template types and appropriate upgrade methods
+
+#### **template_processor.rs** (84 lines)
+- `TemplateProcessor` - Processes individual template upgrades
+- `process_template_upgrade()` - Handles version comparison and upgrade logic
+- Manages interactive vs non-interactive upgrade flows
+
+#### **orchestrator.rs** (87 lines)
+- `UpdateOrchestrator` - Main coordination of the update process
+- `update_templates()` - Internal orchestration logic
+- Handles state file reading and template iteration
+
+#### **version_manager.rs** (149 lines)
+- `TemplateVersionInfo` - Data structure for version information
+- `fetch_all_template_versions()` - Batch fetching of template versions
+- `select_version_interactive()` - Interactive version selection UI
+- `format_friendly_date()` - Date formatting for user display
+
+### Key Benefits
+
+#### **Focused Responsibilities**
+- Each module has a single, clear responsibility
+- Easy to locate and modify specific functionality
+- Reduced cognitive load when working on specific features
+
+#### **Improved Maintainability**
+- **Before**: 412-line monolithic file with mixed responsibilities
+- **After**: Main file (40 lines) + 6 focused modules with clear boundaries (total: 458 lines)
+- Better separation of concerns and testability
+
+#### **Clean Dependencies**
+- Clear import/export structure
+- Modules only depend on what they need
+- Easy to mock and test individual components
+
+#### **Extensibility**
+- Easy to add new upgrade strategies
+- Simple to extend version management features
+- Clear extension points for new functionality
+
+### Usage Patterns
+
+#### **Single Entry Point**
 ```rust
-// main.rs automatically chooses execution mode
-if template_has_dependencies(&template) {
-    cyan_run_composition(...)  // Use composition system
-} else {
-    cyan_run(...)              // Use single template system
-}
+// Users still call the same unified function
+use crate::update::cyan_update;
+
+cyan_update(session_id_generator, path, coord_client, registry_client, debug, interactive)
+```
+
+#### **Internal Module Collaboration**
+```rust
+// Clean internal flow
+cyan_update() (in update.rs) ->
+    UpdateOrchestrator::update_templates() ->
+    OperatorFactory::create_composition_operator() ->
+    TemplateProcessor::process_template_upgrade() ->
+    VersionManager::fetch_all_template_versions() ->
+    UpgradeExecutor::perform_upgrade()
 ```
 
 #### **Backward Compatibility**
-- Single templates work unchanged via `CompositionOperator`
-- Existing templates without dependencies use single-template path
-- All session cleanup and error handling patterns preserved
+- All existing public APIs remain unchanged
+- Same function signatures and behavior
+- Seamless upgrade from monolithic to modular architecture
 
-### Error Handling
-
-#### **Abort-First Strategy**
-- **Dependency fetch failure**: Abort entire composition
-- **Template execution failure**: Abort entire composition  
-- **Type conflict in shared state**: Panic with clear error message
-- **VFS layering failure**: Abort entire composition
-
-#### **State Sharing Rules**
-- **Value conflicts**: Allowed (later template overwrites)
-- **Type conflicts**: Abort execution immediately
-- **Missing dependencies**: Abort during resolution phase
-
-### Template Dependency Format
-
-```rust
-// TemplateVersionRes contains dependency list
-pub struct TemplateVersionRes {
-    pub templates: Vec<TemplateVersionPrincipalRes>,  // Dependencies
-    // ... other fields
-}
-
-// Each dependency references by version ID
-pub struct TemplateVersionPrincipalRes {
-    pub id: String,        // Template version ID (UUID)
-    pub version: i64,      // Version number
-    // ... other metadata
-}
-```
-
-### Composition Workflows
-
-#### **`cyan_run_auto()` - Smart Template Execution**
-```rust
-// Automatically detects dependencies and chooses execution mode
-if template.templates.is_empty() {
-    cyan_run(...)              // Single template
-} else {
-    cyan_run_composition(...)  // Recursive composition
-}
-```
-
-#### **`cyan_update_auto()` - Composition-Aware Updates**
-```rust
-// Batch updates with composition support
-for template in project_templates {
-    if template_has_dependencies(&template) {
-        composition_operator.upgrade_composition(...)
-    } else {
-        template_operator.upgrade(...)
-    }
-}
-```
-
----
-
-**Template Composition System: Production Ready! 🚀** 
+The modular update system provides a clean, maintainable architecture while preserving all existing functionality and improving code organization significantly. 
