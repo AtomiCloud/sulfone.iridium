@@ -1,6 +1,8 @@
 import { GlobType, StartTemplateWithLambda } from '@atomicloud/cyan-sdk';
 import { IInquirer, IDeterminism } from '@atomicloud/cyan-sdk';
 StartTemplateWithLambda(async (i: IInquirer, d: IDeterminism) => {
+  const name = await i.text('What is your name?', 'ernest/template1/name');
+
   const investmentType = await i.select(
     'What type of investment are you most interested in?',
     ['Stocks', 'Bonds', 'Real Estate', 'Cryptocurrency'],
@@ -45,6 +47,7 @@ StartTemplateWithLambda(async (i: IInquirer, d: IDeterminism) => {
         ],
         config: {
           vars: {
+            name,
             investmentType,
             riskTolerance,
             savingsGoal,

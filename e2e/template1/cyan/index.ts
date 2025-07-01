@@ -37,7 +37,7 @@ StartTemplateWithLambda(async (i: IInquirer, d: IDeterminism) => {
         name: 'ernest/processor1',
         files: [
           {
-            glob: '**/*',
+            glob: '**/*.*',
             exclude: [],
             type: GlobType.Template,
             root: 'template',

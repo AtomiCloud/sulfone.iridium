@@ -23,8 +23,8 @@ tag=$(openssl rand -hex 3)
 # build blob
 blob_image="$DOCKER_USERNAME/$template-blob"
 docker buildx build \
-  "./cyan" \
-  -f "./cyan/blob.Dockerfile" \
+  "." \
+  -f "./blob.Dockerfile" \
   -t "$blob_image:$tag" \
   --load
 

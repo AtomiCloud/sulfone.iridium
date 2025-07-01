@@ -76,12 +76,33 @@ fn main() -> Result<(), Box<dyn Error + Send>> {
                 );
                 match res {
                     Ok(r) => {
-                        println!("Pushed template successfully");
-                        println!("id: {}", r.id);
+                        println!("✅ Pushed template successfully");
+                        println!("📦 Template ID: {}", r.id);
                         Ok(())
                     }
                     Err(e) => {
-                        eprintln!("Error: {:#?}", e);
+                        eprintln!("❌ Error: {:#?}", e);
+                        Err(e)
+                    }
+                }
+            }
+            PushCommands::Group => {
+                let PushArgs {
+                    config,
+                    token,
+                    message,
+                    ..
+                } = push_arg;
+                println!("🔗 Pushing template group (no Docker artifacts)...");
+                let res = registry.push_template_without_properties(config, token, message);
+                match res {
+                    Ok(r) => {
+                        println!("✅ Pushed template group successfully");
+                        println!("📦 Template ID: {}", r.id);
+                        Ok(())
+                    }
+                    Err(e) => {
+                        eprintln!("❌ Error pushing template group: {:#?}", e);
                         Err(e)
                     }
                 }
@@ -145,7 +166,7 @@ fn main() -> Result<(), Box<dyn Error + Send>> {
                         tv,
                         coord_client,
                         username.clone(),
-                        Some(Rc::clone(&registry_ref)),
+                        Rc::clone(&registry_ref),
                         cli.debug,
                     )
                 });
@@ -204,7 +225,11 @@ fn main() -> Result<(), Box<dyn Error + Send>> {
             }
             Ok(())
         }
-        Commands::Daemon { version, port } => {
+        Commands::Daemon {
+            version,
+            port,
+            registry,
+        } => {
             let docker = Docker::connect_with_local_defaults()
                 .map_err(|e| Box::new(e) as Box<dyn Error + Send>)?;
             tokio::runtime::Builder::new_multi_thread()
@@ -215,7 +240,7 @@ fn main() -> Result<(), Box<dyn Error + Send>> {
                     let img = "ghcr.io/atomicloud/sulfone.boron/sulfone-boron".to_string()
                         + ":"
                         + version.as_str();
-                    let r = start_coordinator(docker, img, port).await;
+                    let r = start_coordinator(docker, img, port, registry).await;
                     match r {
                         Ok(_) => {
                             println!("✅ Coordinator started on port {}", port);

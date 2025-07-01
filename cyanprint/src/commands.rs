@@ -84,6 +84,16 @@ pub enum Commands {
             default_value = "9000"
         )]
         port: u16,
+
+        #[arg(
+            short,
+            long,
+            value_name = "REGISTRY_ENDPOINT",
+            default_value = "https://api.zinc.sulfone.raichu.cluster.atomi.cloud",
+            help = "Registry endpoint for the coordinator to use",
+            env = "CYANPRINT_REGISTRY"
+        )]
+        registry: Option<String>,
     },
 }
 
@@ -118,6 +128,8 @@ pub enum PushCommands {
 
         template_tag: String,
     },
+    #[command(about = "Push a template group (meta-template that combines other templates)")]
+    Group,
     Plugin {
         image: String,
 

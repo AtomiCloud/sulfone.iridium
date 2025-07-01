@@ -1,20 +1,17 @@
-pub mod new_template;
-pub mod rerun;
-pub mod upgrade;
-
 use cyanprompt::domain::models::answer::Answer;
-pub use new_template::create_new_template;
-pub use rerun::rerun_template;
-pub use upgrade::upgrade_template;
 
 use std::collections::HashMap;
 use std::error::Error;
 use std::path::Path;
+use std::rc::Rc;
 
-use crate::fs::Vfs;
+use crate::fs::{Vfs, VirtualFileSystem};
 use crate::session::SessionIdGenerator;
 use crate::template::{TemplateExecutor, TemplateHistory};
+use cyanregistry::http::client::CyanRegistryClient;
 use cyanregistry::http::models::template_res::TemplateVersionRes;
+
+pub mod composition;
 
 /// Trait defining operations that can be performed on templates
 pub trait TemplateOperations {
@@ -27,8 +24,7 @@ pub trait TemplateOperations {
     ) -> Result<Vec<String>, Box<dyn Error + Send>>;
 
     /// Rerun an existing template with the same version
-    #[allow(clippy::too_many_arguments)]
-    fn rerun<F>(
+    fn rerun(
         &self,
         template: &TemplateVersionRes,
         target_dir: &Path,
@@ -36,14 +32,10 @@ pub trait TemplateOperations {
         previous_version: i64,
         previous_answers: HashMap<String, Answer>,
         previous_states: HashMap<String, String>,
-        get_previous_template: F,
-    ) -> Result<Vec<String>, Box<dyn Error + Send>>
-    where
-        F: Fn(i64) -> Result<TemplateVersionRes, Box<dyn Error + Send>>;
+    ) -> Result<Vec<String>, Box<dyn Error + Send>>;
 
     /// Upgrade a template to a new version
-    #[allow(clippy::too_many_arguments)]
-    fn upgrade<F>(
+    fn upgrade(
         &self,
         template: &TemplateVersionRes,
         target_dir: &Path,
@@ -51,10 +43,7 @@ pub trait TemplateOperations {
         previous_version: i64,
         previous_answers: HashMap<String, Answer>,
         previous_states: HashMap<String, String>,
-        get_previous_template: F,
-    ) -> Result<Vec<String>, Box<dyn Error + Send>>
-    where
-        F: Fn(i64) -> Result<TemplateVersionRes, Box<dyn Error + Send>>;
+    ) -> Result<Vec<String>, Box<dyn Error + Send>>;
 }
 
 /// Implementation of TemplateOperations that handles template operations
@@ -63,6 +52,7 @@ pub struct TemplateOperator {
     pub template_executor: Box<dyn TemplateExecutor>,
     pub template_history: Box<dyn TemplateHistory>,
     pub vfs: Box<dyn Vfs>,
+    pub registry_client: Rc<CyanRegistryClient>,
 }
 
 impl TemplateOperator {
@@ -72,13 +62,36 @@ impl TemplateOperator {
         template_executor: Box<dyn TemplateExecutor>,
         template_history: Box<dyn TemplateHistory>,
         vfs: Box<dyn Vfs>,
+        registry_client: Rc<CyanRegistryClient>,
     ) -> Self {
         Self {
             session_id_generator,
             template_executor,
             template_history,
             vfs,
+            registry_client,
         }
+    }
+
+    /// Helper method to get previous template version
+    fn get_previous_template(
+        &self,
+        template: &TemplateVersionRes,
+        username: &str,
+        previous_version: i64,
+    ) -> Result<TemplateVersionRes, Box<dyn Error + Send>> {
+        let registry = &self.registry_client;
+
+        // Fetch the actual previous version from registry
+        let template_name = template.template.name.clone();
+        println!(
+            "🔍 Fetching template '{}/{}:{}' from registry...",
+            username, template_name, previous_version
+        );
+        let prev_template =
+            registry.get_template(username.to_string(), template_name, Some(previous_version))?;
+        println!("✅ Retrieved previous template version from registry");
+        Ok(prev_template)
     }
 }
 
@@ -89,19 +102,47 @@ impl TemplateOperations for TemplateOperator {
         target_dir: &Path,
         username: &str,
     ) -> Result<Vec<String>, Box<dyn Error + Send>> {
-        new_template::create_new_template(
-            self.session_id_generator.as_ref(),
-            template,
+        println!("✨ Creating a new project from template");
+
+        // Generate a new session ID
+        let new_session_id = self.session_id_generator.generate();
+
+        // Execute the template with fresh QA session
+        let (archive_data, template_state, actual_session_id) = self
+            .template_executor
+            .execute_template(template, &new_session_id, None, None)?;
+
+        // Unpack the archive into VFS
+        let incoming_vfs = self.vfs.unpack_archive(archive_data)?;
+
+        // Create an empty base VFS for comparison
+        let base_vfs = VirtualFileSystem::new();
+
+        // Load any existing files that match paths in incoming_vfs
+        let paths = incoming_vfs.get_paths();
+        let local_vfs = self.vfs.load_local_files(target_dir, &paths)?;
+
+        // Merge with base=empty, local=target folder, incoming=VFS
+        let merged_vfs = self.vfs.merge(&base_vfs, &local_vfs, &incoming_vfs)?;
+
+        // Write the merged VFS to disk
+        self.vfs.write_to_disk(target_dir, &merged_vfs)?;
+
+        // Save template metadata
+        self.template_history.save_template_metadata(
             target_dir,
-            self.template_executor.as_ref(),
-            self.template_history.as_ref(),
-            self.vfs.as_ref(),
+            template,
+            &template_state,
             username,
-        )
+        )?;
+
+        println!("✅ Project created successfully");
+
+        // Return the session ID for cleanup
+        Ok(vec![actual_session_id])
     }
 
-    #[allow(clippy::too_many_arguments)]
-    fn rerun<F>(
+    fn rerun(
         &self,
         template: &TemplateVersionRes,
         target_dir: &Path,
@@ -109,31 +150,67 @@ impl TemplateOperations for TemplateOperator {
         previous_version: i64,
         previous_answers: HashMap<String, Answer>,
         previous_states: HashMap<String, String>,
-        get_previous_template: F,
-    ) -> Result<Vec<String>, Box<dyn Error + Send>>
-    where
-        F: Fn(i64) -> Result<TemplateVersionRes, Box<dyn Error + Send>>,
-    {
-        // Create a new context with our dependencies
-        let context = rerun::RerunContext {
-            session_id_generator: self.session_id_generator.as_ref(),
-            template,
-            target_dir,
-            template_executor: self.template_executor.as_ref(),
-            template_history: self.template_history.as_ref(),
-            vfs: self.vfs.as_ref(),
-            username,
-            previous_version,
-            previous_answers,
-            previous_states,
-            get_previous_template,
-        };
+    ) -> Result<Vec<String>, Box<dyn Error + Send>> {
+        println!("🔄 Re-running template (same version {})", previous_version);
 
-        rerun_template(context)
+        // Generate session IDs for both executions
+        let prev_session_id = self.session_id_generator.generate();
+        let curr_session_id = self.session_id_generator.generate();
+
+        // Get the previous template using our helper method
+        let previous_template = self.get_previous_template(template, username, previous_version)?;
+
+        // First, recreate the previous template VFS state using saved answers and states
+        println!("🏗️ Recreating previous template state");
+        let (prev_archive_data, _, prev_actual_session_id) =
+            self.template_executor.execute_template(
+                &previous_template,
+                &prev_session_id,
+                Some(&previous_answers),
+                Some(&previous_states),
+            )?;
+
+        // Second, execute the template with fresh Q&A
+        println!("🏗️ Running template with new answers");
+        let (curr_archive_data, template_state, curr_actual_session_id) =
+            self.template_executor.execute_template(
+                template,
+                &curr_session_id,
+                None, // No answers - user will provide fresh answers
+                None,
+            )?;
+
+        // Unpack the archive into base VFS
+        let base_vfs = self.vfs.unpack_archive(prev_archive_data)?;
+
+        // Unpack the archive into incoming VFS
+        let incoming_vfs = self.vfs.unpack_archive(curr_archive_data)?;
+
+        // Load the current state of files from target directory
+        let all_paths = Vec::new();
+        let local_vfs = self.vfs.load_local_files(target_dir, &all_paths)?;
+
+        // Perform 3-way merge with base=prev template, local=target folder, incoming=current template
+        let merged_vfs = self.vfs.merge(&base_vfs, &local_vfs, &incoming_vfs)?;
+
+        // Write the merged VFS to disk
+        self.vfs.write_to_disk(target_dir, &merged_vfs)?;
+
+        // Save updated template metadata
+        self.template_history.save_template_metadata(
+            target_dir,
+            template,
+            &template_state,
+            username,
+        )?;
+
+        println!("✅ Project recreated successfully with new answers");
+
+        // Return both session IDs for cleanup
+        Ok(vec![prev_actual_session_id, curr_actual_session_id])
     }
 
-    #[allow(clippy::too_many_arguments)]
-    fn upgrade<F>(
+    fn upgrade(
         &self,
         template: &TemplateVersionRes,
         target_dir: &Path,
@@ -141,26 +218,69 @@ impl TemplateOperations for TemplateOperator {
         previous_version: i64,
         previous_answers: HashMap<String, Answer>,
         previous_states: HashMap<String, String>,
-        get_previous_template: F,
-    ) -> Result<Vec<String>, Box<dyn Error + Send>>
-    where
-        F: Fn(i64) -> Result<TemplateVersionRes, Box<dyn Error + Send>>,
-    {
-        // Create a new context with our dependencies
-        let context = upgrade::UpgradeContext {
-            session_id_generator: self.session_id_generator.as_ref(),
-            template,
-            target_dir,
-            template_executor: self.template_executor.as_ref(),
-            template_history: self.template_history.as_ref(),
-            vfs: self.vfs.as_ref(),
-            username,
-            previous_version,
-            previous_answers,
-            previous_states,
-            get_previous_template,
-        };
+    ) -> Result<Vec<String>, Box<dyn Error + Send>> {
+        println!(
+            "🔄 Upgrading from version {} to {}",
+            previous_version, template.principal.version
+        );
 
-        upgrade_template(context)
+        // First, execute the old template version using saved answers to get the base VFS
+        println!("🏗️ Recreating previous template version");
+
+        // Generate session IDs for both executions
+        let prev_session_id = self.session_id_generator.generate();
+        let curr_session_id = self.session_id_generator.generate();
+
+        // Get the previous template using our helper method
+        let previous_template = self.get_previous_template(template, username, previous_version)?;
+
+        let (prev_archive_data, _, prev_actual_session_id) =
+            self.template_executor.execute_template(
+                &previous_template,
+                &prev_session_id,
+                Some(&previous_answers),
+                Some(&previous_states),
+            )?;
+
+        // Unpack the archive into base VFS
+        let base_vfs = self.vfs.unpack_archive(prev_archive_data)?;
+
+        // Second, execute the new template version using saved answers where possible
+        println!("🏗️ Creating new template version");
+        let (curr_archive_data, template_state, curr_actual_session_id) =
+            self.template_executor.execute_template(
+                template,
+                &curr_session_id,
+                Some(&previous_answers),
+                Some(&previous_states),
+            )?;
+
+        // Unpack the archive into incoming VFS
+        let incoming_vfs = self.vfs.unpack_archive(curr_archive_data)?;
+
+        // Get all paths that should be considered for the local VFS (union of base and incoming)
+        let all_paths = Vec::new();
+
+        // Load the current state of files from target directory
+        let local_vfs = self.vfs.load_local_files(target_dir, &all_paths)?;
+
+        // Perform 3-way merge with base=prev template, local=target folder, incoming=current template
+        let merged_vfs = self.vfs.merge(&base_vfs, &local_vfs, &incoming_vfs)?;
+
+        // Write the merged VFS to disk
+        self.vfs.write_to_disk(target_dir, &merged_vfs)?;
+
+        // Save updated template metadata
+        self.template_history.save_template_metadata(
+            target_dir,
+            template,
+            &template_state,
+            username,
+        )?;
+
+        println!("✅ Project upgraded successfully");
+
+        // Return both session IDs for cleanup
+        Ok(vec![prev_actual_session_id, curr_actual_session_id])
     }
 }

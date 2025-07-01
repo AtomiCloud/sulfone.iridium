@@ -1,0 +1,12 @@
+username: ernest
+name: template4
+description: Template4
+project: https://google.com
+source: https://google.com
+email: ernest@atomi.cloud
+tags: []
+readme: README.MD
+processors: []
+plugins: []
+templates:
+  - ernest/template3:4

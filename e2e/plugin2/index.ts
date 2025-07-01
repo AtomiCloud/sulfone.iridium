@@ -11,6 +11,7 @@ StartPluginWithLambda(async (input): Promise<PluginOutput> => {
 
   // Write the random characters to a file named 'plugin2'
   const filePath = path.join(input.directory, 'plugin2');
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
   fs.writeFileSync(filePath, randomChars);
 
   console.log(`Created file 'plugin2' with random content: ${randomChars}`);
