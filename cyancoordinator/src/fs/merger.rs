@@ -5,8 +5,8 @@ use std::path::Path;
 use tempfile::tempdir;
 use walkdir::WalkDir;
 
-use super::traits::FileMerger;
 use super::VirtualFileSystem;
+use super::traits::FileMerger;
 
 /// Error types for the GitLikeMerger
 #[derive(Debug)]
@@ -19,9 +19,9 @@ enum MergeError {
 impl fmt::Display for MergeError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            MergeError::GitError(e) => write!(f, "Git error: {}", e),
-            MergeError::IoError(e) => write!(f, "IO error: {}", e),
-            MergeError::Other(s) => write!(f, "Error: {}", s),
+            MergeError::GitError(e) => write!(f, "Git error: {e}"),
+            MergeError::IoError(e) => write!(f, "IO error: {e}"),
+            MergeError::Other(s) => write!(f, "Error: {s}"),
         }
     }
 }
@@ -124,7 +124,7 @@ impl GitLikeMerger {
         )?;
 
         if self.debug {
-            println!("📝 Created commit: {}", commit_id);
+            println!("📝 Created commit: {commit_id}");
         }
 
         Ok(commit_id)
@@ -152,10 +152,7 @@ impl GitLikeMerger {
         repo.branch("incoming", &repo.find_commit(base_commit)?, false)?;
 
         if self.debug {
-            println!(
-                "🌿 Created branches: current and incoming from base {}",
-                base_commit
-            );
+            println!("🌿 Created branches: current and incoming from base {base_commit}");
         }
 
         // Checkout current branch and apply current VFS
@@ -219,10 +216,7 @@ impl GitLikeMerger {
         let incoming_commit = self.commit_all(&repo, "Incoming state")?;
 
         if self.debug {
-            println!(
-                "📊 Committed states: current={}, incoming={}",
-                current_commit, incoming_commit
-            );
+            println!("📊 Committed states: current={current_commit}, incoming={incoming_commit}");
         }
 
         // Checkout current branch for the merge

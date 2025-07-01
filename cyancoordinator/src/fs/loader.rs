@@ -2,8 +2,8 @@ use ignore::{DirEntry, WalkBuilder};
 use std::error::Error;
 use std::path::{Path, PathBuf};
 
-use super::traits::FileLoader;
 use super::VirtualFileSystem;
+use super::traits::FileLoader;
 
 // DiskFileLoader implementation for loading files from disk
 pub struct DiskFileLoader;

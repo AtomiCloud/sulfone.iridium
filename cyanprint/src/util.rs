@@ -1,5 +1,5 @@
 use crate::errors::GenericError;
-use rand::{distr::Alphanumeric, Rng};
+use rand::{Rng, distr::Alphanumeric};
 use std::error::Error;
 
 pub fn generate_session_id() -> String {

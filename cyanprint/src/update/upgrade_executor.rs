@@ -68,7 +68,7 @@ impl UpgradeExecutor {
                 );
             })
             .map_err(|e| {
-                eprintln!("❌ Failed to upgrade {}/{}: {}", username, template_name, e);
+                eprintln!("❌ Failed to upgrade {username}/{template_name}: {e}");
                 e
             })
     }

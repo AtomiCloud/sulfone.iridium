@@ -2,10 +2,10 @@ use std::rc::Rc;
 
 use cyancoordinator::client::CyanCoordinatorClient;
 use cyancoordinator::fs::{DiskFileLoader, DiskFileWriter, GitLikeMerger, TarGzUnpacker};
+use cyancoordinator::operations::TemplateOperator;
 use cyancoordinator::operations::composition::{
     CompositionOperator, DefaultDependencyResolver, DefaultVfsLayerer,
 };
-use cyancoordinator::operations::TemplateOperator;
 use cyancoordinator::template::{DefaultTemplateExecutor, DefaultTemplateHistory};
 use cyancoordinator::{fs::DefaultVfs, session::SessionIdGenerator};
 use cyanregistry::http::client::CyanRegistryClient;

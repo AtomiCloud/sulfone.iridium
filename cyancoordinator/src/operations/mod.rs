@@ -85,8 +85,7 @@ impl TemplateOperator {
         // Fetch the actual previous version from registry
         let template_name = template.template.name.clone();
         println!(
-            "🔍 Fetching template '{}/{}:{}' from registry...",
-            username, template_name, previous_version
+            "🔍 Fetching template '{username}/{template_name}:{previous_version}' from registry..."
         );
         let prev_template =
             registry.get_template(username.to_string(), template_name, Some(previous_version))?;
@@ -151,7 +150,7 @@ impl TemplateOperations for TemplateOperator {
         previous_answers: HashMap<String, Answer>,
         previous_states: HashMap<String, String>,
     ) -> Result<Vec<String>, Box<dyn Error + Send>> {
-        println!("🔄 Re-running template (same version {})", previous_version);
+        println!("🔄 Re-running template (same version {previous_version})");
 
         // Generate session IDs for both executions
         let prev_session_id = self.session_id_generator.generate();

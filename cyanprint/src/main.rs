@@ -4,7 +4,7 @@ use std::rc::Rc;
 use bollard::Docker;
 use clap::Parser;
 
-use cyancoordinator::client::{new_client, CyanCoordinatorClient};
+use cyancoordinator::client::{CyanCoordinatorClient, new_client};
 use cyancoordinator::session::DefaultSessionIdGenerator;
 use cyanregistry::http::client::CyanRegistryClient;
 
@@ -48,7 +48,7 @@ fn main() -> Result<(), Box<dyn Error + Send>> {
                         Ok(())
                     }
                     Err(e) => {
-                        eprintln!("Error: {:#?}", e);
+                        eprintln!("Error: {e:#?}");
                         Err(e)
                     }
                 }
@@ -81,7 +81,7 @@ fn main() -> Result<(), Box<dyn Error + Send>> {
                         Ok(())
                     }
                     Err(e) => {
-                        eprintln!("❌ Error: {:#?}", e);
+                        eprintln!("❌ Error: {e:#?}");
                         Err(e)
                     }
                 }
@@ -102,7 +102,7 @@ fn main() -> Result<(), Box<dyn Error + Send>> {
                         Ok(())
                     }
                     Err(e) => {
-                        eprintln!("❌ Error pushing template group: {:#?}", e);
+                        eprintln!("❌ Error pushing template group: {e:#?}");
                         Err(e)
                     }
                 }
@@ -122,7 +122,7 @@ fn main() -> Result<(), Box<dyn Error + Send>> {
                         Ok(())
                     }
                     Err(e) => {
-                        eprintln!("Error: {:#?}", e);
+                        eprintln!("Error: {e:#?}");
                         Err(e)
                     }
                 }
@@ -177,13 +177,13 @@ fn main() -> Result<(), Box<dyn Error + Send>> {
                     let coord_client = CyanCoordinatorClient::new(coordinator_endpoint.clone());
                     println!("🧹 Cleaning up all sessions...");
                     for sid in session_ids {
-                        println!("🧹 Cleaning up session: {}", sid);
+                        println!("🧹 Cleaning up session: {sid}");
                         let _ = coord_client.clean(sid);
                     }
                     println!("✅ Cleaned up all sessions");
                 }
                 Err(e) => {
-                    eprintln!("🚨 Error: {:#?}", e);
+                    eprintln!("🚨 Error: {e:#?}");
                     println!("✅ No sessions to clean up");
                 }
             }
@@ -214,13 +214,13 @@ fn main() -> Result<(), Box<dyn Error + Send>> {
                     println!("✅ Update completed successfully");
                     println!("🧹 Cleaning up all sessions...");
                     for sid in session_ids {
-                        println!("🧹 Cleaning up session: {}", sid);
+                        println!("🧹 Cleaning up session: {sid}");
                         let _ = coord_client.clean(sid);
                     }
                     println!("✅ Cleaned up all sessions");
                 }
                 Err(e) => {
-                    eprintln!("🚨 Error during update: {:#?}", e);
+                    eprintln!("🚨 Error during update: {e:#?}");
                 }
             }
             Ok(())
@@ -243,10 +243,10 @@ fn main() -> Result<(), Box<dyn Error + Send>> {
                     let r = start_coordinator(docker, img, port, registry).await;
                     match r {
                         Ok(_) => {
-                            println!("✅ Coordinator started on port {}", port);
+                            println!("✅ Coordinator started on port {port}");
                         }
                         Err(e) => {
-                            eprintln!("🚨 Error: {:#?}", e);
+                            eprintln!("🚨 Error: {e:#?}");
                         }
                     }
                 });

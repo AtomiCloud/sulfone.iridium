@@ -217,12 +217,10 @@ impl CyanRegistryClient {
 
         let endpoint = match v {
             None => format!(
-                "{}/api/v{}/Template/slug/{}/{}/versions/latest?bumpDownload=true",
-                host, version, username, name
+                "{host}/api/v{version}/Template/slug/{username}/{name}/versions/latest?bumpDownload=true"
             ),
             Some(ver) => format!(
-                "{}/api/v{}/Template/slug/{}/{}/versions/{}?bumpDownload=true",
-                host, version, username, name, ver
+                "{host}/api/v{version}/Template/slug/{username}/{name}/versions/{ver}?bumpDownload=true"
             ),
         };
         self.client
@@ -256,8 +254,7 @@ impl CyanRegistryClient {
         let version = (self.version).to_string().to_owned();
 
         let endpoint = format!(
-            "{}/api/v{}/Template/slug/{}/{}/versions?skip={}&limit={}",
-            host, version, username, name, skip, limit
+            "{host}/api/v{version}/Template/slug/{username}/{name}/versions?skip={skip}&limit={limit}"
         );
 
         self.client
@@ -291,16 +288,14 @@ impl CyanRegistryClient {
 
         let endpoint = match v {
             None => format!(
-                "{}/api/v{}/Plugin/slug/{}/{}/versions/latest?bumpDownload=true",
-                host, version, username, name
+                "{host}/api/v{version}/Plugin/slug/{username}/{name}/versions/latest?bumpDownload=true"
             ),
             Some(ver) => format!(
-                "{}/api/v{}/Plugin/slug/{}/{}/versions/{}?bumpDownload=true",
-                host, version, username, name, ver
+                "{host}/api/v{version}/Plugin/slug/{username}/{name}/versions/{ver}?bumpDownload=true"
             ),
         };
 
-        println!("{}", endpoint);
+        println!("{endpoint}");
         self.client
             .get(endpoint)
             .send()
@@ -332,12 +327,10 @@ impl CyanRegistryClient {
 
         let endpoint = match v {
             None => format!(
-                "{}/api/v{}/Processor/slug/{}/{}/versions/latest?bumpDownload=true",
-                host, version, username, name
+                "{host}/api/v{version}/Processor/slug/{username}/{name}/versions/latest?bumpDownload=true"
             ),
             Some(ver) => format!(
-                "{}/api/v{}/Processor/slug/{}/{}/versions/{}?bumpDownload=true",
-                host, version, username, name, ver
+                "{host}/api/v{version}/Processor/slug/{username}/{name}/versions/{ver}?bumpDownload=true"
             ),
         };
         self.client
@@ -367,10 +360,7 @@ impl CyanRegistryClient {
         let host = (self.endpoint).to_string().to_owned();
         let api_version = (self.version).to_string().to_owned();
 
-        let endpoint = format!(
-            "{}/api/v{}/Template/versions/{}",
-            host, api_version, version_id
-        );
+        let endpoint = format!("{host}/api/v{api_version}/Template/versions/{version_id}");
 
         self.client
             .get(endpoint)
@@ -399,10 +389,7 @@ impl CyanRegistryClient {
         let host = (self.endpoint).to_string().to_owned();
         let api_version = (self.version).to_string().to_owned();
 
-        let endpoint = format!(
-            "{}/api/v{}/Processor/versions/{}",
-            host, api_version, version_id
-        );
+        let endpoint = format!("{host}/api/v{api_version}/Processor/versions/{version_id}");
 
         self.client
             .get(endpoint)
@@ -431,10 +418,7 @@ impl CyanRegistryClient {
         let host = (self.endpoint).to_string().to_owned();
         let api_version = (self.version).to_string().to_owned();
 
-        let endpoint = format!(
-            "{}/api/v{}/Plugin/versions/{}",
-            host, api_version, version_id
-        );
+        let endpoint = format!("{host}/api/v{api_version}/Plugin/versions/{version_id}");
 
         self.client
             .get(endpoint)

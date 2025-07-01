@@ -3,8 +3,8 @@ use crate::domain::models::prompt::Prompts;
 use crate::domain::models::template::input::TemplateValidateInput;
 use crate::domain::services::repo::CyanRepo;
 use chrono::NaiveDate;
-use inquire::validator::{ErrorMessage, Validation};
 use inquire::CustomUserError;
+use inquire::validator::{ErrorMessage, Validation};
 use std::collections::HashMap;
 use std::rc::Rc;
 

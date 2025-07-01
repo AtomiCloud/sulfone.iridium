@@ -34,8 +34,7 @@ impl CompositionState {
                     // Type conflict check - abort on mismatch
                     if discriminant(existing) != discriminant(value) {
                         panic!(
-                            "Type conflict for key '{}': existing type differs from new type",
-                            key
+                            "Type conflict for key '{key}': existing type differs from new type"
                         );
                     }
                 }

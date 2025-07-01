@@ -42,7 +42,7 @@ pub fn cyan_run(
     let path = path.unwrap_or(".".to_string());
     let path_buf = PathBuf::from(&path);
     let target_dir = path_buf.as_path();
-    println!("📁 Target directory: {:?}", target_dir);
+    println!("📁 Target directory: {target_dir:?}");
     fs::create_dir_all(target_dir).map_err(|e| Box::new(e) as Box<dyn Error + Send>)?;
 
     // Create all components for dependency injection at the highest level
@@ -79,7 +79,7 @@ pub fn cyan_run(
         } else {
             return Err(Box::new(std::io::Error::new(
                 std::io::ErrorKind::InvalidInput,
-                "Invalid template: no dependencies and no execution artifacts. Templates must have either dependencies or execution artifacts."
+                "Invalid template: no dependencies and no execution artifacts. Templates must have either dependencies or execution artifacts.",
             )) as Box<dyn Error + Send>);
         }
 

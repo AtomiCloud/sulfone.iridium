@@ -16,8 +16,8 @@ mod version_manager;
 use orchestrator::UpdateOrchestrator;
 
 // Re-export public interface
-pub use utils::{parse_template_key, SelectionError};
-pub use version_manager::{format_friendly_date, select_version_interactive, TemplateVersionInfo};
+pub use utils::{SelectionError, parse_template_key};
+pub use version_manager::{TemplateVersionInfo, format_friendly_date, select_version_interactive};
 
 /// Update all templates in a project to their latest versions with automatic composition detection
 /// Returns all session IDs that were created and need to be cleaned up

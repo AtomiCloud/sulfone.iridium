@@ -22,7 +22,7 @@ pub struct ProblemDetails {
 impl fmt::Display for GenericError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            GenericError::ProblemDetails(pd) => write!(f, "{:#?}", pd),
+            GenericError::ProblemDetails(pd) => write!(f, "{pd:#?}"),
         }
     }
 }

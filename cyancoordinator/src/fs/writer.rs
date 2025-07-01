@@ -1,8 +1,8 @@
 use std::error::Error;
 use std::path::Path;
 
-use super::traits::FileWriter;
 use super::VirtualFileSystem;
+use super::traits::FileWriter;
 
 // DiskFileWriter implementation for writing files to disk
 pub struct DiskFileWriter;

@@ -1,4 +1,4 @@
-{ pkgs, atomi, fenixpkgs, pkgs-2411 }:
+{ pkgs, atomi, fenixpkgs, pkgs-2505, pkgs-unstable }:
 let
   all = {
     atomipkgs = (
@@ -12,7 +12,7 @@ let
       }
     );
     nix-unstable = (
-      with pkgs;
+      with pkgs-unstable;
       {
         inherit
           goreleaser
@@ -20,8 +20,8 @@ let
           ;
       }
     );
-    nix-2411 = (
-      with pkgs-2411;
+    nix-2505 = (
+      with pkgs-2505;
       {
         inherit
           infisical
@@ -47,7 +47,7 @@ let
           stable.rust-src
           stable.rust-std
           stable.clippy
-          pkgs-2411.openssl
+          pkgs-2505.openssl
         ]
         ++ pkgs.lib.optionals (pkgs.stdenv.isLinux && pkgs.stdenv.hostPlatform.isx86_64) [
           targets.x86_64-unknown-linux-musl.stable.rust-std
@@ -56,8 +56,7 @@ let
           targets.aarch64-unknown-linux-musl.stable.rust-std
         ]
         ++ pkgs.lib.optionals pkgs.stdenv.isDarwin [
-          pkgs-2411.darwin.Security
-          pkgs-2411.darwin.libiconv
+          pkgs-2505.darwin.libiconv
         ]);
       }
     );
@@ -66,5 +65,5 @@ in
 with all;
 atomipkgs //
 fenix //
-nix-2411 //
+nix-2505 //
 nix-unstable

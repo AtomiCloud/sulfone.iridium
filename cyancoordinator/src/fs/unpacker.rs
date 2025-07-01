@@ -4,8 +4,8 @@ use std::io::Read;
 use std::path::Path;
 use tar::Archive;
 
-use super::traits::FileUnpacker;
 use super::VirtualFileSystem;
+use super::traits::FileUnpacker;
 
 // TarGzUnpacker implementation for tar.gz archives
 pub struct TarGzUnpacker;

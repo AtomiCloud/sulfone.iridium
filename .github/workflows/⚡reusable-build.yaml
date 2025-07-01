@@ -12,6 +12,10 @@ on:
       bin_name:
         required: true
         type: string
+      push:
+        required: false
+        type: string
+        default: ''
 
 jobs:
   build:
@@ -49,13 +53,14 @@ jobs:
       - uses: AtomiCloud/actions.setup-nix@v2
         with:
           namespacelabs: ${{ matrix.platform.namespacelabs }}
+          attic-token: ${{ secrets.ATTIC_TOKEN }}
 
       # build
       - name: Build
         env:
           TARGET: ${{ matrix.platform.target }}
           BIN_NAME: ${{ inputs.bin_name }}
-        run: nix develop .#ci -c ./scripts/build.sh
+        run: nix develop .#ci -c ./scripts/build.sh "${{ inputs.push }}"
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
