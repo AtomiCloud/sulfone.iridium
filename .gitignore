@@ -15,7 +15,9 @@ pkg/
 
 dist/
 artifacts
-sample# Added by goreleaser init:
+sample
+
+# Added by goreleaser init:
 .intentionally-empty-file.o
 target/
 sample/
@@ -24,3 +26,4 @@ IncrementalChangelog.md
 .env.*
 .*.env
 TODO.MD
+.kagent/

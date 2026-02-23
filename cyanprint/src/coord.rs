@@ -177,7 +177,7 @@ pub async fn start_coordinator(
                 exposed_ports: Some(
                     vec![("9000/tcp".to_string(), HashMap::new())]
                         .into_iter()
-                        .collect(),
+                        .collect::<HashMap<_, _>>(),
                 ),
                 host_config: Some(HostConfig {
                     mounts: Some(vec![mount]),
