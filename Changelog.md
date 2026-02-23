@@ -1,3 +1,18 @@
+## [2.4.1](https://github.com/AtomiCloud/sulfone.iridium/compare/v2.4.0...v2.4.1) (2026-02-23)
+
+
+### 📜 Documentation 📜
+
+* add Iridium Rust CLI architecture and usage documentation ([37c4cac](https://github.com/AtomiCloud/sulfone.iridium/commit/37c4cac385774d02eb8df9811552424ee07a94bd))
+* add language specifiers to code blocks (MD040) ([ae39082](https://github.com/AtomiCloud/sulfone.iridium/commit/ae39082f7b5d36ead8bbba79d902e5725c11b745))
+* clean up verification reports and improve CLI documentation ([629f16b](https://github.com/AtomiCloud/sulfone.iridium/commit/629f16baaa12bd61b16474e9890bd2ffd733a7f1))
+* fix CodeRabbitAI review issues ([36e2b96](https://github.com/AtomiCloud/sulfone.iridium/commit/36e2b968bea914df26a82d6c2ae5ab8151adf0a7))
+
+
+### 🐛 Bug Fixes 🐛
+
+* **ci:** update macos-13 to macos-15-intel (deprecated runner) ([cd672b5](https://github.com/AtomiCloud/sulfone.iridium/commit/cd672b5129f48f452d8dc23985dc3cbcbd2b3222))
+
 ## [2.4.0](https://github.com/AtomiCloud/sulfone.iridium/compare/v2.3.0...v2.4.0) (2025-07-01)
 
 
