@@ -1,3 +1,16 @@
+## [2.4.0](https://github.com/AtomiCloud/sulfone.iridium/compare/v2.3.0...v2.4.0) (2025-07-01)
+
+
+### ✨ Features ✨
+
+* upgrade build and cache builds ([176c883](https://github.com/AtomiCloud/sulfone.iridium/commit/176c8835684fa45a0d88a3656ac93200afd86c51))
+* upgrade build and cache builds ([#45](https://github.com/AtomiCloud/sulfone.iridium/issues/45)) ([111b676](https://github.com/AtomiCloud/sulfone.iridium/commit/111b676a10dd96f1024383935cbf8e26ab0f6b07))
+
+
+### 🐛 Bug Fixes 🐛
+
+* incorrect path to cache shell ([81f025c](https://github.com/AtomiCloud/sulfone.iridium/commit/81f025c2df76c4886cdc7b9bde51b3f31482deb9))
+
 ## [2.3.0](https://github.com/AtomiCloud/sulfone.iridium/compare/v2.2.1...v2.3.0) (2025-07-01)
 
 
