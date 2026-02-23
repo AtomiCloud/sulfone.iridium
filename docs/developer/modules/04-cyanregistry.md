@@ -20,7 +20,7 @@
 
 ## Structure
 
-```
+```text
 cyanregistry/
 ├── src/
 │   ├── lib.rs                # Module exports

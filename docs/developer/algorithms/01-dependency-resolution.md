@@ -128,7 +128,7 @@ After all dependencies are processed, add the root template at the end.
 
 Given dependency tree:
 
-```
+```text
 root (id: 3)
 ├── B (id: 1)
 │   └── D (id: 4)

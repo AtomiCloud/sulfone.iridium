@@ -39,7 +39,7 @@ pls create atomicloud/starter:1 ./my-project
 
 Output:
 
-```
+```text
 🚘 Retrieving template 'atomicloud/starter:1' from registry...
 ✅ Retrieved template 'atomicloud/starter:1' from registry.
 ✅ Completed successfully

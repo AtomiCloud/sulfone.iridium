@@ -23,7 +23,7 @@
 
 ## Structure
 
-```
+```text
 cyancoordinator/
 ├── src/
 │   ├── lib.rs                # Module exports

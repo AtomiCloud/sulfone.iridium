@@ -41,7 +41,7 @@ pls update ./my-project
 
 Output:
 
-```
+```text
 🔄 Updating templates to latest versions
 🔍 Resolving dependencies for template: my-template (v2)
 📋 Deterministic template execution order...

@@ -39,7 +39,7 @@ pls daemon
 
 Output:
 
-```
+```text
 ✅ Coordinator started on port 9000
 ```
 
@@ -57,7 +57,7 @@ pls daemon --port 8080
 
 Output:
 
-```
+```text
 ✅ Coordinator started on port 8080
 ```
 

@@ -63,7 +63,7 @@ pls push template \
 
 Output:
 
-```
+```text
 ✅ Pushed template successfully
 📦 Template ID: 12345
 ```
@@ -80,7 +80,7 @@ pls push group --config cyan.yaml --token YOUR_TOKEN --message "Group template"
 
 Output:
 
-```
+```text
 🔗 Pushing template group (no Docker artifacts)...
 ✅ Pushed template group successfully
 📦 Template ID: 12346
