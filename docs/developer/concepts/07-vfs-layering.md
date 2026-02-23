@@ -64,7 +64,7 @@ Given three templates with outputs:
 
 Layered result:
 
-- `config/default.yaml` - from T3 (overwrites T2, which overwrote T1)
+- `config/default.yaml` - from T2 (overwrites T1)
 - `README.md` - from T1
 - `server.rs` - from T2
 - `routes.rs` - from T3

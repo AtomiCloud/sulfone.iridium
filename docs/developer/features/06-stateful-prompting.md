@@ -85,7 +85,7 @@ sequenceDiagram
 
 ```rust
 pub enum TemplateState {
-    QnA(),                    // Still prompting
+    QnA,                      // Still prompting
     Complete(Cyan, HashMap<String, Answer>),  // Done with answers
     Err(String),              // Error occurred
 }

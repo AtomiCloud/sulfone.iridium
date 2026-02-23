@@ -24,7 +24,7 @@ When a template runs, it may prompt the user for input. The prompting engine:
 
 ```rust
 pub enum TemplateState {
-    QnA(),                    // Still prompting
+    QnA,                      // Still prompting
     Complete(Cyan, HashMap<String, Answer>),  // Done with answers
     Err(String),              // Error occurred
 }
