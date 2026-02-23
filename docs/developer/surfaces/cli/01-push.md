@@ -14,12 +14,14 @@ Publishes CyanPrint artifacts (templates, template groups, plugins, processors) 
 
 ## Subcommands
 
-| Subcommand  | Description                                 |
-| ----------- | ------------------------------------------- |
-| `template`  | Push executable template with Docker images |
-| `group`     | Push template group (no Docker artifacts)   |
-| `plugin`    | Push plugin Docker image                    |
-| `processor` | Push processor Docker image                 |
+| Subcommand  | Description                                 | `properties` Field |
+| ----------- | ------------------------------------------- | ------------------ |
+| `template`  | Push executable template with Docker images | `Some(...)`        |
+| `group`     | Push template group (no Docker artifacts)   | `None`             |
+| `plugin`    | Push plugin Docker image                    | N/A                |
+| `processor` | Push processor Docker image                 | N/A                |
+
+> See [Properties Field](../../concepts/08-properties-field.md) for how the subcommand determines the `properties` field.
 
 ## Options
 

@@ -61,6 +61,9 @@ This allows a higher-level template to reference answers from dependencies.
 | Generates files       | No (via dependencies)          | Yes                     |
 | Can have dependencies | Yes                            | Yes                     |
 | Execution             | Skipped, only metadata tracked | Runs in container       |
+| CLI push command      | `pls push group`               | `pls push template ...` |
+
+> See [Properties Field](./08-properties-field.md) for how `properties` is determined at push time.
 
 ## Related
 

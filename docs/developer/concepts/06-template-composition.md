@@ -69,6 +69,8 @@ sequenceDiagram
 | **Type validation**      | Conflicts abort execution                                   |
 | **VFS layering**         | Later templates overwrite earlier ones for same paths       |
 
+> See [Properties Field](./08-properties-field.md) for how `properties` is determined at push time.
+
 **Key File**: `cyancoordinator/src/operations/composition/operator.rs:34-99`
 
 ## Create vs Upgrade vs Rerun

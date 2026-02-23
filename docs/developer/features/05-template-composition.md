@@ -129,6 +129,7 @@ pub struct CompositionState {
 ## Related
 
 - [Template Composition Concept](../concepts/06-template-composition.md) - Concept overview
+- [Properties Field](../concepts/08-properties-field.md) - How properties determines execution
 - [Dependency Resolution](./01-dependency-resolution.md) - Dependency ordering
 - [VFS Layering](./03-vfs-layering.md) - Output merging
 - [3-Way Merge](./02-three-way-merge.md) - User change preservation

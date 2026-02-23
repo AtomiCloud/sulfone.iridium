@@ -31,6 +31,8 @@ A template without execution artifacts that serves as a composition of other tem
 
 **Key indicators**: `properties` field is `None` in template metadata
 
+> See [Properties Field](./08-properties-field.md) for how `properties` is determined at push time.
+
 ## Template Reference Format
 
 Templates are referenced using the format:
