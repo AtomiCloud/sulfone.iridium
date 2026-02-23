@@ -8,21 +8,21 @@
 
 ## Objective
 
-Fix a Rust compilation error in the cyanprint crate that caused the GitHub Actions pre-commit Clippy hook to fail. The error was a type mismatch where `exposed_ports` field expected a `HashMap<String, HashMap<...>>` but the code was attempting to collect into an inferred type that resulted in a `Vec<String>`.
+Fix a Rust compilation error in the cyanprint crate that caused the GitHub Actions pre-commit Clippy hook to fail. The error was a type mismatch where `exposed_ports` field expected `Vec<String>` but the code was creating tuples and trying to collect them into an inferred type.
 
 ## Acceptance Criteria
 
-- [x] Fix the type mismatch error in `cyanprint/src/coord.rs:180`
-- [ ] Code compiles successfully with `cargo build`
-- [ ] All pre-commit hooks pass (Clippy, etc.)
-- [ ] CI workflow passes after the fix
+- [x] Fix the type mismatch error in `cyanprint/src/coord.rs:177`
+- [x] Code compiles successfully with `cargo build`
+- [x] All pre-commit hooks pass (Clippy, etc.)
+- [x] CI workflow passes after the fix
 
 ## Definition of Done
 
 - [x] All acceptance criteria met
 - [ ] Tests pass
-- [ ] No lint/type errors
-- [ ] Ticket ID included in commit message
+- [x] No lint/type errors
+- [x] Ticket ID included in commit message
 
 ## Out of Scope
 
@@ -38,7 +38,7 @@ Fix a Rust compilation error in the cyanprint crate that caused the GitHub Actio
 
 The error occurred during a tag build (v2.4.1) in the pre-commit Clippy hook:
 
-```
+```text
 error[E0277]: a value of type `std::vec::Vec<std::string::String>` cannot be built from an iterator over elements of type `(std::string::String, std::collections::HashMap<_, _>)`
    --> cyanprint/src/coord.rs:180:26
     |
@@ -46,16 +46,20 @@ error[E0277]: a value of type `std::vec::Vec<std::string::String>` cannot be bui
     |                          ^^^^^^^ value of type `Vec<String>` cannot be built from iterator of `(String, HashMap<_, _>)`
 ```
 
-The fix was to explicitly specify the collection type as `HashMap`:
+The fix was to change from creating tuples to using `Vec<String>` directly:
 
 ```rust
-// Before (incorrect - type inference failed)
-.collect(),
+// Before (incorrect - creating tuples when Vec<String> is expected)
+exposed_ports: Some(
+    vec![("9000/tcp".to_string(), HashMap::new())]
+        .into_iter()
+        .collect(),
+),
 
-// After (correct)
-.collect::<HashMap<_, _>>(),
+// After (correct - using Vec<String> directly)
+exposed_ports: Some(vec!["9000/tcp".to_string()]),
 ```
 
 ## Root Cause
 
-The `exposed_ports` field in `ContainerCreateBody` expects a `HashMap<String, HashMap<String, Option<String>>>` (or similar), but without explicit type annotation, Rust couldn't infer the correct type and defaulted to `Vec<String>`, causing a compilation error.
+The `exposed_ports` field in `bollard::models::ContainerCreateBody` expects `Option<Vec<String>>`, but the original code was creating tuples `(String, HashMap)` and trying to collect them, which caused a type mismatch error.
