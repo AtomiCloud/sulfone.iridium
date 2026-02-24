@@ -53,7 +53,6 @@ jobs:
       - uses: AtomiCloud/actions.setup-nix@v2
         with:
           namespacelabs: ${{ matrix.platform.namespacelabs }}
-          attic-token: ${{ secrets.ATTIC_TOKEN }}
 
       # build
       - name: Build

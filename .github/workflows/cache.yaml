@@ -4,10 +4,6 @@ on:
     tags:
       - 'v*'
 jobs:
-  cacheshell:
-    name: Cache Shell
-    uses: ./.github/workflows/⚡reusable-cacheshell.yaml
-    secrets: inherit
   cachebuild:
     name: Cache Build
     uses: ./.github/workflows/⚡reusable-build.yaml
