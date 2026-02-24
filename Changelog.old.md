@@ -1,3 +1,19 @@
+## [2.4.2](https://github.com/AtomiCloud/sulfone.iridium/compare/v2.4.1...v2.4.2) (2026-02-24)
+
+
+### 📜 Documentation 📜
+
+* add task spec for CU-86ewpvy6y ([de44ced](https://github.com/AtomiCloud/sulfone.iridium/commit/de44ced7f6ed0a27c06960c7837eb07316f507bc))
+* update task spec to reflect actual fix [CU-86ewpvy6y] ([af1fb8b](https://github.com/AtomiCloud/sulfone.iridium/commit/af1fb8b0167222ea0e4d0b36500e1c4aba202b9b))
+
+
+### 🐛 Bug Fixes 🐛
+
+* **coord:** add explicit type annotation for exposed_ports collect [CU-86ewpvy6y] ([#63](https://github.com/AtomiCloud/sulfone.iridium/issues/63)) ([37747c0](https://github.com/AtomiCloud/sulfone.iridium/commit/37747c01247ddedbb851be0ba89c475dad64242e))
+* **coord:** add explicit type annotation for exposed_ports collect ([1fa79bf](https://github.com/AtomiCloud/sulfone.iridium/commit/1fa79bfa47604611b196f4a836420e402631131f))
+* **coord:** use HashMap::new() for exposed_ports inner map ([f64ff6e](https://github.com/AtomiCloud/sulfone.iridium/commit/f64ff6edb42f81d2360935644a171a6859ab3353))
+* **coord:** use Vec<String> for exposed_ports field ([5990978](https://github.com/AtomiCloud/sulfone.iridium/commit/599097828261c770157038973082e15588ff5839))
+
 ## [2.4.1](https://github.com/AtomiCloud/sulfone.iridium/compare/v2.4.0...v2.4.1) (2026-02-23)
 
 
