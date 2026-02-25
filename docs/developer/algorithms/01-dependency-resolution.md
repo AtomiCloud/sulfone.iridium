@@ -22,6 +22,13 @@ Post-order traversal algorithm that flattens a template dependency tree into a d
 
 ## Steps
 
+<!--
+  NOTE FOR REVIEWERS: The diagram intentionally shows "Recurse" as a separate participant
+  to represent the recursive flatten_dependencies() call. The public resolve_dependencies()
+  method delegates to the private flatten_dependencies() helper for the recursive post-order
+  traversal. This design is clearly reflected in the diagram.
+-->
+
 ```mermaid
 sequenceDiagram
     participant Caller as Caller

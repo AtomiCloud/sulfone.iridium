@@ -27,16 +27,16 @@ This enables detecting whether a project is new, needs upgrade, or should rerun.
 
 ```mermaid
 flowchart TD
-    A[Template Executes] --> B[Collect Answers & State]
-    B --> C{State File Exists?}
-    C -->|No| D[Create New State]
-    C -->|Yes| E[Load Existing State]
-    E --> F{Versions Match?}
-    F -->|Yes| G[Rerun Flow]
-    F -->|No| H[Upgrade Flow]
-    D --> I[Save .cyan_state.yaml]
-    G --> I
-    H --> I
+    A{State File Exists?} -->|No| B[NewTemplate: Fresh Execution]
+    A -->|Yes| C[Load Existing State]
+    C --> D{Versions Match?}
+    D -->|Yes| E[RerunTemplate Flow]
+    D -->|No| F[UpgradeTemplate Flow]
+    B --> G[Execute Template]
+    E --> G
+    F --> G
+    G --> H[Collect Answers & State]
+    H --> I[Save .cyan_state.yaml]
 ```
 
 ### Detailed

@@ -118,6 +118,8 @@ if discriminant(existing) != discriminant(value) {
 
 **Key File**: `cyancoordinator/src/operations/composition/state.rs:35-39`
 
+> **Warning**: A type conflict causes an unconditional `panic!`, which immediately terminates the coordinator process. There is no graceful recovery path. Ensure all templates in a composition use consistent answer types for shared question IDs to avoid this hard crash.
+
 ## Pre-filled Answers
 
 On re-run or update, previous answers are provided:

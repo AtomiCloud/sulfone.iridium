@@ -12,8 +12,8 @@
 
 ```bash
 # Clone the repository
-git clone https://github.com/atomicloud/iridium
-cd iridium
+git clone https://github.com/AtomiCloud/sulfone.iridium
+cd sulfone.iridium
 
 # Build the CLI
 cargo build --release
@@ -24,14 +24,24 @@ cargo build --release
 ### Using Nix
 
 ```bash
-# Enter the development environment
-nix-shell
+# Enter the development environment (Nix flakes)
+nix develop
+
+# Or using direnv (automatic)
+direnv allow
 
 # Build
 cargo build --release
 ```
 
 ## Quick Start
+
+> **Note on command entry points**: Examples in this guide use two command entry points:
+>
+> - `cyanprint` — the installed binary (production/release build)
+> - `pls` — a development alias that runs the CLI via `cargo run` from the current source tree
+>
+> Use `pls` for local development and `cyanprint` for installed/production usage.
 
 ### 1. Start the Coordinator Daemon
 
@@ -44,7 +54,7 @@ cyanprint daemon --version latest --port 9000 --registry https://api.zinc.sulfon
 
 Expected output:
 
-```
+```text
 ✅ Coordinator started on port 9000
 ```
 
@@ -65,7 +75,7 @@ pls create atomicloud/starter:1 ./my-project
 
 Expected output:
 
-```
+```text
 🚘 Retrieving template 'atomicloud/starter:1' from registry...
 ✅ Retrieved template 'atomicloud/starter:1' from registry.
 ✅ Completed successfully
@@ -84,7 +94,7 @@ pls update ./my-project
 
 Expected output:
 
-```
+```text
 🔄 Updating templates to latest versions
 ✅ Update completed successfully
 🧹 Cleaning up all sessions...
@@ -109,7 +119,7 @@ pls push template \
 
 Expected output:
 
-```
+```text
 ✅ Pushed template successfully
 📦 Template ID: 12345
 ```
@@ -127,7 +137,7 @@ The coordinator and registry endpoints can be configured via:
 
 ## Project Structure
 
-```
+```text
 iridium/
 ├── cyanprint/           # CLI binary
 │   └── src/

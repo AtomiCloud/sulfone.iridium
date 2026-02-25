@@ -7,7 +7,7 @@ Implementation details for complex algorithms in Iridium.
 ```mermaid
 flowchart TD
     DR[Dependency Resolution] --> TC[Template Composition]
-    TWM[3-Way Merge] --> TC
+    TWM[3-Way Merge] --> TU[Template Updates]
     VFS[VFS Layering] --> TC
 ```
 

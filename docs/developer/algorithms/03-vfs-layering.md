@@ -138,7 +138,7 @@ Layered result:
 ## Complexity
 
 - **Time**: O(n × m) where n = number of VFS, m = average files per VFS
-- **Space**: O(m) for the result VFS
+- **Space**: O(n × m) worst case for the result VFS (no overlapping paths), O(m) best case (complete overlap)
 
 ## Comparison to 3-Way Merge
 

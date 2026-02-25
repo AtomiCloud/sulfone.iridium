@@ -80,17 +80,20 @@ sequenceDiagram
     CLI->>COORD: 8. Clean session
 ```
 
-| #   | Step             | What                              | Key File              |
-| --- | ---------------- | --------------------------------- | --------------------- |
-| 1   | Parse command    | Parse template reference and path | `commands.rs:34`      |
-| 2   | Fetch template   | Get template from registry        | `main.rs:142-157`     |
-| 3   | Parse reference  | Extract username, name, version   | `util.rs:parse_ref()` |
-| 4   | Execute template | Run template with coordinator     | `run.rs:cyan_run()`   |
-| 5   | Cleanup          | Remove session artifacts          | `main.rs:179-181`     |
+| Order | Step              | What                              | Key File              |
+| ----- | ----------------- | --------------------------------- | --------------------- |
+| 1     | Parse command     | Parse template reference and path | `commands.rs:34`      |
+| 2     | Fetch template    | Get template from registry        | `main.rs:142-157`     |
+| 3     | Parse reference   | Extract username, name, version   | `util.rs:parse_ref()` |
+| 4     | Bootstrap session | Initialize coordinator session    | `main.rs:142-157`     |
+| 5     | Execute template  | Run template with coordinator     | `run.rs:cyan_run()`   |
+| 6     | Receive archive   | Get generated files from coord    | `run.rs:cyan_run()`   |
+| 7     | Unpack & merge    | Write files to filesystem         | `run.rs:49-52`        |
+| 8     | Cleanup           | Remove session artifacts          | `main.rs:179-181`     |
 
 ## Template Reference Format
 
-```
+```text
 <username>/<template_name>:<version>
 ```
 

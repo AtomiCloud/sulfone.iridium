@@ -20,7 +20,7 @@ Template composition allows templates to depend on other templates. When execute
 
 ## Example Composition
 
-```
+```text
 web-framework-template/
 ├── Depends on: base-library-template
 ├── Adds: web server files
@@ -75,11 +75,11 @@ sequenceDiagram
 
 ## Create vs Upgrade vs Rerun
 
-| Scenario    | Base             | Incoming             | Answers                |
-| ----------- | ---------------- | -------------------- | ---------------------- |
-| **New**     | Empty            | Template composition | Fresh Q&A              |
-| **Upgrade** | Previous version | New version          | Reuse + prompt for new |
-| **Rerun**   | Previous version | Same version         | Fresh Q&A              |
+| Scenario    | Base             | Incoming             | Answers                         |
+| ----------- | ---------------- | -------------------- | ------------------------------- |
+| **Create**  | Empty            | Template composition | Fresh Q&A                       |
+| **Upgrade** | Previous version | New version          | Reuse + prompt for new          |
+| **Rerun**   | Previous version | Same version         | Reuse previous answers + prompt |
 
 **Key File**: `cyancoordinator/src/operations/composition/operator.rs`
 

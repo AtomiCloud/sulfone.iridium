@@ -1,0 +1,31 @@
+# CodeRabbit Configuration
+# See: https://docs.coderabbit.ai/reference/configuration
+
+reviews:
+  auto_review:
+    enabled: true
+
+path_filters:
+  exclude:
+    # Task specification files (internal tracking, not code)
+    - 'spec/**'
+
+    # Generated/artifact files
+    - '**/target/**'
+    - '**/dist/**'
+    - '**/node_modules/**'
+
+    # Lock files
+    - '**/*-lock.json'
+    - '**/yarn.lock'
+    - '**/pnpm-lock.yaml'
+
+    # CI/CD configuration
+    - '.github/**'
+    - '.gitlab/**'
+    - '.circleci/**'
+
+    # Development environment files
+    - '.direnv/**'
+    - '.devenv/**'
+    - '*.envrc'

@@ -132,9 +132,9 @@ flowchart TD
     CC --> CPROM[cyanprompt]
     CC --> CR
 
-    CP[cyanprint] -->|CLI commands| CC
+    CP -->|CLI commands| CC
     CC -->|Core engine| CPROM
-    CR -->|Registry API| CC
+    CC -->|Registry API| CR
 ```
 
 | Crate               | Depends On                    | Purpose                              |

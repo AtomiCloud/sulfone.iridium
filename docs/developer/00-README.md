@@ -31,7 +31,7 @@ flowchart TD
     C --> F[Features]
     C --> G[Modules]
 
-    F --> H[Algorithms]
+    F --> ALG[Algorithms]
     D --> I[Surfaces/CLI]
 ```
 
@@ -47,12 +47,13 @@ flowchart TD
 
 ## Key Concepts
 
-| Concept            | Description                  | Link                                                      |
-| ------------------ | ---------------------------- | --------------------------------------------------------- |
-| Template           | Executable or group template | [Template](./concepts/01-template.md)                     |
-| Template Group     | Multi-template composition   | [Template Group](./concepts/02-template-group.md)         |
-| Answer Tracking    | Track answers by question ID | [Answer Tracking](./concepts/03-answer-tracking.md)       |
-| Stateful Prompting | State during Q&A flow        | [Stateful Prompting](./concepts/05-stateful-prompting.md) |
+| Concept              | Description                  | Link                                                          |
+| -------------------- | ---------------------------- | ------------------------------------------------------------- |
+| Template             | Executable or group template | [Template](./concepts/01-template.md)                         |
+| Template Group       | Multi-template composition   | [Template Group](./concepts/02-template-group.md)             |
+| Answer Tracking      | Track answers by question ID | [Answer Tracking](./concepts/03-answer-tracking.md)           |
+| Deterministic States | Computed execution state     | [Deterministic States](./concepts/04-deterministic-states.md) |
+| Stateful Prompting   | State during Q&A flow        | [Stateful Prompting](./concepts/05-stateful-prompting.md)     |
 
 ## Crate Structure
 
@@ -65,7 +66,7 @@ flowchart TD
 
 ## Documentation Structure
 
-```
+```text
 docs/developer/
 ├── 00-README.md              # This file - entry point
 ├── 01-getting-started.md     # Setup and quickstart
