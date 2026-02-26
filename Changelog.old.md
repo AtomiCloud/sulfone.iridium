@@ -1,3 +1,10 @@
+## [2.5.0](https://github.com/AtomiCloud/sulfone.iridium/compare/v2.4.2...v2.5.0) (2026-02-24)
+
+
+### 📜 Documentation 📜
+
+* add task spec for CU-86ewpyvh6 ([f055045](https://github.com/AtomiCloud/sulfone.iridium/commit/f055045398a364c99f954f275781d094b8144ed9))
+
 ## [2.4.2](https://github.com/AtomiCloud/sulfone.iridium/compare/v2.4.1...v2.4.2) (2026-02-24)
 
 
