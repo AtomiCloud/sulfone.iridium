@@ -2,3 +2,4 @@
 reviews:
   path_filters:
     - '!docs/developer/standard/**/*.md'
+    - '!spec/**/*.md'
