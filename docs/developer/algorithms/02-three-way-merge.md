@@ -35,17 +35,21 @@ sequenceDiagram
     Merger->>FS: Write base VFS files
     Merger->>Git: Commit "Base state"
     Merger->>Git: Create branches: current, incoming
-    Merger->>FS: Write current VFS files
     Merger->>Git: Checkout current branch
+    Merger->>FS: Write current VFS files
     Merger->>Git: Commit "Current state"
-    Merger->>FS: Write incoming VFS files
     Merger->>Git: Checkout incoming branch
+    Merger->>FS: Write incoming VFS files
     Merger->>Git: Commit "Incoming state"
     Merger->>Git: Checkout current branch
     Merger->>Git: merge_analysis()
     Git-->>Merger: analysis result
     alt Up to date
         Merger-->>Merger: Return current VFS
+    else Fast-forward
+        Merger->>Git: fast-forward
+        Merger->>FS: Read files
+        FS-->>Merger: Merged VFS
     else Normal merge
         Merger->>Git: merge()
         Merger->>Git: Check for conflicts
@@ -118,6 +122,11 @@ Create branch for incoming (new template) state and commit.
 let analysis = repo.merge_analysis(&[&incoming_annotated])?;
 if analysis.0.is_up_to_date() {
     return Ok(current.clone());
+} else if analysis.0.is_fast_forward() {
+    // Handle fast-forward: move HEAD to incoming commit
+    repo.merge(&[&incoming_annotated], ...)?;
+    let result_vfs = self.read_vfs_from_dir(temp_dir.path())?;
+    Ok(result_vfs)
 } else if analysis.0.is_normal() {
     repo.merge(&[&incoming_annotated], ...)?;
     // Check conflicts, optionally commit
@@ -135,7 +144,7 @@ Perform merge and read result back to VFS.
 | Case         | Input                          | Behavior                           | Key File            |
 | ------------ | ------------------------------ | ---------------------------------- | ------------------- |
 | Up to date   | current == incoming            | Return current VFS unchanged       | `merger.rs:242-248` |
-| Fast-forward | incoming descends from current | Treated as normal merge            | `merger.rs:249`     |
+| Fast-forward | incoming descends from current | Move HEAD to incoming commit       | `merger.rs:249`     |
 | Conflicts    | Overlapping changes            | Conflict markers left in files     | `merger.rs:262-268` |
 | Empty VFS    | Empty base/current/incoming    | Empty repo created, merge succeeds | `merger.rs:64-92`   |
 
@@ -173,6 +182,8 @@ When conflicts occur:
 **Key File**: `cyancoordinator/src/fs/merger.rs:11-47`
 
 ## Complexity
+
+<!-- Complexity analysis: O(n log n) accounts for git's internal tree lookups (SHA-keyed) which are O(log n) per file. File I/O and diff traversal are O(n), but the overall git operations including tree traversals justify the log factor. -->
 
 - **Time**: O(n log n) for git operations where n = total files
 - **Space**: O(n) for temporary repository on disk

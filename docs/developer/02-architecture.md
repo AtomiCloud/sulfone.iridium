@@ -126,15 +126,11 @@ sequenceDiagram
 
 ```mermaid
 flowchart TD
-    CP[cyanprint] --> CC[cyancoordinator]
+    CP[cyanprint] -->|CLI commands| CC[cyancoordinator]
     CP --> CR[cyanregistry]
 
-    CC --> CPROM[cyanprompt]
-    CC --> CR
-
-    CP[cyanprint] -->|CLI commands| CC
-    CC -->|Core engine| CPROM
-    CR -->|Registry API| CC
+    CC -->|Core engine| CPROM[cyanprompt]
+    CC -->|Registry API| CR
 ```
 
 | Crate               | Depends On                    | Purpose                              |

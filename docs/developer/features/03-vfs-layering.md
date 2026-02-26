@@ -97,7 +97,7 @@ Layered result:
 VFS layering is called after all templates execute:
 
 ```rust
-let vfs_outputs = Vec::new();
+let mut vfs_outputs = Vec::new();
 // ... execute templates, collect outputs ...
 let layered_vfs = self.vfs_layerer.layer_merge(&vfs_outputs)?;
 ```

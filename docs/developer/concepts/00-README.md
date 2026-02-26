@@ -10,6 +10,7 @@ flowchart TD
     T --> AT[Answer Tracking]
     T --> DS[Deterministic States]
     T --> SP[Stateful Prompting]
+    T --> PF[Properties Field]
 
     TG --> TC[Template Composition]
     TC --> VFS[VFS Layering]
@@ -27,6 +28,7 @@ flowchart TD
 | Stateful Prompting   | Q&A flow with answer reuse                 |
 | Template Composition | Multi-template execution with shared state |
 | VFS Layering         | Overlay merge of template outputs          |
+| Properties Field     | Determines executable vs group template    |
 
 ## All Concepts
 
@@ -39,6 +41,7 @@ flowchart TD
 | [Stateful Prompting](./05-stateful-prompting.md)     | Q&A with state management        | Single Q&A session for compositions | `cyanprompt/src/domain/services/template/engine.rs`      |
 | [Template Composition](./06-template-composition.md) | Multi-template with shared state | Complex, layered templates          | `cyancoordinator/src/operations/composition/operator.rs` |
 | [VFS Layering](./07-vfs-layering.md)                 | Overlay file system merge        | Combine multiple template outputs   | `cyancoordinator/src/operations/composition/layerer.rs`  |
+| [Properties Field](./08-properties-field.md)         | Template execution artifacts     | Determine executable vs group       | `cyanregistry/src/http/models/template_res.rs`           |
 
 ## Groups
 
@@ -46,6 +49,7 @@ flowchart TD
 
 - **[Template](./01-template.md)** - Executable and group templates
 - **[Template Group](./02-template-group.md)** - Composition of templates
+- **[Properties Field](./08-properties-field.md)** - Execution artifact configuration
 
 ### Group 2: State Management
 

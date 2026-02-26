@@ -80,7 +80,7 @@ flowchart LR
     A --> C[cyanregistry]
 
     D[cyanprint] --> A
-    E[cyanprint] --> C
+    D --> C
 ```
 
 | Dependency   | Why                                       |

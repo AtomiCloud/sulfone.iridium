@@ -75,7 +75,7 @@ This ensures that templates with multiple dependencies at the same level execute
 
 Given this dependency tree:
 
-```
+```text
 root (depends on: B, C)
 ├── B (depends on: D)
 └── C (depends on: D)
@@ -85,7 +85,7 @@ Post-order traversal produces: D, B, C, root
 
 ## Edge Cases
 
-- **Circular dependencies**: Not detected - visited list prevents infinite recursion
+- **Circular dependencies**: Not detected (known limitation) - visited tracking stops infinite recursion but silently produces an incomplete execution order with no error surfaced to the caller. If templates appear to be missing from execution, check for cycles in the dependency graph.
 - **Duplicate dependencies**: Visited tracking prevents re-processing
 - **Empty dependencies**: Root template executes alone
 

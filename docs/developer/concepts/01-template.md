@@ -37,13 +37,13 @@ A template without execution artifacts that serves as a composition of other tem
 
 Templates are referenced using the format:
 
-```
+```text
 <username>/<template-name>:<version>
 ```
 
 Example:
 
-```
+```text
 atomicloud/starter:1
 ```
 

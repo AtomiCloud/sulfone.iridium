@@ -25,11 +25,13 @@ Updates all templates in a project to their latest versions. Detects template hi
 | `--coordinator-endpoint` | `-c`  | `http://coord.cyanprint.dev:9000` | Coordinator service endpoint               |
 | `--interactive`          | `-i`  | `false`                           | Enable interactive mode to select versions |
 
+> **Note**: The default coordinator endpoint uses unencrypted HTTP. This is intended for internal/VPN-cluster usage. For production or public network environments, use an HTTPS endpoint via `--coordinator-endpoint` or the `CYANPRINT_COORDINATOR` environment variable.
+
 **Environment Variables**:
 
 - `CYANPRINT_COORDINATOR` - Override coordinator endpoint
 
-**Key File**: `cyanprint/src/commands.rs:48-72`
+**Key File**: `cyanprint/src/commands.rs:52-72`
 
 ## Examples
 

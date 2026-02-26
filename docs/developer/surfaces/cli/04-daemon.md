@@ -2,6 +2,8 @@
 
 **Key File**: `cyanprint/src/main.rs:228-255`, `cyanprint/src/coord.rs`
 
+> **Note**: `pls` is a development alias that runs the CLI via `cargo run` from the current codebase. Use `cyanprint` when invoking the installed binary.
+
 ## Usage
 
 ```bash
@@ -74,7 +76,6 @@ sequenceDiagram
     participant U as User
     participant CLI as cyanprint
     participant Docker as Docker
-    participant Coord as Coordinator Container
 
     U->>CLI: 1. pls daemon
     CLI->>Docker: 2. Connect to Docker
@@ -100,6 +101,13 @@ Default image: `ghcr.io/atomicloud/sulfone.boron/sulfone-boron:<version>`
 **Key File**: `cyanprint/src/main.rs:240-242`
 
 ## Coordinator Endpoints
+
+<!--
+  NOTE FOR REVIEWERS: The endpoint paths documented here represent the logical operations
+  exposed by the coordinator. Actual HTTP paths may differ at the implementation level.
+  For accurate endpoint details, refer to cyancoordinator/src/client.rs which defines
+  the exact API contract used by the CLI.
+-->
 
 Once started, the coordinator provides:
 
@@ -135,7 +143,7 @@ pls create template:1 ./project --coordinator-endpoint http://localhost:9000
 
 ### Port Already in Use
 
-```
+```text
 Error: Port 9000 already in use
 ```
 
@@ -147,7 +155,7 @@ pls daemon --port 9001
 
 ### Docker Not Running
 
-```
+```text
 Error: Failed to connect to Docker daemon
 ```
 
@@ -155,7 +163,7 @@ Error: Failed to connect to Docker daemon
 
 ### Image Not Found
 
-```
+```text
 Error: Image pull failed
 ```
 
@@ -163,12 +171,15 @@ Error: Image pull failed
 
 ## Exit Codes
 
-| Code | Meaning             |
-| ---- | ------------------- |
-| `0`  | Success             |
-| `1`  | Docker error        |
-| `2`  | Port already in use |
-| `3`  | Image pull failed   |
+> **Note**: Only exit codes 0 and 1 are currently implemented. Codes 2 and 3 are
+> planned for future versions to provide semantic differentiation between error types.
+
+| Code | Meaning             | Status  |
+| ---- | ------------------- | ------- |
+| `0`  | Success             | Active  |
+| `1`  | Docker error        | Active  |
+| `2`  | Port already in use | Planned |
+| `3`  | Image pull failed   | Planned |
 
 ## Related Commands
 

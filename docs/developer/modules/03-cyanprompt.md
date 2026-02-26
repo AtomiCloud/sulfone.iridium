@@ -21,7 +21,7 @@
 
 ## Structure
 
-```
+```text
 cyanprompt/
 ├── src/
 │   ├── lib.rs                # Module exports
@@ -115,7 +115,7 @@ pub struct CyanPlugin {
 }
 ```
 
-**Key File**: `cyanprompt/src/domain/models/cyan.rs:31-34`
+**Key File**: `cyanprompt/src/domain/models/cyan.rs:17-34`
 
 ### TemplateEngine
 

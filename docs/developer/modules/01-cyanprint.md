@@ -22,7 +22,7 @@
 
 ## Structure
 
-```
+```text
 cyanprint/
 ├── src/
 │   ├── main.rs          # Entry point, command routing
