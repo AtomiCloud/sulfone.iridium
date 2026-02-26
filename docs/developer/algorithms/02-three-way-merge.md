@@ -46,6 +46,10 @@ sequenceDiagram
     Git-->>Merger: analysis result
     alt Up to date
         Merger-->>Merger: Return current VFS
+    else Fast-forward
+        Merger->>Git: fast-forward
+        Merger->>FS: Read files
+        FS-->>Merger: Merged VFS
     else Normal merge
         Merger->>Git: merge()
         Merger->>Git: Check for conflicts
