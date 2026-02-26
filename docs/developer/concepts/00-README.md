@@ -10,6 +10,7 @@ flowchart TD
     T --> AT[Answer Tracking]
     T --> DS[Deterministic States]
     T --> SP[Stateful Prompting]
+    T --> PF[Properties Field]
 
     TG --> TC[Template Composition]
     TC --> VFS[VFS Layering]
@@ -27,6 +28,7 @@ flowchart TD
 | Stateful Prompting   | Q&A flow with answer reuse                 |
 | Template Composition | Multi-template execution with shared state |
 | VFS Layering         | Overlay merge of template outputs          |
+| Properties Field     | Determines executable vs group template    |
 
 ## All Concepts
 

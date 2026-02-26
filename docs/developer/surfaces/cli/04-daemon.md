@@ -171,19 +171,15 @@ Error: Image pull failed
 
 ## Exit Codes
 
-<!--
-  NOTE FOR REVIEWERS: Exit codes documented here describe the intended semantic
-  differentiation between error types. The implementation uses Rust's default
-  process exit behavior (success -> 0, unhandled error -> 1). Custom exit codes
-  for specific error types may be added in future versions.
--->
+> **Note**: Only exit codes 0 and 1 are currently implemented. Codes 2 and 3 are
+> planned for future versions to provide semantic differentiation between error types.
 
-| Code | Meaning             |
-| ---- | ------------------- |
-| `0`  | Success             |
-| `1`  | Docker error        |
-| `2`  | Port already in use |
-| `3`  | Image pull failed   |
+| Code | Meaning             | Status  |
+| ---- | ------------------- | ------- |
+| `0`  | Success             | Active  |
+| `1`  | Docker error        | Active  |
+| `2`  | Port already in use | Planned |
+| `3`  | Image pull failed   | Planned |
 
 ## Related Commands
 

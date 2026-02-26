@@ -138,7 +138,7 @@ The coordinator and registry endpoints can be configured via:
 ## Project Structure
 
 ```text
-iridium/
+sulfone.iridium/
 ├── cyanprint/           # CLI binary
 │   └── src/
 │       ├── main.rs      # Entry point
