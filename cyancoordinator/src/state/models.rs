@@ -3,7 +3,7 @@ use cyanprompt::domain::models::answer::Answer;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TemplateHistoryEntry {
     pub version: i64,
     pub time: DateTime<Utc>,

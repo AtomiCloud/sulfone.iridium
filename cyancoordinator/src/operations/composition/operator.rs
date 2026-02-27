@@ -10,6 +10,21 @@ use super::layerer::VfsLayerer;
 use super::resolver::DependencyResolver;
 use super::state::CompositionState;
 
+/// Result of collecting VFS outputs for a single template
+#[derive(Clone)]
+pub struct TemplateVfsCollection {
+    /// The template's principal ID
+    pub template_id: String,
+    /// The layered VFS from the previous version execution (for upgrades)
+    pub prev_vfs: Option<VirtualFileSystem>,
+    /// The layered VFS from the current version execution
+    pub curr_vfs: VirtualFileSystem,
+    /// Session IDs created during execution (for cleanup)
+    pub session_ids: Vec<String>,
+    /// The final composition state after execution
+    pub final_state: CompositionState,
+}
+
 /// Composition operator for recursive template execution
 pub struct CompositionOperator {
     template_operator: TemplateOperator,
@@ -315,5 +330,197 @@ impl CompositionOperator {
 
         println!("✅ Template composition re-run successfully with fresh answers");
         Ok(all_session_ids)
+    }
+
+    // =========================================================================
+    // Batch VFS Collection Methods (no intermediate disk writes)
+    // =========================================================================
+
+    /// Collect VFS outputs for a single template upgrade WITHOUT writing to disk.
+    /// This is used for batch processing where we collect all VFS outputs first,
+    /// then do a single merge and write at the end.
+    pub fn collect_upgrade_vfs(
+        &self,
+        template: &cyanregistry::http::models::template_res::TemplateVersionRes,
+        username: &str,
+        previous_version: i64,
+        previous_answers: HashMap<String, Answer>,
+        previous_states: HashMap<String, String>,
+    ) -> Result<TemplateVfsCollection, Box<dyn Error + Send>> {
+        println!(
+            "📦 Collecting VFS for template upgrade: {} from v{} to v{}",
+            template.template.name, previous_version, template.principal.version
+        );
+
+        // 1. Get previous template version
+        let previous_template =
+            self.template_operator
+                .get_previous_template(template, username, previous_version)?;
+
+        // 2. Resolve dependencies for both versions
+        let previous_templates = self
+            .dependency_resolver
+            .resolve_dependencies(&previous_template)?;
+        let current_templates = self.dependency_resolver.resolve_dependencies(template)?;
+
+        // 3. Execute previous composition
+        let previous_shared_state = CompositionState {
+            shared_answers: previous_answers,
+            shared_deterministic_states: previous_states,
+            execution_order: Vec::new(),
+        };
+        let (prev_layered_vfs, _, prev_session_ids) =
+            self.execute_composition(&previous_templates, &previous_shared_state)?;
+
+        // 4. Execute current composition
+        let current_shared_state = CompositionState {
+            shared_answers: previous_shared_state.shared_answers.clone(),
+            shared_deterministic_states: previous_shared_state.shared_deterministic_states.clone(),
+            execution_order: Vec::new(),
+        };
+        let (curr_layered_vfs, final_state, curr_session_ids) =
+            self.execute_composition(&current_templates, &current_shared_state)?;
+
+        // 5. Combine session IDs
+        let mut all_session_ids = prev_session_ids;
+        all_session_ids.extend(curr_session_ids);
+
+        println!(
+            "✅ Collected VFS for template {} (prev: {} files, curr: {} files)",
+            template.template.name,
+            prev_layered_vfs.get_paths().len(),
+            curr_layered_vfs.get_paths().len()
+        );
+
+        Ok(TemplateVfsCollection {
+            template_id: template.principal.id.clone(),
+            prev_vfs: Some(prev_layered_vfs),
+            curr_vfs: curr_layered_vfs,
+            session_ids: all_session_ids,
+            final_state,
+        })
+    }
+
+    /// Collect VFS outputs for a single template creation (no previous version).
+    /// This is used for batch processing when adding a new template to an existing project.
+    pub fn collect_create_vfs(
+        &self,
+        template: &cyanregistry::http::models::template_res::TemplateVersionRes,
+        initial_state: Option<&CompositionState>,
+    ) -> Result<TemplateVfsCollection, Box<dyn Error + Send>> {
+        println!(
+            "📦 Collecting VFS for new template: {} (v{})",
+            template.template.name, template.principal.version
+        );
+
+        // Resolve dependencies
+        let templates = self.dependency_resolver.resolve_dependencies(template)?;
+
+        // Execute composition
+        let state = initial_state.cloned().unwrap_or_default();
+        let (layered_vfs, final_state, session_ids) =
+            self.execute_composition(&templates, &state)?;
+
+        println!(
+            "✅ Collected VFS for new template {} ({} files)",
+            template.template.name,
+            layered_vfs.get_paths().len()
+        );
+
+        Ok(TemplateVfsCollection {
+            template_id: template.principal.id.clone(),
+            prev_vfs: None,
+            curr_vfs: layered_vfs,
+            session_ids,
+            final_state,
+        })
+    }
+
+    /// Layer merge multiple VFS outputs and perform a single 3-way merge with local files.
+    /// This is the MERGE phase of the batch processing.
+    pub fn layer_and_merge_vfs(
+        &self,
+        collections: &[TemplateVfsCollection],
+        target_dir: &Path,
+        is_upgrade: bool,
+    ) -> Result<(VirtualFileSystem, Vec<String>), Box<dyn Error + Send>> {
+        println!(
+            "🔄 Layering {} template VFS outputs and performing 3-way merge",
+            collections.len()
+        );
+
+        if collections.is_empty() {
+            println!("⚠️ No VFS collections to merge");
+            return Ok((VirtualFileSystem::new(), Vec::new()));
+        }
+
+        // Collect all VFS outputs
+        let mut all_prev_vfs = Vec::new();
+        let mut all_curr_vfs = Vec::new();
+        let mut all_session_ids = Vec::new();
+
+        for collection in collections {
+            if let Some(prev_vfs) = &collection.prev_vfs {
+                all_prev_vfs.push(prev_vfs.clone());
+            }
+            all_curr_vfs.push(collection.curr_vfs.clone());
+            all_session_ids.extend(collection.session_ids.clone());
+        }
+
+        // Layer merge previous VFS outputs (if any)
+        let master_prev_vfs = if all_prev_vfs.is_empty() {
+            if is_upgrade {
+                println!("⚠️ No previous VFS outputs for upgrade - using empty VFS");
+            }
+            VirtualFileSystem::new()
+        } else {
+            println!(
+                "🔄 Layering {} previous VFS outputs (LWW semantics)",
+                all_prev_vfs.len()
+            );
+            self.vfs_layerer.layer_merge(&all_prev_vfs)?
+        };
+
+        // Layer merge current VFS outputs
+        let master_curr_vfs = if all_curr_vfs.is_empty() {
+            println!("⚠️ No current VFS outputs - nothing to merge");
+            return Ok((VirtualFileSystem::new(), all_session_ids));
+        } else {
+            println!(
+                "🔄 Layering {} current VFS outputs (LWW semantics)",
+                all_curr_vfs.len()
+            );
+            self.vfs_layerer.layer_merge(&all_curr_vfs)?
+        };
+
+        // Load local files
+        let local_vfs = self
+            .template_operator
+            .vfs
+            .load_local_files(target_dir, &[])?;
+
+        // Perform 3-way merge
+        println!("🔀 Performing 3-way merge (base=prev, local=local, incoming=curr)");
+        let merged_vfs =
+            self.template_operator
+                .vfs
+                .merge(&master_prev_vfs, &local_vfs, &master_curr_vfs)?;
+
+        println!(
+            "✅ Batch merge complete (merged VFS has {} files)",
+            merged_vfs.get_paths().len()
+        );
+
+        Ok((merged_vfs, all_session_ids))
+    }
+
+    /// Get a reference to the VFS operations
+    pub fn get_vfs(&self) -> &dyn crate::fs::Vfs {
+        self.template_operator.vfs.as_ref()
+    }
+
+    /// Get a reference to the template history
+    pub fn get_template_history(&self) -> &dyn crate::template::TemplateHistory {
+        self.template_operator.template_history.as_ref()
     }
 }

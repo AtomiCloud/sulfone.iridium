@@ -6,16 +6,16 @@ use cyancoordinator::session::SessionIdGenerator;
 use cyanregistry::http::client::CyanRegistryClient;
 
 // Re-export the modular update system
+mod batch_processor;
 mod operator_factory;
 mod orchestrator;
-mod template_processor;
-mod upgrade_executor;
 mod utils;
 mod version_manager;
 
 use orchestrator::UpdateOrchestrator;
 
 // Re-export public interface
+pub use batch_processor::{BatchProcessor, TemplateUpgradeInfo};
 pub use utils::{SelectionError, parse_template_key};
 pub use version_manager::{TemplateVersionInfo, format_friendly_date, select_version_interactive};
 
