@@ -21,7 +21,9 @@ use cyancoordinator::session::SessionIdGenerator;
 use cyancoordinator::template::DefaultTemplateExecutor;
 use cyancoordinator::template::{DefaultTemplateHistory, TemplateUpdateType};
 
-use crate::update::parse_template_key;
+use crate::update::spec::{
+    TemplateSpec, build_curr_specs_for_create, build_prev_specs, sort_specs_by_time,
+};
 
 /// Check if a template has execution artifacts (Docker properties)
 fn has_execution_artifacts(template: &TemplateVersionRes) -> bool {
@@ -33,9 +35,140 @@ fn has_dependencies(template: &TemplateVersionRes) -> bool {
     !template.templates.is_empty()
 }
 
+/// Unified batch processing for both create and update commands.
+/// Handles MAP, LAYER, and MERGE+WRITE phases.
+/// Returns session IDs for cleanup.
+fn batch_process(
+    prev_specs: &[TemplateSpec],
+    curr_specs: &[TemplateSpec],
+    new_spec: Option<&TemplateSpec>, // The new template being added (for metadata save)
+    target_dir: &Path,
+    registry: &CyanRegistryClient,
+    operator: &CompositionOperator,
+) -> Result<Vec<String>, Box<dyn Error + Send>> {
+    // PHASE 2: MAP (execute each template spec → VFS)
+    println!(
+        "\n📦 PHASE 2: MAP - Executing {} prev + {} curr templates",
+        prev_specs.len(),
+        curr_specs.len()
+    );
+
+    // Execute prev_specs
+    let mut prev_vfs_list = Vec::new();
+    let mut prev_session_ids = Vec::new();
+
+    for spec in prev_specs {
+        println!(
+            "  🔄 Executing prev: {} v{}",
+            spec.template_key(),
+            spec.version
+        );
+        let template_res = registry.get_template(
+            spec.username.clone(),
+            spec.template_name.clone(),
+            Some(spec.version),
+        )?;
+        let (vfs, _final_state, session_ids) =
+            operator.execute_template(&template_res, &spec.answers, &spec.deterministic_states)?;
+        prev_vfs_list.push(vfs);
+        prev_session_ids.extend(session_ids);
+    }
+
+    // Execute curr_specs
+    let mut curr_vfs_list = Vec::new();
+    let mut curr_session_ids = Vec::new();
+    // Track the last final state for metadata persistence
+    let mut last_final_state: Option<CompositionState> = None;
+
+    for spec in curr_specs {
+        println!(
+            "  🔄 Executing curr: {} v{}",
+            spec.template_key(),
+            spec.version
+        );
+        let template_res = registry.get_template(
+            spec.username.clone(),
+            spec.template_name.clone(),
+            Some(spec.version),
+        )?;
+
+        // Each TemplateSpec carries its own answers - pass them directly
+        let (vfs, final_state, session_ids) =
+            operator.execute_template(&template_res, &spec.answers, &spec.deterministic_states)?;
+        curr_vfs_list.push(vfs);
+        curr_session_ids.extend(session_ids);
+        last_final_state = Some(final_state);
+    }
+
+    // PHASE 3: LAYER (merge each list into ONE VFS)
+    println!(
+        "\n🔀 PHASE 3: LAYER - Merging {} prev + {} curr VFS outputs",
+        prev_vfs_list.len(),
+        curr_vfs_list.len()
+    );
+
+    let prev_vfs = if prev_vfs_list.is_empty() {
+        cyancoordinator::fs::VirtualFileSystem::new()
+    } else {
+        operator.layer_merge(&prev_vfs_list)?
+    };
+
+    let curr_vfs = if curr_vfs_list.is_empty() {
+        cyancoordinator::fs::VirtualFileSystem::new()
+    } else {
+        operator.layer_merge(&curr_vfs_list)?
+    };
+
+    // PHASE 4: MERGE + WRITE
+    println!("\n📝 PHASE 4: MERGE+WRITE - 3-way merge with local files");
+
+    let local_vfs = operator.load_local_files(target_dir)?;
+    let merged_vfs = operator.merge(&prev_vfs, &local_vfs, &curr_vfs)?;
+
+    operator.write_to_disk(target_dir, &merged_vfs)?;
+
+    // Save metadata for the new template only (existing templates already have their metadata)
+    if let Some(new_spec) = new_spec {
+        println!("💾 Saving template metadata for new template");
+        let template_res = registry.get_template(
+            new_spec.username.clone(),
+            new_spec.template_name.clone(),
+            Some(new_spec.version),
+        )?;
+
+        // Use the final answers from the last executed template (includes Q&A answers)
+        let final_answers = if let Some(ref final_state) = last_final_state {
+            final_state.shared_answers.clone()
+        } else {
+            new_spec.answers.clone()
+        };
+
+        let template_state = TemplateState::Complete(
+            Cyan {
+                processors: Vec::new(),
+                plugins: Vec::new(),
+            },
+            final_answers,
+        );
+
+        operator.get_template_history().save_template_metadata(
+            target_dir,
+            &template_res,
+            &template_state,
+            &new_spec.username,
+        )?;
+    }
+
+    let mut all_session_ids = prev_session_ids;
+    all_session_ids.extend(curr_session_ids);
+
+    println!("✅ Batch process complete");
+    Ok(all_session_ids)
+}
+
 /// Handle batch creation for existing projects
 /// Re-runs all existing templates with stored answers + adds new template
-/// Uses batch VFS layering: collects all VFS outputs first, then does ONE merge and write
+/// Uses unified batch VFS processing: MAP -> LAYER -> MERGE+WRITE
 fn batch_create_for_existing_project(
     composition_operator: &CompositionOperator,
     target_dir: &Path,
@@ -43,9 +176,9 @@ fn batch_create_for_existing_project(
     username: &str,
     registry_client: &CyanRegistryClient,
 ) -> Result<Vec<String>, Box<dyn Error + Send>> {
-    println!("🔄 Existing project detected - re-running all templates with batch layering");
+    println!("🔄 Existing project detected - using unified batch processing");
 
-    // 1. Read existing state
+    // PHASE 1: BUILD SPEC LISTS
     let state_file_path = target_dir.join(".cyan_state.yaml");
     let state = DefaultStateManager::new().load_state_file(&state_file_path)?;
 
@@ -55,121 +188,44 @@ fn batch_create_for_existing_project(
         return composition_operator.create_new_composition(new_template, target_dir, username);
     }
 
-    // 2. Collect VFS for existing templates, sorted by time for LWW semantics
-    let mut existing_templates: Vec<_> = state
-        .templates
-        .iter()
-        .filter(|(_, s)| s.active)
-        .filter_map(|(key, template_state)| {
-            template_state
-                .history
-                .last()
-                .map(|entry| (key.clone(), entry.clone()))
-        })
-        .filter_map(|(key, entry)| parse_template_key(&key).map(|(u, n)| (key, u, n, entry)))
-        .collect();
+    // Build prev_specs from existing state
+    let mut prev_specs = build_prev_specs(&state);
 
-    // Sort by time (oldest first) for LWW semantics
-    existing_templates.sort_by(|a, b| a.3.time.cmp(&b.3.time));
+    // Sort by installation time for LWW semantics
+    sort_specs_by_time(&mut prev_specs);
 
     println!(
         "📋 Re-running {} existing templates in order (sorted by time for LWW semantics)",
-        existing_templates.len()
+        prev_specs.len()
     );
 
-    // 3. COLLECT phase: Collect VFS for all existing templates
-    let mut all_vfs_collections = Vec::new();
+    // Build new template spec (answers empty - will trigger Q&A during execute)
+    let new_spec = TemplateSpec::for_new_template(
+        username.to_string(),
+        new_template.template.name.clone(),
+        new_template.principal.version,
+    );
 
-    for (template_key, tmpl_username, tmpl_name, latest_entry) in &existing_templates {
-        println!("  🔄 Re-running existing template: {template_key}");
+    // Build curr_specs for create
+    let mut curr_specs = build_curr_specs_for_create(prev_specs.clone(), new_spec.clone());
 
-        // Fetch the template at the stored version
-        let existing_template = registry_client.get_template(
-            tmpl_username.clone(),
-            tmpl_name.clone(),
-            Some(latest_entry.version),
-        )?;
+    // Sort curr_specs by time for consistent LWW ordering
+    sort_specs_by_time(&mut curr_specs);
 
-        // Collect VFS using stored answers
-        // Note: CompositionOperator.collect_create_vfs handles both single templates and compositions
-        let collection = composition_operator.collect_create_vfs(
-            &existing_template,
-            Some(&CompositionState {
-                shared_answers: latest_entry.answers.clone(),
-                shared_deterministic_states: latest_entry.deterministic_states.clone(),
-                execution_order: Vec::new(),
-            }),
-        )?;
-
-        all_vfs_collections.push(collection);
-    }
-
-    // 4. COLLECT phase: Collect VFS for the new template
     println!(
-        "📦 Collecting VFS for new template: {}",
-        new_template.template.name
+        "📦 Batch create: {} existing + 1 new template",
+        prev_specs.len()
     );
 
-    // Merge shared state from all existing templates
-    let mut merged_state = CompositionState::new();
-    for collection in &all_vfs_collections {
-        for (key, value) in &collection.final_state.shared_answers {
-            merged_state
-                .shared_answers
-                .insert(key.clone(), value.clone());
-        }
-        for (key, value) in &collection.final_state.shared_deterministic_states {
-            merged_state
-                .shared_deterministic_states
-                .insert(key.clone(), value.clone());
-        }
-    }
-
-    let new_collection =
-        composition_operator.collect_create_vfs(new_template, Some(&merged_state))?;
-    all_vfs_collections.push(new_collection);
-
-    // 5. MERGE phase: Layer all VFS outputs and do ONE 3-way merge
-    println!(
-        "\n🔀 MERGE phase: Layering {} VFS outputs and performing 3-way merge",
-        all_vfs_collections.len()
-    );
-    let (merged_vfs, all_session_ids) = composition_operator.layer_and_merge_vfs(
-        &all_vfs_collections,
+    // PHASE 2-4: BATCH PROCESS
+    batch_process(
+        &prev_specs,
+        &curr_specs,
+        Some(&new_spec),
         target_dir,
-        false, // is_upgrade = false (this is a create with base from existing templates)
-    )?;
-
-    // 6. WRITE phase: Write merged VFS to disk ONCE
-    println!("\n📝 WRITE phase: Writing merged VFS to disk");
-    composition_operator
-        .get_vfs()
-        .write_to_disk(target_dir, &merged_vfs)?;
-
-    // 7. Save metadata for the new template only (existing templates already have their metadata)
-    println!("💾 Saving template metadata");
-    let template_state = TemplateState::Complete(
-        Cyan {
-            processors: Vec::new(),
-            plugins: Vec::new(),
-        },
-        all_vfs_collections
-            .last()
-            .expect("Should have at least one collection")
-            .final_state
-            .shared_answers
-            .clone(),
-    );
-
-    composition_operator
-        .get_template_history()
-        .save_template_metadata(target_dir, new_template, &template_state, username)?;
-
-    println!(
-        "\n✅ Batch create complete: {} templates processed",
-        all_vfs_collections.len()
-    );
-    Ok(all_session_ids)
+        registry_client,
+        composition_operator,
+    )
 }
 
 /// Run the cyan template generation process with automatic composition detection
@@ -267,8 +323,24 @@ pub fn cyan_run(
                     &registry_client,
                 )
             } else {
-                // Truly new project
-                composition_operator.create_new_composition(&template, target_dir, &username)
+                // Truly new project - use unified batch processing flow
+                let new_spec = TemplateSpec::for_new_template(
+                    username.clone(),
+                    template.template.name.clone(),
+                    template.principal.version,
+                );
+
+                let prev_specs: Vec<TemplateSpec> = vec![];
+                let curr_specs = vec![new_spec.clone()];
+
+                batch_process(
+                    &prev_specs,
+                    &curr_specs,
+                    Some(&new_spec),
+                    target_dir,
+                    &registry_client,
+                    &composition_operator,
+                )
             }
         }
         TemplateUpdateType::UpgradeTemplate {

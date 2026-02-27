@@ -1,22 +1,29 @@
+use std::collections::HashMap;
 use std::error::Error;
 use std::path::Path;
 use std::rc::Rc;
 
 use cyancoordinator::client::CyanCoordinatorClient;
+use cyancoordinator::operations::composition::CompositionOperator;
 use cyancoordinator::session::SessionIdGenerator;
 use cyancoordinator::state::{DefaultStateManager, StateReader};
+use cyanprompt::domain::models::answer::Answer;
+use cyanprompt::domain::models::cyan::Cyan;
+use cyanprompt::domain::services::template::states::TemplateState;
 use cyanregistry::http::client::CyanRegistryClient;
 
-use super::batch_processor::{BatchProcessor, TemplateNonUpgradeInfo, TemplateProcessInfo};
 use super::operator_factory::OperatorFactory;
-use super::utils::parse_template_key;
+use super::spec::{
+    TemplateSpec, build_curr_specs_for_update, build_prev_specs, classify_specs_by_upgrade,
+    sort_specs_by_time,
+};
 
 /// Main orchestrator for the template update process
 pub struct UpdateOrchestrator;
 
 impl UpdateOrchestrator {
     /// Update all templates in a project to their latest versions with automatic composition detection
-    /// Uses batch VFS layering: collects all VFS outputs first, then does ONE merge and write
+    /// Uses unified batch VFS processing: MAP -> LAYER -> MERGE+WRITE
     /// Returns all session IDs that were created and need to be cleaned up
     pub fn update_templates(
         session_id_generator: Box<dyn SessionIdGenerator>,
@@ -28,7 +35,7 @@ impl UpdateOrchestrator {
     ) -> Result<Vec<String>, Box<dyn Error + Send>> {
         let target_dir = Path::new(&path);
 
-        // Create the composition operator (handles both single templates and compositions)
+        // Create the composition operator
         let composition_operator = OperatorFactory::create_composition_operator(
             session_id_generator,
             coord_client,
@@ -36,185 +43,188 @@ impl UpdateOrchestrator {
             debug,
         );
 
-        // 1. Read state
+        // PHASE 1: BUILD SPEC LISTS
+        println!(
+            "🔍 PHASE 1: Reading template state from: {:?}",
+            target_dir.join(".cyan_state.yaml")
+        );
         let state_file_path = target_dir.join(".cyan_state.yaml");
-        println!("🔍 Reading template state from: {state_file_path:?}");
-        let state = DefaultStateManager::new().load_state_file(&state_file_path)?;
+        let cyan_state = DefaultStateManager::new()
+            .load_state_file(&state_file_path)
+            .map_err(|e| {
+                Box::new(std::io::Error::other(format!("Failed to load state: {e}")))
+                    as Box<dyn Error + Send>
+            })?;
 
-        if state.templates.is_empty() {
+        if cyan_state.templates.is_empty() {
             println!("⚠️ No templates found in state file");
             return Ok(Vec::new());
         }
 
-        // 2. Collect all templates with their history entries, sorted by time for LWW semantics
-        // CRITICAL: We keep ONE sorted list throughout to preserve LWW ordering
-        let mut templates_to_process: Vec<_> = state
-            .templates
-            .iter()
-            .filter(|(_, state)| state.active)
-            .filter_map(|(template_key, template_state)| {
-                template_state
-                    .history
-                    .last()
-                    .map(|entry| (template_key.clone(), entry.clone()))
-            })
-            .filter_map(|(template_key, latest_entry)| {
-                let key_ref = &template_key;
-                parse_template_key(key_ref)
-                    .map(|(username, template_name)| {
-                        (template_key.clone(), username, template_name, latest_entry)
-                    })
-                    .or_else(|| {
-                        println!("⚠️ Invalid template key format: {key_ref}");
-                        None
-                    })
-            })
-            .collect();
+        // Build prev_specs from state
+        let mut prev_specs = build_prev_specs(&cyan_state);
 
-        // Sort by time (oldest first) for LWW semantics - later templates overwrite earlier ones
-        templates_to_process.sort_by(|a, b| a.3.time.cmp(&b.3.time));
-
-        println!(
-            "📋 Processing {} templates in order (sorted by time for LWW semantics)",
-            templates_to_process.len()
-        );
-
-        // 3. RESOLVE phase: Determine which templates need upgrading vs staying at current version
-        // We maintain a SINGLE list with time preserved to keep LWW ordering correct
-        let mut process_list: Vec<(chrono::DateTime<chrono::Utc>, TemplateProcessInfo)> =
-            Vec::new();
-
-        for (template_key, username, template_name, latest_entry) in templates_to_process {
-            match BatchProcessor::collect_template_upgrades(
-                &registry_client,
-                target_dir,
-                &username,
-                &template_name,
-                &latest_entry,
-                interactive,
-            ) {
-                Ok(Some(upgrade_info)) => {
-                    println!("  ✅ {} -> v{}", template_key, upgrade_info.target_version);
-                    // Preserve the original time for correct LWW ordering
-                    let time = upgrade_info.latest_entry.time;
-                    process_list.push((time, TemplateProcessInfo::Upgrade(upgrade_info)));
-                }
-                Ok(None) => {
-                    // Template doesn't need upgrading - but we still need to collect its VFS for LWW layering
-                    println!("  📌 {} staying at v{}", template_key, latest_entry.version);
-
-                    // Fetch the current template from registry
-                    // CRITICAL: Abort on fetch failure to maintain VFS consistency
-                    let current_template = registry_client
-                        .get_template(
-                            username.clone(),
-                            template_name.clone(),
-                            Some(latest_entry.version),
-                        )
-                        .map_err(|e| {
-                            Box::new(std::io::Error::other(format!(
-                                "Failed to fetch template {template_key}: {e}"
-                            ))) as Box<dyn Error + Send>
-                        })?;
-
-                    // Preserve the original time for correct LWW ordering
-                    let time = latest_entry.time;
-                    process_list.push((
-                        time,
-                        TemplateProcessInfo::NonUpgrade(TemplateNonUpgradeInfo {
-                            username,
-                            template_name,
-                            current_version: latest_entry.version,
-                            current_template,
-                            answers: latest_entry.answers.clone(),
-                            deterministic_states: latest_entry.deterministic_states.clone(),
-                        }),
-                    ));
-                }
-                Err(e) => {
-                    eprintln!("  ❌ Error processing {template_key}: {e}");
-                    return Err(e);
-                }
-            }
-        }
-
-        // 4. Re-sort the process list by time to ensure correct LWW ordering
-        // (The list should already be sorted, but this guarantees correctness)
-        process_list.sort_by(|a, b| a.0.cmp(&b.0));
-
-        if process_list.is_empty() {
-            println!("✅ No templates to process");
+        if prev_specs.is_empty() {
+            println!("⚠️ No active templates to update");
             return Ok(Vec::new());
         }
 
-        let upgrade_count = process_list.iter().filter(|(_, p)| p.is_upgrade()).count();
-        let non_upgrade_count = process_list.len() - upgrade_count;
+        println!("📋 Found {} active templates", prev_specs.len());
+
+        // Build curr_specs for update (with version upgrades)
+        let mut curr_specs =
+            build_curr_specs_for_update(prev_specs.clone(), &registry_client, interactive)?;
+
+        // Sort both lists by installation time for consistent LWW ordering
+        sort_specs_by_time(&mut prev_specs);
+        sort_specs_by_time(&mut curr_specs);
+
+        // Classify specs to identify which ones are actually upgraded
+        let (upgraded_specs, _) = classify_specs_by_upgrade(&prev_specs, &curr_specs);
 
         println!(
-            "\n📦 COLLECT phase: Collecting VFS outputs for {} templates in LWW order ({} upgrading, {} at current version)",
-            process_list.len(),
-            upgrade_count,
-            non_upgrade_count
+            "📊 Template classification: {} total, {} being upgraded",
+            curr_specs.len(),
+            upgraded_specs.len()
         );
 
-        // 5. COLLECT phase: Collect VFS outputs for ALL templates in LWW order
-        // CRITICAL: We iterate in sorted time order, not separately by upgrade status
-        let mut vfs_collections = Vec::new();
-        let mut upgraded_vfs_collections = Vec::new(); // Only for templates being upgraded (for metadata save)
-        let mut upgrades_for_metadata = Vec::new(); // Track upgrade info for metadata save
-
-        for (_time, process_info) in &process_list {
-            let collection = match process_info {
-                TemplateProcessInfo::Upgrade(upgrade_info) => {
-                    let collection =
-                        BatchProcessor::collect_template_vfs(&composition_operator, upgrade_info)?;
-                    upgraded_vfs_collections.push(collection.clone());
-                    upgrades_for_metadata.push(upgrade_info.clone());
-                    collection
-                }
-                TemplateProcessInfo::NonUpgrade(non_upgrade_info) => {
-                    BatchProcessor::collect_non_upgrade_vfs(
-                        &composition_operator,
-                        non_upgrade_info,
-                    )?
-                }
-            };
-            vfs_collections.push(collection);
-        }
-
-        // 6. MERGE phase: Layer all VFS outputs and do ONE 3-way merge
-        println!("\n🔀 MERGE phase: Layering VFS outputs and performing 3-way merge");
-        let (merged_vfs, all_session_ids) = composition_operator.layer_and_merge_vfs(
-            &vfs_collections,
+        // PHASE 2-4: BATCH PROCESS
+        let session_ids = batch_process(
+            &prev_specs,
+            &curr_specs,
+            &upgraded_specs,
             target_dir,
-            upgrade_count > 0, // is_upgrade only if there are upgrades
+            &registry_client,
+            &composition_operator,
         )?;
 
-        // 7. WRITE phase: Write merged VFS to disk ONCE
-        println!("\n📝 WRITE phase: Writing merged VFS to disk");
-        composition_operator
-            .get_vfs()
-            .write_to_disk(target_dir, &merged_vfs)?;
+        println!("✅ Batch update complete");
+        Ok(session_ids)
+    }
+}
 
-        // 8. Save metadata ONLY for upgraded templates (not for non-upgraded ones)
-        if !upgrades_for_metadata.is_empty() {
-            println!(
-                "💾 Saving template metadata for {} upgraded templates",
-                upgrades_for_metadata.len()
+/// Unified batch processing for update commands.
+/// Handles MAP, LAYER, and MERGE+WRITE phases.
+fn batch_process(
+    prev_specs: &[TemplateSpec],
+    curr_specs: &[TemplateSpec],
+    upgraded_specs: &[&TemplateSpec],
+    target_dir: &Path,
+    registry: &CyanRegistryClient,
+    operator: &CompositionOperator,
+) -> Result<Vec<String>, Box<dyn Error + Send>> {
+    // PHASE 2: MAP (execute each template spec → VFS)
+    println!(
+        "\n📦 PHASE 2: MAP - Executing {} prev + {} curr templates",
+        prev_specs.len(),
+        curr_specs.len()
+    );
+
+    // Execute prev_specs
+    let mut prev_vfs_list = Vec::new();
+    let mut prev_session_ids = Vec::new();
+
+    for spec in prev_specs {
+        println!(
+            "  🔄 Executing prev: {} v{}",
+            spec.template_key(),
+            spec.version
+        );
+        let template_res = registry.get_template(
+            spec.username.clone(),
+            spec.template_name.clone(),
+            Some(spec.version),
+        )?;
+        let (vfs, _final_state, session_ids) =
+            operator.execute_template(&template_res, &spec.answers, &spec.deterministic_states)?;
+        prev_vfs_list.push(vfs);
+        prev_session_ids.extend(session_ids);
+    }
+
+    // Execute curr_specs and track final states for metadata
+    let mut curr_vfs_list = Vec::new();
+    let mut curr_session_ids = Vec::new();
+    // Map template_key -> final answers for metadata persistence
+    let mut final_answers_map: HashMap<String, HashMap<String, Answer>> = HashMap::new();
+
+    for spec in curr_specs {
+        println!(
+            "  🔄 Executing curr: {} v{}",
+            spec.template_key(),
+            spec.version
+        );
+        let template_res = registry.get_template(
+            spec.username.clone(),
+            spec.template_name.clone(),
+            Some(spec.version),
+        )?;
+        let (vfs, final_state, session_ids) =
+            operator.execute_template(&template_res, &spec.answers, &spec.deterministic_states)?;
+        curr_vfs_list.push(vfs);
+        curr_session_ids.extend(session_ids);
+        // Store the final answers for this template (includes Q&A answers)
+        final_answers_map.insert(spec.template_key(), final_state.shared_answers);
+    }
+
+    // PHASE 3: LAYER (merge each list into ONE VFS)
+    println!(
+        "\n🔀 PHASE 3: LAYER - Merging {} prev + {} curr VFS outputs",
+        prev_vfs_list.len(),
+        curr_vfs_list.len()
+    );
+
+    let prev_vfs = operator.layer_merge(&prev_vfs_list)?;
+    let curr_vfs = operator.layer_merge(&curr_vfs_list)?;
+
+    // PHASE 4: MERGE + WRITE
+    println!("\n📝 PHASE 4: MERGE+WRITE - 3-way merge with local files");
+
+    let local_vfs = operator.load_local_files(target_dir)?;
+    let merged_vfs = operator.merge(&prev_vfs, &local_vfs, &curr_vfs)?;
+
+    operator.write_to_disk(target_dir, &merged_vfs)?;
+
+    // Save metadata for upgraded templates only
+    if !upgraded_specs.is_empty() {
+        println!(
+            "💾 Saving template metadata for {} upgraded templates",
+            upgraded_specs.len()
+        );
+
+        for spec in upgraded_specs {
+            let template_res = registry.get_template(
+                spec.username.clone(),
+                spec.template_name.clone(),
+                Some(spec.version),
+            )?;
+
+            // Use final answers from execution (includes Q&A answers) if available,
+            // otherwise fall back to spec.answers
+            let final_answers = final_answers_map
+                .get(&spec.template_key())
+                .cloned()
+                .unwrap_or_else(|| spec.answers.clone());
+
+            let template_state = TemplateState::Complete(
+                Cyan {
+                    processors: Vec::new(),
+                    plugins: Vec::new(),
+                },
+                final_answers,
             );
-            BatchProcessor::save_batch_metadata(
-                &composition_operator,
+
+            operator.get_template_history().save_template_metadata(
                 target_dir,
-                &upgraded_vfs_collections,
-                &upgrades_for_metadata,
+                &template_res,
+                &template_state,
+                &spec.username,
             )?;
         }
-
-        if upgrade_count == 0 {
-            println!("\n✅ All templates verified - no upgrades needed");
-        } else {
-            println!("\n✅ Batch upgrade complete: {upgrade_count} templates upgraded");
-        }
-        Ok(all_session_ids)
     }
+
+    let mut all_session_ids = prev_session_ids;
+    all_session_ids.extend(curr_session_ids);
+
+    println!("✅ Batch process complete");
+    Ok(all_session_ids)
 }

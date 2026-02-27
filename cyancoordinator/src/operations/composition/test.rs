@@ -1,7 +1,6 @@
 use std::path::PathBuf;
 
 use super::layerer::{DefaultVfsLayerer, VfsLayerer};
-use super::operator::TemplateVfsCollection;
 use super::state::CompositionState;
 use crate::fs::VirtualFileSystem;
 use cyanprompt::domain::models::answer::Answer;
@@ -119,41 +118,6 @@ mod tests {
         );
     }
 
-    /// Test that TemplateVfsCollection can be created with correct fields
-    #[test]
-    fn test_template_vfs_collection_creation() {
-        let mut curr_vfs = VirtualFileSystem::new();
-        curr_vfs.add_file(PathBuf::from("new_file.txt"), b"new_content".to_vec());
-
-        let mut prev_vfs = VirtualFileSystem::new();
-        prev_vfs.add_file(PathBuf::from("old_file.txt"), b"old_content".to_vec());
-
-        let collection = TemplateVfsCollection {
-            template_id: "test-template-id".to_string(),
-            prev_vfs: Some(prev_vfs.clone()),
-            curr_vfs: curr_vfs.clone(),
-            session_ids: vec!["session-1".to_string()],
-            final_state: CompositionState::new(),
-        };
-
-        assert_eq!(collection.template_id, "test-template-id");
-        assert!(collection.prev_vfs.is_some());
-        assert_eq!(collection.session_ids.len(), 1);
-
-        // Check prev_vfs content
-        let prev = collection.prev_vfs.as_ref().unwrap();
-        assert_eq!(
-            prev.get_file(&PathBuf::from("old_file.txt")),
-            Some(&b"old_content".to_vec())
-        );
-
-        // Check curr_vfs content
-        assert_eq!(
-            collection.curr_vfs.get_file(&PathBuf::from("new_file.txt")),
-            Some(&b"new_content".to_vec())
-        );
-    }
-
     /// Test that VirtualFileSystem clone works correctly
     #[test]
     fn test_vfs_clone() {
@@ -174,147 +138,8 @@ mod tests {
     }
 
     // =========================================================================
-    // Batch VFS Collection Tests
+    // Batch VFS Layering Tests (v2 unified flow)
     // =========================================================================
-
-    /// Test that TemplateVfsCollection works without prev_vfs (for new templates)
-    #[test]
-    fn test_template_vfs_collection_without_prev() {
-        let mut curr_vfs = VirtualFileSystem::new();
-        curr_vfs.add_file(PathBuf::from("new_file.txt"), b"new_content".to_vec());
-
-        let collection = TemplateVfsCollection {
-            template_id: "new-template-id".to_string(),
-            prev_vfs: None, // No previous version - this is a new template
-            curr_vfs,
-            session_ids: vec!["session-new".to_string()],
-            final_state: CompositionState::new(),
-        };
-
-        assert_eq!(collection.template_id, "new-template-id");
-        assert!(
-            collection.prev_vfs.is_none(),
-            "prev_vfs should be None for new templates"
-        );
-        assert_eq!(collection.session_ids.len(), 1);
-    }
-
-    /// Test layering multiple TemplateVfsCollection outputs
-    /// This simulates the batch processing flow
-    #[test]
-    fn test_batch_vfs_layering_simulation() {
-        let layerer = DefaultVfsLayerer;
-
-        // Simulate first template (existing)
-        let mut template1_prev = VirtualFileSystem::new();
-        template1_prev.add_file(PathBuf::from("config.yaml"), b"version: 1".to_vec());
-
-        let mut template1_curr = VirtualFileSystem::new();
-        template1_curr.add_file(PathBuf::from("config.yaml"), b"version: 2".to_vec());
-
-        let collection1 = TemplateVfsCollection {
-            template_id: "template-1".to_string(),
-            prev_vfs: Some(template1_prev),
-            curr_vfs: template1_curr,
-            session_ids: vec!["session-1".to_string()],
-            final_state: CompositionState::new(),
-        };
-
-        // Simulate second template (existing)
-        let mut template2_prev = VirtualFileSystem::new();
-        template2_prev.add_file(PathBuf::from("readme.md"), b"# Project v1".to_vec());
-
-        let mut template2_curr = VirtualFileSystem::new();
-        template2_curr.add_file(PathBuf::from("readme.md"), b"# Project v2".to_vec());
-        template2_curr.add_file(
-            PathBuf::from("config.yaml"),
-            b"# override from template2".to_vec(),
-        );
-
-        let collection2 = TemplateVfsCollection {
-            template_id: "template-2".to_string(),
-            prev_vfs: Some(template2_prev),
-            curr_vfs: template2_curr,
-            session_ids: vec!["session-2".to_string()],
-            final_state: CompositionState::new(),
-        };
-
-        // Simulate third template (new - no prev_vfs)
-        let mut template3_curr = VirtualFileSystem::new();
-        template3_curr.add_file(PathBuf::from("new_file.txt"), b"new content".to_vec());
-
-        let collection3 = TemplateVfsCollection {
-            template_id: "template-3".to_string(),
-            prev_vfs: None, // New template
-            curr_vfs: template3_curr,
-            session_ids: vec!["session-3".to_string()],
-            final_state: CompositionState::new(),
-        };
-
-        // Collect all prev and curr VFS
-        let all_prev: Vec<_> = [&collection1.prev_vfs, &collection2.prev_vfs]
-            .into_iter()
-            .filter_map(|v| v.as_ref().cloned())
-            .collect();
-
-        let all_curr: Vec<_> = [
-            collection1.curr_vfs,
-            collection2.curr_vfs,
-            collection3.curr_vfs,
-        ]
-        .into_iter()
-        .collect();
-
-        // Layer prev VFS outputs
-        let layered_prev = layerer
-            .layer_merge(&all_prev)
-            .expect("Layer prev should succeed");
-
-        // Layer curr VFS outputs (LWW semantics)
-        let layered_curr = layerer
-            .layer_merge(&all_curr)
-            .expect("Layer curr should succeed");
-
-        // Verify prev outputs
-        assert_eq!(
-            layered_prev.get_file(&PathBuf::from("config.yaml")),
-            Some(&b"version: 1".to_vec()),
-            "Prev config.yaml should be from template1"
-        );
-        assert_eq!(
-            layered_prev.get_file(&PathBuf::from("readme.md")),
-            Some(&b"# Project v1".to_vec()),
-            "Prev readme.md should be from template2"
-        );
-
-        // Verify curr outputs (LWW - template2's config.yaml should win over template1's)
-        assert_eq!(
-            layered_curr.get_file(&PathBuf::from("config.yaml")),
-            Some(&b"# override from template2".to_vec()),
-            "Curr config.yaml should be from template2 (LWW)"
-        );
-        assert_eq!(
-            layered_curr.get_file(&PathBuf::from("readme.md")),
-            Some(&b"# Project v2".to_vec()),
-            "Curr readme.md should be from template2"
-        );
-        assert_eq!(
-            layered_curr.get_file(&PathBuf::from("new_file.txt")),
-            Some(&b"new content".to_vec()),
-            "Curr new_file.txt should be from template3"
-        );
-
-        // Verify session IDs are collected
-        let all_session_ids: Vec<_> = [
-            collection1.session_ids,
-            collection2.session_ids,
-            collection3.session_ids,
-        ]
-        .into_iter()
-        .flatten()
-        .collect();
-        assert_eq!(all_session_ids.len(), 3, "Should have 3 session IDs");
-    }
 
     /// Test that layering with overlapping files from multiple templates
     /// correctly implements LWW semantics (later templates win)
@@ -423,67 +248,120 @@ mod tests {
         );
     }
 
-    /// Test that non-upgraded templates (with prev_vfs=None) correctly participate in LWW layering.
-    /// This is the CRITICAL bug fix test: when Template A is upgraded but Template B is not,
-    /// Template B's VFS should still be included in the layering to preserve LWW semantics.
+    /// Test batch VFS layering simulation for the unified v2 flow.
+    /// This simulates collecting prev_vfs_list and curr_vfs_list,
+    /// then layering them separately.
     #[test]
-    fn test_non_upgraded_template_lww_layering() {
+    fn test_batch_vfs_layering_simulation_v2() {
+        let layerer = DefaultVfsLayerer;
+
+        // Simulate prev specs: Template A (time=1), Template B (time=2)
+        let mut prev_a = VirtualFileSystem::new();
+        prev_a.add_file(PathBuf::from("config.yaml"), b"version: 1".to_vec());
+
+        let mut prev_b = VirtualFileSystem::new();
+        prev_b.add_file(PathBuf::from("readme.md"), b"# Project v1".to_vec());
+
+        // prev_vfs_list = [prev_a, prev_b]
+        let prev_vfs_list = vec![prev_a, prev_b];
+
+        // Simulate curr specs: Template A upgraded (time=1), Template B upgraded (time=2), Template C new (time=3)
+        let mut curr_a = VirtualFileSystem::new();
+        curr_a.add_file(PathBuf::from("config.yaml"), b"version: 2".to_vec());
+
+        let mut curr_b = VirtualFileSystem::new();
+        curr_b.add_file(PathBuf::from("readme.md"), b"# Project v2".to_vec());
+        curr_b.add_file(
+            PathBuf::from("config.yaml"),
+            b"# override from template2".to_vec(),
+        );
+
+        let mut curr_c = VirtualFileSystem::new();
+        curr_c.add_file(PathBuf::from("new_file.txt"), b"new content".to_vec());
+
+        // curr_vfs_list = [curr_a, curr_b, curr_c]
+        let curr_vfs_list = vec![curr_a, curr_b, curr_c];
+
+        // Layer prev VFS outputs
+        let layered_prev = layerer
+            .layer_merge(&prev_vfs_list)
+            .expect("Layer prev should succeed");
+
+        // Layer curr VFS outputs (LWW semantics)
+        let layered_curr = layerer
+            .layer_merge(&curr_vfs_list)
+            .expect("Layer curr should succeed");
+
+        // Verify prev outputs
+        assert_eq!(
+            layered_prev.get_file(&PathBuf::from("config.yaml")),
+            Some(&b"version: 1".to_vec()),
+            "Prev config.yaml should be from template A"
+        );
+        assert_eq!(
+            layered_prev.get_file(&PathBuf::from("readme.md")),
+            Some(&b"# Project v1".to_vec()),
+            "Prev readme.md should be from template B"
+        );
+
+        // Verify curr outputs (LWW - template B's config.yaml should win over template A's)
+        assert_eq!(
+            layered_curr.get_file(&PathBuf::from("config.yaml")),
+            Some(&b"# override from template2".to_vec()),
+            "Curr config.yaml should be from template B (LWW)"
+        );
+        assert_eq!(
+            layered_curr.get_file(&PathBuf::from("readme.md")),
+            Some(&b"# Project v2".to_vec()),
+            "Curr readme.md should be from template B"
+        );
+        assert_eq!(
+            layered_curr.get_file(&PathBuf::from("new_file.txt")),
+            Some(&b"new content".to_vec()),
+            "Curr new_file.txt should be from template C"
+        );
+    }
+
+    /// Test that non-upgraded templates correctly participate in LWW layering (v2 flow).
+    /// This is the CRITICAL bug fix test: when Template A is upgraded but Template B is not,
+    /// Template B's VFS should still be included in the curr_vfs_list to preserve LWW semantics.
+    #[test]
+    fn test_non_upgraded_template_lww_layering_v2() {
         let layerer = DefaultVfsLayerer;
 
         // Scenario: Two templates both generate "shared.txt" but with different content
         // Template A (time=1, earlier): generates shared.txt = "from A"
         // Template B (time=2, later): generates shared.txt = "from B" (should win via LWW)
 
-        // Template A is being UPGRADED (has prev_vfs and curr_vfs)
-        let mut template_a_prev = VirtualFileSystem::new();
-        template_a_prev.add_file(PathBuf::from("shared.txt"), b"from A v1".to_vec());
+        // Template A is being UPGRADED (appears in both prev and curr lists)
+        let mut prev_a = VirtualFileSystem::new();
+        prev_a.add_file(PathBuf::from("shared.txt"), b"from A v1".to_vec());
 
-        let mut template_a_curr = VirtualFileSystem::new();
-        template_a_curr.add_file(PathBuf::from("shared.txt"), b"from A v2".to_vec());
-        template_a_curr.add_file(PathBuf::from("a_only.txt"), b"only in A".to_vec());
+        let mut curr_a = VirtualFileSystem::new();
+        curr_a.add_file(PathBuf::from("shared.txt"), b"from A v2".to_vec());
+        curr_a.add_file(PathBuf::from("a_only.txt"), b"only in A".to_vec());
 
-        let collection_a = TemplateVfsCollection {
-            template_id: "template-a".to_string(),
-            prev_vfs: Some(template_a_prev),
-            curr_vfs: template_a_curr,
-            session_ids: vec!["session-a".to_string()],
-            final_state: CompositionState::new(),
-        };
-
-        // Template B is NOT being upgraded (prev_vfs=None, only curr_vfs)
+        // Template B is NOT being upgraded (appears only in curr list, not prev)
         // It was added AFTER Template A, so its content should win via LWW
-        let mut template_b_curr = VirtualFileSystem::new();
-        template_b_curr.add_file(PathBuf::from("shared.txt"), b"from B v1".to_vec());
-        template_b_curr.add_file(PathBuf::from("b_only.txt"), b"only in B".to_vec());
+        let mut curr_b = VirtualFileSystem::new();
+        curr_b.add_file(PathBuf::from("shared.txt"), b"from B v1".to_vec());
+        curr_b.add_file(PathBuf::from("b_only.txt"), b"only in B".to_vec());
 
-        let collection_b = TemplateVfsCollection {
-            template_id: "template-b".to_string(),
-            prev_vfs: None, // NOT upgraded - no previous version to compare
-            curr_vfs: template_b_curr,
-            session_ids: vec!["session-b".to_string()],
-            final_state: CompositionState::new(),
-        };
+        // prev_vfs_list = [prev_a] (only upgraded templates have prev)
+        let prev_vfs_list = vec![prev_a];
 
-        // Collect prev VFS (only from upgraded templates)
-        let all_prev: Vec<_> = [&collection_a.prev_vfs]
-            .into_iter()
-            .filter_map(|v| v.as_ref().cloned())
-            .collect();
-
-        // Collect curr VFS from BOTH upgraded and non-upgraded templates
+        // curr_vfs_list = [curr_a, curr_b] (BOTH upgraded and non-upgraded templates)
         // This is the key fix: ALL templates contribute to LWW layering
-        let all_curr: Vec<_> = [collection_a.curr_vfs.clone(), collection_b.curr_vfs.clone()]
-            .into_iter()
-            .collect();
+        let curr_vfs_list = vec![curr_a, curr_b];
 
         // Layer prev VFS
         let layered_prev = layerer
-            .layer_merge(&all_prev)
+            .layer_merge(&prev_vfs_list)
             .expect("Layer prev should succeed");
 
         // Layer curr VFS - LWW semantics apply
         let layered_curr = layerer
-            .layer_merge(&all_curr)
+            .layer_merge(&curr_vfs_list)
             .expect("Layer curr should succeed");
 
         // Verify prev only has A's content (B wasn't upgraded so no prev)
@@ -513,7 +391,7 @@ mod tests {
         );
     }
 
-    /// Test LWW ordering with MIXED upgrade/non-upgrade templates in interleaved time order.
+    /// Test LWW ordering with MIXED upgrade/non-upgrade templates in interleaved time order (v2 flow).
     /// This is the REGRESSION test for the bug where the orchestrator would collect:
     ///   [all upgraded templates first] + [all non-upgraded templates second]
     /// instead of preserving the original time-based order.
@@ -526,73 +404,43 @@ mod tests {
     /// Correct LWW order: [A, B, C] → C wins
     /// Old buggy order: [B, A, C] or [B, C, A] → wrong winner
     #[test]
-    fn test_mixed_upgrade_nonupgrade_ordering_lww() {
+    fn test_mixed_upgrade_nonupgrade_ordering_lww_v2() {
         let layerer = DefaultVfsLayerer;
 
-        // Template A (time=1, NON-UPGRADE - prev_vfs=None)
-        let mut template_a = VirtualFileSystem::new();
-        template_a.add_file(
+        // Template A (time=1, NON-UPGRADE - only in curr list, not prev)
+        let mut curr_a = VirtualFileSystem::new();
+        curr_a.add_file(
             PathBuf::from("shared.txt"),
             b"from A (oldest, non-upgrade)".to_vec(),
         );
-        template_a.add_file(PathBuf::from("a_only.txt"), b"A unique file".to_vec());
+        curr_a.add_file(PathBuf::from("a_only.txt"), b"A unique file".to_vec());
 
-        let collection_a = TemplateVfsCollection {
-            template_id: "template-a".to_string(),
-            prev_vfs: None, // Non-upgrade
-            curr_vfs: template_a,
-            session_ids: vec!["session-a".to_string()],
-            final_state: CompositionState::new(),
-        };
+        // Template B (time=2, UPGRADE - in both prev and curr lists)
+        let mut prev_b = VirtualFileSystem::new();
+        prev_b.add_file(PathBuf::from("shared.txt"), b"from B v1".to_vec());
 
-        // Template B (time=2, UPGRADE - has prev_vfs and curr_vfs)
-        let mut template_b_prev = VirtualFileSystem::new();
-        template_b_prev.add_file(PathBuf::from("shared.txt"), b"from B v1".to_vec());
-
-        let mut template_b_curr = VirtualFileSystem::new();
-        template_b_curr.add_file(
+        let mut curr_b = VirtualFileSystem::new();
+        curr_b.add_file(
             PathBuf::from("shared.txt"),
             b"from B (middle, upgrade)".to_vec(),
         );
-        template_b_curr.add_file(PathBuf::from("b_only.txt"), b"B unique file".to_vec());
+        curr_b.add_file(PathBuf::from("b_only.txt"), b"B unique file".to_vec());
 
-        let collection_b = TemplateVfsCollection {
-            template_id: "template-b".to_string(),
-            prev_vfs: Some(template_b_prev),
-            curr_vfs: template_b_curr,
-            session_ids: vec!["session-b".to_string()],
-            final_state: CompositionState::new(),
-        };
-
-        // Template C (time=3, NON-UPGRADE - prev_vfs=None)
-        let mut template_c = VirtualFileSystem::new();
-        template_c.add_file(
+        // Template C (time=3, NON-UPGRADE - only in curr list, not prev)
+        let mut curr_c = VirtualFileSystem::new();
+        curr_c.add_file(
             PathBuf::from("shared.txt"),
             b"from C (newest, non-upgrade)".to_vec(),
         );
-        template_c.add_file(PathBuf::from("c_only.txt"), b"C unique file".to_vec());
+        curr_c.add_file(PathBuf::from("c_only.txt"), b"C unique file".to_vec());
 
-        let collection_c = TemplateVfsCollection {
-            template_id: "template-c".to_string(),
-            prev_vfs: None, // Non-upgrade
-            curr_vfs: template_c,
-            session_ids: vec!["session-c".to_string()],
-            final_state: CompositionState::new(),
-        };
-
-        // CRITICAL: Collect curr VFS in TIME ORDER [A, B, C], NOT by upgrade status
+        // CRITICAL: Collect curr_vfs_list in TIME ORDER [A, B, C], NOT by upgrade status
         // The old bug would produce [B, A, C] or [B, C, A]
-        let all_curr_in_time_order: Vec<_> = [
-            collection_a.curr_vfs.clone(),
-            collection_b.curr_vfs.clone(),
-            collection_c.curr_vfs.clone(),
-        ]
-        .into_iter()
-        .collect();
+        let curr_vfs_list_in_time_order: Vec<_> = vec![curr_a, curr_b, curr_c];
 
         // Layer curr VFS - LWW semantics apply
         let layered_curr = layerer
-            .layer_merge(&all_curr_in_time_order)
+            .layer_merge(&curr_vfs_list_in_time_order)
             .expect("Layer curr should succeed");
 
         // Verify C wins for shared.txt (newest in time order)
@@ -621,28 +469,30 @@ mod tests {
 
         // Now test what would happen with the BUGGY ordering [B first, then A and C]
         // This demonstrates why the fix is important
-        let buggy_order: Vec<_> = [
-            collection_b.curr_vfs.clone(), // Upgrades first (wrong!)
-            collection_a.curr_vfs.clone(), // Then non-upgrades
-            collection_c.curr_vfs.clone(),
-        ]
-        .into_iter()
-        .collect();
+        let mut buggy_a = VirtualFileSystem::new();
+        buggy_a.add_file(
+            PathBuf::from("shared.txt"),
+            b"from A (oldest, non-upgrade)".to_vec(),
+        );
 
-        let _layered_buggy = layerer
-            .layer_merge(&buggy_order)
-            .expect("Layer buggy should succeed");
+        let mut buggy_b = VirtualFileSystem::new();
+        buggy_b.add_file(
+            PathBuf::from("shared.txt"),
+            b"from B (middle, upgrade)".to_vec(),
+        );
 
-        // With buggy ordering, C still wins because it's last, but the order was wrong
-        // The key insight is that if A and B swapped order, B would win (incorrect)
-        // Let's test that specific case:
-        let buggy_order_swapped: Vec<_> = [
-            collection_b.curr_vfs.clone(), // Upgrade (time=2) first
-            collection_c.curr_vfs.clone(), // Non-upgrade (time=3) second - should be after A
-            collection_a.curr_vfs.clone(), // Non-upgrade (time=1) last - WRONG!
-        ]
-        .into_iter()
-        .collect();
+        let mut buggy_c = VirtualFileSystem::new();
+        buggy_c.add_file(
+            PathBuf::from("shared.txt"),
+            b"from C (newest, non-upgrade)".to_vec(),
+        );
+
+        // Buggy ordering: [B, C, A] - upgrades first, then non-upgrades
+        let buggy_order_swapped: Vec<_> = vec![
+            buggy_b, // Upgrade (time=2) first
+            buggy_c, // Non-upgrade (time=3) second - should be after A
+            buggy_a, // Non-upgrade (time=1) last - WRONG!
+        ];
 
         let layered_buggy_swapped = layerer
             .layer_merge(&buggy_order_swapped)
