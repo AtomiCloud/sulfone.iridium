@@ -183,3 +183,88 @@ pub fn classify_specs_by_upgrade<'a>(
 
     (upgraded, unchanged)
 }
+
+/// Build specs for upgrade/rerun scenarios.
+/// For prev_specs: use the previous version/answers of the template being upgraded
+/// For curr_specs: use the new version with stored answers (upgrade) or empty answers (rerun)
+pub fn build_specs_for_single_template_update(
+    state: &CyanState,
+    template_key: &str,
+    previous_version: i64,
+    previous_answers: HashMap<String, Answer>,
+    previous_states: HashMap<String, String>,
+    new_version: i64,
+    fresh_answers: bool, // true for rerun (empty answers), false for upgrade (reuse answers)
+) -> (Vec<TemplateSpec>, Vec<TemplateSpec>) {
+    // Build prev_specs: all templates with the OLD version for the template being updated
+    let prev_specs: Vec<TemplateSpec> = state
+        .templates
+        .iter()
+        .filter(|(_, state)| state.active)
+        .filter_map(|(key, state)| {
+            let (u, t) = parse_template_key(key)?;
+            let entry = state.history.last()?;
+
+            // For the template being updated, use the previous version/answers
+            if key == template_key {
+                Some(TemplateSpec::new(
+                    u.to_string(),
+                    t.to_string(),
+                    previous_version,
+                    previous_answers.clone(),
+                    previous_states.clone(),
+                    entry.time,
+                ))
+            } else {
+                Some(TemplateSpec::new(
+                    u.to_string(),
+                    t.to_string(),
+                    entry.version,
+                    entry.answers.clone(),
+                    entry.deterministic_states.clone(),
+                    entry.time,
+                ))
+            }
+        })
+        .collect();
+
+    // Build curr_specs: all templates with the NEW version for the template being updated
+    let curr_answers = if fresh_answers {
+        HashMap::new() // Empty answers will trigger Q&A
+    } else {
+        previous_answers.clone()
+    };
+
+    let curr_specs: Vec<TemplateSpec> = state
+        .templates
+        .iter()
+        .filter(|(_, state)| state.active)
+        .filter_map(|(key, state)| {
+            let (u, t) = parse_template_key(key)?;
+            let entry = state.history.last()?;
+
+            // For the template being updated, use the new version
+            if key == template_key {
+                Some(TemplateSpec::new(
+                    u.to_string(),
+                    t.to_string(),
+                    new_version,
+                    curr_answers.clone(),
+                    previous_states.clone(),
+                    entry.time,
+                ))
+            } else {
+                Some(TemplateSpec::new(
+                    u.to_string(),
+                    t.to_string(),
+                    entry.version,
+                    entry.answers.clone(),
+                    entry.deterministic_states.clone(),
+                    entry.time,
+                ))
+            }
+        })
+        .collect();
+
+    (prev_specs, curr_specs)
+}

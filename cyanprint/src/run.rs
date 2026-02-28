@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::error::Error;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -7,10 +8,11 @@ use cyancoordinator::client::CyanCoordinatorClient;
 use cyancoordinator::fs::{DiskFileLoader, DiskFileWriter, GitLikeMerger, TarGzUnpacker};
 use cyancoordinator::operations::TemplateOperator;
 use cyancoordinator::operations::composition::{
-    CompositionOperator, CompositionState, DefaultDependencyResolver, DefaultVfsLayerer,
+    CompositionOperator, DefaultDependencyResolver, DefaultVfsLayerer,
 };
 use cyancoordinator::state::{DefaultStateManager, StateReader};
 use cyancoordinator::template::TemplateHistory;
+use cyanprompt::domain::models::answer::Answer;
 use cyanprompt::domain::models::cyan::Cyan;
 use cyanprompt::domain::services::template::states::TemplateState;
 use cyanregistry::http::client::CyanRegistryClient;
@@ -22,7 +24,8 @@ use cyancoordinator::template::DefaultTemplateExecutor;
 use cyancoordinator::template::{DefaultTemplateHistory, TemplateUpdateType};
 
 use crate::update::spec::{
-    TemplateSpec, build_curr_specs_for_create, build_prev_specs, sort_specs_by_time,
+    TemplateSpec, build_curr_specs_for_create, build_prev_specs,
+    build_specs_for_single_template_update, sort_specs_by_time,
 };
 
 /// Check if a template has execution artifacts (Docker properties)
@@ -41,7 +44,7 @@ fn has_dependencies(template: &TemplateVersionRes) -> bool {
 fn batch_process(
     prev_specs: &[TemplateSpec],
     curr_specs: &[TemplateSpec],
-    new_spec: Option<&TemplateSpec>, // The new template being added (for metadata save)
+    upgraded_specs: &[&TemplateSpec], // Templates that need metadata saved
     target_dir: &Path,
     registry: &CyanRegistryClient,
     operator: &CompositionOperator,
@@ -74,11 +77,11 @@ fn batch_process(
         prev_session_ids.extend(session_ids);
     }
 
-    // Execute curr_specs
+    // Execute curr_specs and track final states for metadata
     let mut curr_vfs_list = Vec::new();
     let mut curr_session_ids = Vec::new();
-    // Track the last final state for metadata persistence
-    let mut last_final_state: Option<CompositionState> = None;
+    // Map template_key -> final answers for metadata persistence
+    let mut final_answers_map: HashMap<String, HashMap<String, Answer>> = HashMap::new();
 
     for spec in curr_specs {
         println!(
@@ -91,13 +94,12 @@ fn batch_process(
             spec.template_name.clone(),
             Some(spec.version),
         )?;
-
-        // Each TemplateSpec carries its own answers - pass them directly
         let (vfs, final_state, session_ids) =
             operator.execute_template(&template_res, &spec.answers, &spec.deterministic_states)?;
         curr_vfs_list.push(vfs);
         curr_session_ids.extend(session_ids);
-        last_final_state = Some(final_state);
+        // Store the final answers for this template (includes Q&A answers)
+        final_answers_map.insert(spec.template_key(), final_state.shared_answers);
     }
 
     // PHASE 3: LAYER (merge each list into ONE VFS)
@@ -127,36 +129,42 @@ fn batch_process(
 
     operator.write_to_disk(target_dir, &merged_vfs)?;
 
-    // Save metadata for the new template only (existing templates already have their metadata)
-    if let Some(new_spec) = new_spec {
-        println!("💾 Saving template metadata for new template");
-        let template_res = registry.get_template(
-            new_spec.username.clone(),
-            new_spec.template_name.clone(),
-            Some(new_spec.version),
-        )?;
-
-        // Use the final answers from the last executed template (includes Q&A answers)
-        let final_answers = if let Some(ref final_state) = last_final_state {
-            final_state.shared_answers.clone()
-        } else {
-            new_spec.answers.clone()
-        };
-
-        let template_state = TemplateState::Complete(
-            Cyan {
-                processors: Vec::new(),
-                plugins: Vec::new(),
-            },
-            final_answers,
+    // Save metadata for upgraded templates only
+    if !upgraded_specs.is_empty() {
+        println!(
+            "💾 Saving template metadata for {} upgraded templates",
+            upgraded_specs.len()
         );
 
-        operator.get_template_history().save_template_metadata(
-            target_dir,
-            &template_res,
-            &template_state,
-            &new_spec.username,
-        )?;
+        for spec in upgraded_specs {
+            let template_res = registry.get_template(
+                spec.username.clone(),
+                spec.template_name.clone(),
+                Some(spec.version),
+            )?;
+
+            // Use final answers from execution (includes Q&A answers) if available,
+            // otherwise fall back to spec.answers
+            let final_answers = final_answers_map
+                .get(&spec.template_key())
+                .cloned()
+                .unwrap_or_else(|| spec.answers.clone());
+
+            let template_state = TemplateState::Complete(
+                Cyan {
+                    processors: Vec::new(),
+                    plugins: Vec::new(),
+                },
+                final_answers,
+            );
+
+            operator.get_template_history().save_template_metadata(
+                target_dir,
+                &template_res,
+                &template_state,
+                &spec.username,
+            )?;
+        }
     }
 
     let mut all_session_ids = prev_session_ids;
@@ -164,68 +172,6 @@ fn batch_process(
 
     println!("✅ Batch process complete");
     Ok(all_session_ids)
-}
-
-/// Handle batch creation for existing projects
-/// Re-runs all existing templates with stored answers + adds new template
-/// Uses unified batch VFS processing: MAP -> LAYER -> MERGE+WRITE
-fn batch_create_for_existing_project(
-    composition_operator: &CompositionOperator,
-    target_dir: &Path,
-    new_template: &TemplateVersionRes,
-    username: &str,
-    registry_client: &CyanRegistryClient,
-) -> Result<Vec<String>, Box<dyn Error + Send>> {
-    println!("🔄 Existing project detected - using unified batch processing");
-
-    // PHASE 1: BUILD SPEC LISTS
-    let state_file_path = target_dir.join(".cyan_state.yaml");
-    let state = DefaultStateManager::new().load_state_file(&state_file_path)?;
-
-    if state.templates.is_empty() {
-        // No existing templates - just run the new template normally
-        println!("📦 No existing templates - running as new project");
-        return composition_operator.create_new_composition(new_template, target_dir, username);
-    }
-
-    // Build prev_specs from existing state
-    let mut prev_specs = build_prev_specs(&state);
-
-    // Sort by installation time for LWW semantics
-    sort_specs_by_time(&mut prev_specs);
-
-    println!(
-        "📋 Re-running {} existing templates in order (sorted by time for LWW semantics)",
-        prev_specs.len()
-    );
-
-    // Build new template spec (answers empty - will trigger Q&A during execute)
-    let new_spec = TemplateSpec::for_new_template(
-        username.to_string(),
-        new_template.template.name.clone(),
-        new_template.principal.version,
-    );
-
-    // Build curr_specs for create
-    let mut curr_specs = build_curr_specs_for_create(prev_specs.clone(), new_spec.clone());
-
-    // Sort curr_specs by time for consistent LWW ordering
-    sort_specs_by_time(&mut curr_specs);
-
-    println!(
-        "📦 Batch create: {} existing + 1 new template",
-        prev_specs.len()
-    );
-
-    // PHASE 2-4: BATCH PROCESS
-    batch_process(
-        &prev_specs,
-        &curr_specs,
-        Some(&new_spec),
-        target_dir,
-        registry_client,
-        composition_operator,
-    )
 }
 
 /// Run the cyan template generation process with automatic composition detection
@@ -304,68 +250,103 @@ pub fn cyan_run(
         )) as Box<dyn Error + Send>);
     }
 
-    // Handle different update scenarios
-    // All templates (single or composition) use CompositionOperator for batch processing support
-    match update_type {
+    // Load the current state (may be empty for new projects)
+    let state_file_path = target_dir.join(".cyan_state.yaml");
+    let state = DefaultStateManager::new()
+        .load_state_file(&state_file_path)
+        .unwrap_or_default();
+
+    // Build specs and handle all scenarios through unified batch_process()
+    let (prev_specs, curr_specs, upgraded_specs): (
+        Vec<TemplateSpec>,
+        Vec<TemplateSpec>,
+        Vec<TemplateSpec>,
+    ) = match update_type {
         TemplateUpdateType::NewTemplate => {
-            // Check if there are existing templates in the project
-            let state_file_path = target_dir.join(".cyan_state.yaml");
-            let state = DefaultStateManager::new().load_state_file(&state_file_path)?;
+            // New template being added
+            let mut prev_specs = build_prev_specs(&state);
+            sort_specs_by_time(&mut prev_specs);
 
-            if !state.templates.is_empty() {
-                // Existing project - use batch processing to re-run all templates
-                // This works for both single templates and compositions
-                batch_create_for_existing_project(
-                    &composition_operator,
-                    target_dir,
-                    &template,
-                    &username,
-                    &registry_client,
-                )
-            } else {
-                // Truly new project - use unified batch processing flow
-                let new_spec = TemplateSpec::for_new_template(
-                    username.clone(),
-                    template.template.name.clone(),
-                    template.principal.version,
-                );
+            let new_spec = TemplateSpec::for_new_template(
+                username.clone(),
+                template.template.name.clone(),
+                template.principal.version,
+            );
 
-                let prev_specs: Vec<TemplateSpec> = vec![];
-                let curr_specs = vec![new_spec.clone()];
+            let mut curr_specs = build_curr_specs_for_create(prev_specs.clone(), new_spec.clone());
+            sort_specs_by_time(&mut curr_specs);
 
-                batch_process(
-                    &prev_specs,
-                    &curr_specs,
-                    Some(&new_spec),
-                    target_dir,
-                    &registry_client,
-                    &composition_operator,
-                )
-            }
+            // The new template is the only one that needs metadata saved
+            (prev_specs, curr_specs, vec![new_spec])
         }
         TemplateUpdateType::UpgradeTemplate {
             previous_version,
             previous_answers,
             previous_states,
-        } => composition_operator.upgrade_composition(
-            &template,
-            target_dir,
-            &username,
-            previous_version,
-            previous_answers,
-            previous_states,
-        ),
+        } => {
+            // Upgrade: prev uses old version, curr uses new version
+            let template_key = format!("{}/{}", username, template.template.name);
+            let (mut prev_specs, mut curr_specs) = build_specs_for_single_template_update(
+                &state,
+                &template_key,
+                previous_version,
+                previous_answers,
+                previous_states,
+                template.principal.version,
+                false, // reuse answers for upgrade
+            );
+            sort_specs_by_time(&mut prev_specs);
+            sort_specs_by_time(&mut curr_specs);
+
+            // Find the upgraded template in curr_specs
+            let upgraded: Vec<TemplateSpec> = curr_specs
+                .iter()
+                .filter(|s| s.template_key() == template_key)
+                .cloned()
+                .collect();
+
+            (prev_specs, curr_specs, upgraded)
+        }
         TemplateUpdateType::RerunTemplate {
             previous_version,
             previous_answers,
             previous_states,
-        } => composition_operator.rerun_composition(
-            &template,
-            target_dir,
-            &username,
-            previous_version,
-            previous_answers,
-            previous_states,
-        ),
-    }
+        } => {
+            // Rerun: prev uses old answers, curr uses empty answers (triggers Q&A)
+            let template_key = format!("{}/{}", username, template.template.name);
+            let (mut prev_specs, mut curr_specs) = build_specs_for_single_template_update(
+                &state,
+                &template_key,
+                previous_version,
+                previous_answers,
+                previous_states,
+                template.principal.version,
+                true, // fresh answers for rerun
+            );
+            sort_specs_by_time(&mut prev_specs);
+            sort_specs_by_time(&mut curr_specs);
+
+            // Find the rerun template in curr_specs
+            let upgraded: Vec<TemplateSpec> = curr_specs
+                .iter()
+                .filter(|s| s.template_key() == template_key)
+                .cloned()
+                .collect();
+
+            (prev_specs, curr_specs, upgraded)
+        }
+    };
+
+    // Convert upgraded_specs to references for batch_process
+    let upgraded_refs: Vec<&TemplateSpec> = upgraded_specs.iter().collect();
+
+    // Execute unified batch processing
+    batch_process(
+        &prev_specs,
+        &curr_specs,
+        &upgraded_refs,
+        target_dir,
+        &registry_client,
+        &composition_operator,
+    )
 }
