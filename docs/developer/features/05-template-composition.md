@@ -78,7 +78,7 @@ sequenceDiagram
 
     Caller->>Caller: BUILD: prev_specs, curr_specs
     loop MAP: For each spec
-        Caller->>Op: execute_template(spec)
+        Caller->>Op: execute_template(template, answers, states)
         Op->>Executor: execute_template()
         Executor-->>Op: (archive, state, session_id)
         Op->>Op: Unpack to VFS
@@ -146,7 +146,7 @@ pub fn sort_specs(specs: &mut [TemplateSpec]);
 | ----------- | -------------------- | ----------------------------------- | ----------------- |
 | **New**     | `[]`                 | `[TemplateSpec::new_template(...)]` | `[new_spec]`      |
 | **Add**     | `manager.get(state)` | `prev + [new_spec]`                 | `[new_spec]`      |
-| **Upgrade** | `manager.get(state)` | `manager.update(prev)`              | `[changed_specs]` |
+| **Upgrade** | `manager.get(state)` | `manager.update(prev, interactive)` | `[changed_specs]` |
 | **Rerun**   | `manager.get(state)` | `manager.reset(prev)`               | `[target_spec]`   |
 
 **Key File**: `cyanprint/src/run.rs::cyan_run()`
