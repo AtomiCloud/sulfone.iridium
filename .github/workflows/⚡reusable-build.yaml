@@ -62,7 +62,7 @@ jobs:
         run: nix develop .#ci -c ./scripts/build.sh "${{ inputs.push }}"
 
       - name: Upload Artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: ${{ matrix.platform.target }}-${{ inputs.bin_name }}
           path: target/${{ matrix.platform.target }}/release/${{ inputs.bin_name }}${{ contains(matrix.platform.target, 'windows') && '.exe' || '' }}
