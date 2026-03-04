@@ -1,6 +1,6 @@
 username: cyane2e
 name: test-batch-b
-description: Test blob B v1 for batch layering - writes to shared.txt (depends on A)
+description: Test batch B v1 for batch layering - writes to shared.txt (depends on A)
 project: https://test.com
 source: https://test.com
 email: test@test.com
