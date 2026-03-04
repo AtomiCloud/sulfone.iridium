@@ -132,7 +132,7 @@ A bash script implementing all steps above. Key conventions:
 - No binary-existence checks (nix provides all tools)
 - Use `jq` for JSON parsing
 - Use `curl` for HTTP requests
-- Infisical secret loading: follow pattern from existing scripts in the project
+- Infisical secret loading: `infisical run --env lapras -- <command>` (wraps the script execution, secrets injected as env vars)
 
 ### 2. `Taskfile.yaml` (MODIFY)
 
@@ -142,7 +142,7 @@ Add task:
 e2e:setup:
   desc: 'Setup e2e environment (auth token, user, .env)'
   cmds:
-    - ./e2e/setup.sh
+    - infisical run --env lapras -- ./e2e/setup.sh
 ```
 
 Note: `e2e:setup` is separate from `e2e` (which runs the tests). The setup task must be run first.
@@ -155,7 +155,7 @@ Note: `e2e:setup` is separate from `e2e` (which runs the tests). The setup task 
 4. All `cyan.yaml` files under `e2e/` have `username: cyane2e`
 5. Script is idempotent: running it again does not fail (creates new token each run is acceptable)
 6. Script does not check for binary existence (nix handles this)
-7. Descope credentials are loaded via infisical using project pattern (`lapras` env for local, `sulfone` for CI)
+7. Taskfile task wraps with `infisical run --env lapras --` so secrets (`DESCOPE_PROJECT`, `DESCOPE_TOKEN`) are injected as env vars
 
 ## Checklist
 
