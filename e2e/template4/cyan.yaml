@@ -9,4 +9,4 @@ readme: README.MD
 processors: []
 plugins: []
 templates:
-  - cyane2e/template3:4
+  - cyane2e/template3:1

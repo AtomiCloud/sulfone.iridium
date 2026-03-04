@@ -1,5 +1,5 @@
 username: cyane2e
-name: test-batch-b-v2
+name: test-batch-b
 description: Test blob B v2 for batch layering - writes to shared.txt (depends on A)
 project: https://test.com
 source: https://test.com
@@ -8,5 +8,4 @@ tags: []
 readme: cyan/README.MD
 processors: [cyane2e/processor1]
 plugins: []
-templates:
-  - cyane2e/test-batch-a-v2
+templates: []

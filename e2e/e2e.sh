@@ -30,10 +30,10 @@ echo "🔍 Publishing templates..."
 ./e2e/publish-template.sh ./e2e/template1 template1 push
 ./e2e/publish-template.sh ./e2e/template2 template2 push
 ./e2e/publish-template.sh ./e2e/template3 template3 push
-./e2e/publish-template.sh ./e2e/test-batch-a-v1 test-batch-a-v1 push
-./e2e/publish-template.sh ./e2e/test-batch-a-v2 test-batch-a-v2 push
-./e2e/publish-template.sh ./e2e/test-batch-b-v1 test-batch-a-v1 push
-./e2e/publish-template.sh ./e2e/test-batch-b-v2 test-batch-a-v2 push
+./e2e/publish-template.sh ./e2e/test-batch-a-v1 test-batch-a push
+./e2e/publish-template.sh ./e2e/test-batch-a-v2 test-batch-a push
+./e2e/publish-template.sh ./e2e/test-batch-b-v1 test-batch-b push
+./e2e/publish-template.sh ./e2e/test-batch-b-v2 test-batch-b push
 
 echo "🔍 Publishing group..."
 ./e2e/publish-group.sh ./e2e/template4 template4 push
