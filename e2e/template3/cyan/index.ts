@@ -1,39 +1,38 @@
 import { GlobType, StartTemplateWithLambda } from '@atomicloud/cyan-sdk';
 import { IInquirer, IDeterminism } from '@atomicloud/cyan-sdk';
-
 StartTemplateWithLambda(async (i: IInquirer, d: IDeterminism) => {
-  const name = await i.text('What is your name?', 'ernest/template1/name');
+  const name = await i.text('What is your name?', 'cyane2e/template1/name');
 
   const condition = await i.select(
     'What is your condition?',
     ['Headache', 'Cough', 'Fever', 'Other'],
-    'ernest/template3/condition',
+    'cyane2e/template3/condition',
   );
 
   const symptoms = await i.select(
     'What are your symptoms?',
     ['Headache', 'Cough', 'Fever', 'Other'],
-    'ernest/template3/symptoms',
+    'cyane2e/template3/symptoms',
   );
 
   const treatment = await i.select(
     'What is your treatment?',
     ['Medication', 'Surgery', 'Other'],
-    'ernest/template3/treatment',
+    'cyane2e/template3/treatment',
   );
 
   const medication = await i.select(
     'What is your medication?',
     ['Aspirin', 'Ibuprofen', 'Paracetamol', 'Other'],
-    'ernest/template3/medication',
+    'cyane2e/template3/medication',
   );
 
-  const prognosis = await i.select('What is your prognosis?', ['Good', 'Bad', 'Other'], 'ernest/template3/prognosis');
+  const prognosis = await i.select('What is your prognosis?', ['Good', 'Bad', 'Other'], 'cyane2e/template3/prognosis');
 
   return {
     processors: [
       {
-        name: 'ernest/processor1',
+        name: 'cyane2e/processor1',
         files: [
           {
             glob: '**/*',
@@ -56,7 +55,7 @@ StartTemplateWithLambda(async (i: IInquirer, d: IDeterminism) => {
     ],
     plugins: [
       {
-        name: 'ernest/plugin1',
+        name: 'cyane2e/plugin1',
         config: {},
       },
     ],

@@ -8,8 +8,9 @@
 
 - `cyanprint/src/main.rs` - Entry point
 - `cyanprint/src/commands.rs` - CLI definitions
-- `cyanprint/src/run.rs` - Template execution
+- `cyanprint/src/run.rs` - Template execution + batch_process()
 - `cyanprint/src/update.rs` - Template updates
+- `cyanprint/src/update/spec.rs` - TemplateSpec + TemplateSpecManager
 - `cyanprint/src/coord.rs` - Coordinator startup
 
 ## Responsibilities
@@ -27,23 +28,30 @@ cyanprint/
 ├── src/
 │   ├── main.rs          # Entry point, command routing
 │   ├── commands.rs      # Clap CLI definitions
-│   ├── run.rs           # Template execution logic
-│   ├── update.rs        # Template update logic
+│   ├── run.rs           # Template execution + batch_process()
+│   ├── update/
+│   │   ├── mod.rs       # Update module exports
+│   │   ├── orchestrator.rs  # Update command orchestration
+│   │   ├── spec.rs      # TemplateSpec + TemplateSpecManager
+│   │   ├── version_manager.rs
+│   │   └── utils.rs
 │   ├── coord.rs         # Coordinator daemon startup
 │   ├── util.rs          # Utility functions
 │   └── errors.rs        # Error types
 └── Cargo.toml
 ```
 
-| File          | Purpose                                            |
-| ------------- | -------------------------------------------------- |
-| `main.rs`     | Main function, HTTP client setup, command dispatch |
-| `commands.rs` | CLI argument definitions using clap                |
-| `run.rs`      | Auto-detect template type and execute              |
-| `update.rs`   | Update templates to latest versions                |
-| `coord.rs`    | Start coordinator in Docker container              |
-| `util.rs`     | Parse template references                          |
-| `errors.rs`   | Error types for CLI operations                     |
+| File                     | Purpose                                                 |
+| ------------------------ | ------------------------------------------------------- |
+| `main.rs`                | Main function, HTTP client setup, command dispatch      |
+| `commands.rs`            | CLI argument definitions using clap                     |
+| `run.rs`                 | Auto-detect template type and execute + batch_process() |
+| `update/`                | Template update module                                  |
+| `update/spec.rs`         | TemplateSpec data structure + TemplateSpecManager       |
+| `update/orchestrator.rs` | Update command orchestration                            |
+| `coord.rs`               | Start coordinator in Docker container                   |
+| `util.rs`                | Parse template references                               |
+| `errors.rs`              | Error types for CLI operations                          |
 
 ## Dependencies
 
@@ -69,6 +77,45 @@ Uses `clap::Parser` for CLI argument parsing.
 
 **Key File**: `cyanprint/src/commands.rs`
 
+### Batch Processing
+
+```rust
+// run.rs
+pub fn batch_process(
+    prev_specs: &[TemplateSpec],
+    curr_specs: &[TemplateSpec],
+    upgraded_specs: &[&TemplateSpec],
+    target_dir: &Path,
+    registry: &CyanRegistryClient,
+    operator: &CompositionOperator,
+) -> Result<Vec<String>, Box<dyn Error + Send>>
+```
+
+4-phase model: BUILD → MAP → LAYER → MERGE+WRITE
+
+**Key File**: `cyanprint/src/run.rs`
+
+### TemplateSpecManager
+
+```rust
+// update/spec.rs
+pub struct TemplateSpecManager {
+    registry: Rc<CyanRegistryClient>,
+}
+
+impl TemplateSpecManager {
+    pub fn new(registry: Rc<CyanRegistryClient>) -> Self;
+    pub fn get(&self, state: &CyanState) -> Vec<TemplateSpec>;
+    pub fn update(&self, specs: Vec<TemplateSpec>, interactive: bool)
+        -> Result<Vec<TemplateSpec>, Box<dyn Error + Send>>;
+    pub fn reset(&self, specs: Vec<TemplateSpec>) -> Vec<TemplateSpec>;
+}
+
+pub fn sort_specs(specs: &mut [TemplateSpec>);
+```
+
+**Key File**: `cyanprint/src/update/spec.rs`
+
 ### Template Execution
 
 ```rust
@@ -83,7 +130,7 @@ pub fn cyan_run(
 ) -> Result<Vec<String>, Box<dyn Error + Send>>
 ```
 
-**Key File**: `cyanprint/src/run.rs:32-40`
+**Key File**: `cyanprint/src/run.rs`
 
 ### Template Update
 
@@ -98,7 +145,7 @@ pub fn cyan_update(
 ) -> Result<Vec<String>, Box<dyn Error + Send>>
 ```
 
-**Key File**: `cyanprint/src/update.rs:24-31`
+**Key File**: `cyanprint/src/update.rs`
 
 ## Commands
 

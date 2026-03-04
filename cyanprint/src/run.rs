@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::error::Error;
 use std::fs;
+use std::iter;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
@@ -23,10 +24,7 @@ use cyancoordinator::session::SessionIdGenerator;
 use cyancoordinator::template::DefaultTemplateExecutor;
 use cyancoordinator::template::{DefaultTemplateHistory, TemplateUpdateType};
 
-use crate::update::spec::{
-    TemplateSpec, build_curr_specs_for_create, build_prev_specs,
-    build_specs_for_single_template_update, sort_specs_by_time,
-};
+use crate::update::spec::{TemplateSpec, TemplateSpecManager, sort_specs};
 
 /// Check if a template has execution artifacts (Docker properties)
 fn has_execution_artifacts(template: &TemplateVersionRes) -> bool {
@@ -41,7 +39,7 @@ fn has_dependencies(template: &TemplateVersionRes) -> bool {
 /// Unified batch processing for both create and update commands.
 /// Handles MAP, LAYER, and MERGE+WRITE phases.
 /// Returns session IDs for cleanup.
-fn batch_process(
+pub fn batch_process(
     prev_specs: &[TemplateSpec],
     curr_specs: &[TemplateSpec],
     upgraded_specs: &[&TemplateSpec], // Templates that need metadata saved
@@ -61,11 +59,7 @@ fn batch_process(
     let mut prev_session_ids = Vec::new();
 
     for spec in prev_specs {
-        println!(
-            "  🔄 Executing prev: {} v{}",
-            spec.template_key(),
-            spec.version
-        );
+        println!("  🔄 Executing prev: {} v{}", spec.key(), spec.version);
         let template_res = registry.get_template(
             spec.username.clone(),
             spec.template_name.clone(),
@@ -84,11 +78,7 @@ fn batch_process(
     let mut final_answers_map: HashMap<String, HashMap<String, Answer>> = HashMap::new();
 
     for spec in curr_specs {
-        println!(
-            "  🔄 Executing curr: {} v{}",
-            spec.template_key(),
-            spec.version
-        );
+        println!("  🔄 Executing curr: {} v{}", spec.key(), spec.version);
         let template_res = registry.get_template(
             spec.username.clone(),
             spec.template_name.clone(),
@@ -99,7 +89,7 @@ fn batch_process(
         curr_vfs_list.push(vfs);
         curr_session_ids.extend(session_ids);
         // Store the final answers for this template (includes Q&A answers)
-        final_answers_map.insert(spec.template_key(), final_state.shared_answers);
+        final_answers_map.insert(spec.key(), final_state.shared_answers);
     }
 
     // PHASE 3: LAYER (merge each list into ONE VFS)
@@ -146,7 +136,7 @@ fn batch_process(
             // Use final answers from execution (includes Q&A answers) if available,
             // otherwise fall back to spec.answers
             let final_answers = final_answers_map
-                .get(&spec.template_key())
+                .get(&spec.key())
                 .cloned()
                 .unwrap_or_else(|| spec.answers.clone());
 
@@ -250,13 +240,19 @@ pub fn cyan_run(
         )) as Box<dyn Error + Send>);
     }
 
+    // Create the manager for composable spec operations
+    let manager = TemplateSpecManager::new(Rc::clone(&registry_client));
+
     // Load the current state (may be empty for new projects)
     let state_file_path = target_dir.join(".cyan_state.yaml");
     let state = DefaultStateManager::new()
         .load_state_file(&state_file_path)
         .unwrap_or_default();
 
-    // Build specs and handle all scenarios through unified batch_process()
+    // Build specs using composable primitives
+    let mut prev_specs = manager.get(&state);
+    sort_specs(&mut prev_specs);
+
     let (prev_specs, curr_specs, upgraded_specs): (
         Vec<TemplateSpec>,
         Vec<TemplateSpec>,
@@ -264,20 +260,20 @@ pub fn cyan_run(
     ) = match update_type {
         TemplateUpdateType::NewTemplate => {
             // New template being added
-            let mut prev_specs = build_prev_specs(&state);
-            sort_specs_by_time(&mut prev_specs);
-
-            let new_spec = TemplateSpec::for_new_template(
+            let new_spec = TemplateSpec::new_template(
                 username.clone(),
                 template.template.name.clone(),
                 template.principal.version,
             );
 
-            let mut curr_specs = build_curr_specs_for_create(prev_specs.clone(), new_spec.clone());
-            sort_specs_by_time(&mut curr_specs);
+            let curr: Vec<_> = prev_specs
+                .iter()
+                .cloned()
+                .chain(iter::once(new_spec.clone()))
+                .collect();
 
             // The new template is the only one that needs metadata saved
-            (prev_specs, curr_specs, vec![new_spec])
+            (prev_specs, curr, vec![new_spec])
         }
         TemplateUpdateType::UpgradeTemplate {
             previous_version,
@@ -285,27 +281,78 @@ pub fn cyan_run(
             previous_states,
         } => {
             // Upgrade: prev uses old version, curr uses new version
-            let template_key = format!("{}/{}", username, template.template.name);
-            let (mut prev_specs, mut curr_specs) = build_specs_for_single_template_update(
-                &state,
-                &template_key,
-                previous_version,
-                previous_answers,
-                previous_states,
-                template.principal.version,
-                false, // reuse answers for upgrade
-            );
-            sort_specs_by_time(&mut prev_specs);
-            sort_specs_by_time(&mut curr_specs);
+            let target_key = format!("{}/{}", username, template.template.name);
 
-            // Find the upgraded template in curr_specs
-            let upgraded: Vec<TemplateSpec> = curr_specs
+            // Build prev_specs with the OLD version for the target template
+            let prev: Vec<_> = state
+                .templates
                 .iter()
-                .filter(|s| s.template_key() == template_key)
+                .filter(|(_, s)| s.active)
+                .filter_map(|(key, s)| {
+                    let (u, t) = parse_template_key(key)?;
+                    let entry = s.history.last()?;
+
+                    if key == &target_key {
+                        Some(TemplateSpec::new(
+                            u.to_string(),
+                            t.to_string(),
+                            previous_version,
+                            previous_answers.clone(),
+                            previous_states.clone(),
+                            entry.time,
+                        ))
+                    } else {
+                        Some(TemplateSpec::new(
+                            u.to_string(),
+                            t.to_string(),
+                            entry.version,
+                            entry.answers.clone(),
+                            entry.deterministic_states.clone(),
+                            entry.time,
+                        ))
+                    }
+                })
+                .collect();
+
+            // Build curr_specs with the NEW version for the target template
+            let curr: Vec<_> = state
+                .templates
+                .iter()
+                .filter(|(_, s)| s.active)
+                .filter_map(|(key, s)| {
+                    let (u, t) = parse_template_key(key)?;
+                    let entry = s.history.last()?;
+
+                    if key == &target_key {
+                        Some(TemplateSpec::new(
+                            u.to_string(),
+                            t.to_string(),
+                            template.principal.version,
+                            previous_answers.clone(),
+                            previous_states.clone(),
+                            entry.time,
+                        ))
+                    } else {
+                        Some(TemplateSpec::new(
+                            u.to_string(),
+                            t.to_string(),
+                            entry.version,
+                            entry.answers.clone(),
+                            entry.deterministic_states.clone(),
+                            entry.time,
+                        ))
+                    }
+                })
+                .collect();
+
+            // Explicitly track what changed
+            let upgraded: Vec<_> = curr
+                .iter()
+                .filter(|s| s.key() == target_key)
                 .cloned()
                 .collect();
 
-            (prev_specs, curr_specs, upgraded)
+            (prev, curr, upgraded)
         }
         TemplateUpdateType::RerunTemplate {
             previous_version,
@@ -313,27 +360,50 @@ pub fn cyan_run(
             previous_states,
         } => {
             // Rerun: prev uses old answers, curr uses empty answers (triggers Q&A)
-            let template_key = format!("{}/{}", username, template.template.name);
-            let (mut prev_specs, mut curr_specs) = build_specs_for_single_template_update(
-                &state,
-                &template_key,
-                previous_version,
-                previous_answers,
-                previous_states,
-                template.principal.version,
-                true, // fresh answers for rerun
-            );
-            sort_specs_by_time(&mut prev_specs);
-            sort_specs_by_time(&mut curr_specs);
+            let target_key = format!("{}/{}", username, template.template.name);
 
-            // Find the rerun template in curr_specs
-            let upgraded: Vec<TemplateSpec> = curr_specs
+            // Build prev_specs with the OLD answers for the target template
+            let prev: Vec<_> = state
+                .templates
                 .iter()
-                .filter(|s| s.template_key() == template_key)
+                .filter(|(_, s)| s.active)
+                .filter_map(|(key, s)| {
+                    let (u, t) = parse_template_key(key)?;
+                    let entry = s.history.last()?;
+
+                    if key == &target_key {
+                        Some(TemplateSpec::new(
+                            u.to_string(),
+                            t.to_string(),
+                            previous_version,
+                            previous_answers.clone(),
+                            previous_states.clone(),
+                            entry.time,
+                        ))
+                    } else {
+                        Some(TemplateSpec::new(
+                            u.to_string(),
+                            t.to_string(),
+                            entry.version,
+                            entry.answers.clone(),
+                            entry.deterministic_states.clone(),
+                            entry.time,
+                        ))
+                    }
+                })
+                .collect();
+
+            // Use manager.reset() to clear answers for curr_specs
+            let curr = manager.reset(prev.clone());
+
+            // Explicitly track what changed (the rerun target)
+            let upgraded: Vec<_> = curr
+                .iter()
+                .filter(|s| s.key() == target_key)
                 .cloned()
                 .collect();
 
-            (prev_specs, curr_specs, upgraded)
+            (prev, curr, upgraded)
         }
     };
 
@@ -349,4 +419,10 @@ pub fn cyan_run(
         &registry_client,
         &composition_operator,
     )
+}
+
+/// Parse template key from the update module
+fn parse_template_key(template_key: &str) -> Option<(String, String)> {
+    let parts: Vec<&str> = template_key.split('/').collect();
+    (parts.len() == 2).then(|| (parts[0].to_string(), parts[1].to_string()))
 }

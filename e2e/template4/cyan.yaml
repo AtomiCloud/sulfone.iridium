@@ -1,12 +1,12 @@
-username: ernest
+username: cyane2e
 name: template4
 description: Template4
 project: https://google.com
 source: https://google.com
-email: ernest@atomi.cloud
+email: cyane2e@atomi.cloud
 tags: []
 readme: README.MD
 processors: []
 plugins: []
 templates:
-  - ernest/template3:4
+  - cyane2e/template3:4

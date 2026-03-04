@@ -15,10 +15,7 @@ mod version_manager;
 use orchestrator::UpdateOrchestrator;
 
 // Re-export public interface
-pub use spec::{
-    TemplateSpec, build_curr_specs_for_create, build_curr_specs_for_update, build_prev_specs,
-    build_specs_for_single_template_update, classify_specs_by_upgrade, sort_specs_by_time,
-};
+pub use spec::{TemplateSpec, TemplateSpecManager, sort_specs};
 pub use utils::{SelectionError, parse_template_key};
 pub use version_manager::{TemplateVersionInfo, format_friendly_date, select_version_interactive};
 

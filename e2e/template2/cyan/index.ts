@@ -1,42 +1,42 @@
 import { GlobType, StartTemplateWithLambda } from '@atomicloud/cyan-sdk';
 import { IInquirer, IDeterminism } from '@atomicloud/cyan-sdk';
 StartTemplateWithLambda(async (i: IInquirer, d: IDeterminism) => {
-  const name = await i.text('What is your name?', 'ernest/template1/name');
+  const name = await i.text('What is your name?', 'cyane2e/template1/name');
 
   const investmentType = await i.select(
     'What type of investment are you most interested in?',
     ['Stocks', 'Bonds', 'Real Estate', 'Cryptocurrency'],
-    'ernest/template2/investmentType',
+    'cyane2e/template2/investmentType',
   );
 
   const riskTolerance = await i.select(
     'How would you describe your risk tolerance?',
     ['Conservative', 'Moderate', 'Aggressive'],
-    'ernest/template2/riskTolerance',
+    'cyane2e/template2/riskTolerance',
   );
 
   const savingsGoal = await i.select(
     'What is your primary financial goal?',
     ['Retirement', 'Home Purchase', 'Education', 'Emergency Fund', 'Wealth Building'],
-    'ernest/template2/savingsGoal',
+    'cyane2e/template2/savingsGoal',
   );
 
   const investmentHorizon = await i.select(
     'What is your investment time horizon?',
     ['Short-term (< 2 years)', 'Medium-term (2-5 years)', 'Long-term (> 5 years)'],
-    'ernest/template2/investmentHorizon',
+    'cyane2e/template2/investmentHorizon',
   );
 
   const incomeSource = await i.select(
     'What is your primary source of income?',
     ['Salary', 'Business', 'Investments', 'Freelance', 'Other'],
-    'ernest/template2/incomeSource',
+    'cyane2e/template2/incomeSource',
   );
 
   return {
     processors: [
       {
-        name: 'ernest/processor2',
+        name: 'cyane2e/processor2',
         files: [
           {
             glob: '**/*',
@@ -59,7 +59,7 @@ StartTemplateWithLambda(async (i: IInquirer, d: IDeterminism) => {
     ],
     plugins: [
       {
-        name: 'ernest/plugin2',
+        name: 'cyane2e/plugin2',
         config: {},
       },
     ],

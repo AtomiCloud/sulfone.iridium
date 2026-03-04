@@ -2,6 +2,7 @@
 
 path="$1"
 template="$2"
+build_type="${3:-load}"
 
 [ "$CYANPRINT_USERNAME" = '' ] && echo "❌ 'CYANPRINT_USERNAME' env var not set" && exit 1
 [ "$CYANPRINT_REGISTRY" = '' ] && echo "❌ 'CYANPRINT_REGISTRY' env var not set" && exit 1
@@ -26,7 +27,7 @@ docker buildx build \
   "." \
   -f "./blob.Dockerfile" \
   -t "$blob_image:$tag" \
-  --load
+  "--$build_type"
 
 # build script
 script_image="$DOCKER_USERNAME/$template-script"
@@ -34,6 +35,6 @@ docker buildx build \
   "./cyan" \
   -f "./cyan/Dockerfile" \
   -t "$script_image:$tag" \
-  --load
+  "--$build_type"
 
 cyanprint push template "$blob_image" "$tag" "$script_image" "$tag"

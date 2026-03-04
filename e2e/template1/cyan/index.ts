@@ -1,40 +1,40 @@
 import { GlobType, StartTemplateWithLambda } from '@atomicloud/cyan-sdk';
 import { IInquirer, IDeterminism } from '@atomicloud/cyan-sdk';
 StartTemplateWithLambda(async (i: IInquirer, d: IDeterminism) => {
-  const color = await i.select('What is your favorite color?', ['red', 'blue', 'green'], 'ernest/template1/color');
-  const name = await i.text('What is your name?', 'ernest/template1/name');
-  const food = await i.select('What is your favorite food?', ['pizza', 'burger', 'salad'], 'ernest/template1/food');
+  const color = await i.select('What is your favorite color?', ['red', 'blue', 'green'], 'cyane2e/template1/color');
+  const name = await i.text('What is your name?', 'cyane2e/template1/name');
+  const food = await i.select('What is your favorite food?', ['pizza', 'burger', 'salad'], 'cyane2e/template1/food');
   const country = await i.select(
     'What is your favorite country?',
     ['USA', 'Canada', 'Mexico'],
-    'ernest/template1/country',
+    'cyane2e/template1/country',
   );
-  const animal = await i.select('What is your favorite animal?', ['dog', 'cat', 'bird'], 'ernest/template1/animal');
+  const animal = await i.select('What is your favorite animal?', ['dog', 'cat', 'bird'], 'cyane2e/template1/animal');
   const sport = await i.select(
     'What is your favorite sport?',
     ['soccer', 'basketball', 'tennis'],
-    'ernest/template1/sport',
+    'cyane2e/template1/sport',
   );
   const season = await i.select(
     'What is your favorite season?',
     ['spring', 'summer', 'fall', 'winter'],
-    'ernest/template1/season',
+    'cyane2e/template1/season',
   );
   const music = await i.select(
     'What is your favorite music genre?',
     ['rock', 'pop', 'jazz', 'classical'],
-    'ernest/template1/music',
+    'cyane2e/template1/music',
   );
   const hobby = await i.select(
     'What is your favorite hobby?',
     ['reading', 'gaming', 'cooking', 'hiking'],
-    'ernest/template1/hobby',
+    'cyane2e/template1/hobby',
   );
 
   return {
     processors: [
       {
-        name: 'ernest/processor1',
+        name: 'cyane2e/processor1',
         files: [
           {
             glob: '**/*.*',
@@ -60,7 +60,7 @@ StartTemplateWithLambda(async (i: IInquirer, d: IDeterminism) => {
     ],
     plugins: [
       {
-        name: 'ernest/plugin1',
+        name: 'cyane2e/plugin1',
         config: {},
       },
     ],

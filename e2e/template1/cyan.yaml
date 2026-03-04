@@ -1,11 +1,11 @@
-username: ernest
+username: cyane2e
 name: template1
 description: Template1
 project: https://google.com
 source: https://google.com
-email: ernest@atomi.cloud
+email: cyane2e@atomi.cloud
 tags: []
 readme: cyan/README.MD
-processors: ['ernest/processor1']
-plugins: ['ernest/plugin1']
+processors: ['cyane2e/processor1']
+plugins: ['cyane2e/plugin1']
 templates: []
