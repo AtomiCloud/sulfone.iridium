@@ -1,3 +1,27 @@
+## [2.7.0](https://github.com/AtomiCloud/sulfone.iridium/compare/v2.6.0...v2.7.0) (2026-03-05)
+
+
+### 📜 Documentation 📜
+
+* add task spec for CU-86ewra5kn ([835d1f6](https://github.com/AtomiCloud/sulfone.iridium/commit/835d1f64850fd5d5b4bf828edb313c34182dba40))
+* add v2 spec for unified batch processing [CU-86ewra5kn] ([c6c792c](https://github.com/AtomiCloud/sulfone.iridium/commit/c6c792c7380725ba5f5f132fff476837590fe6b3))
+* add v5 spec and implementation plan for e2e:setup [CU-86ewra5kn] ([bf1efd1](https://github.com/AtomiCloud/sulfone.iridium/commit/bf1efd1c3f223fc802f9b709445d7116d439afd2))
+* add v5 spec with post-completion feedback [CU-86ewra5kn] ([b45d65e](https://github.com/AtomiCloud/sulfone.iridium/commit/b45d65edb5d2edbae12c8d8db9d431ce4bff250f))
+* fix inconsistent API documentation [CU-86ewra5kn] ([a2c12ee](https://github.com/AtomiCloud/sulfone.iridium/commit/a2c12ee1ff562611920944d70f953013d999ca15))
+
+
+### ✨ Features ✨
+
+* **e2e:** add e2e:setup task and update test fixtures [CU-86ewra5kn] ([39f4043](https://github.com/AtomiCloud/sulfone.iridium/commit/39f404382e66674072e0e14ea6964981d8392100))
+* **update:** batch VFS layering for all cyan_state templates ([cd4bb84](https://github.com/AtomiCloud/sulfone.iridium/commit/cd4bb84ff908ed999c0b677efae64c424467ae69))
+* prep for e2e ([e051763](https://github.com/AtomiCloud/sulfone.iridium/commit/e051763928b865b9079a7045635d4f40ddb8db7c))
+
+
+### 🐛 Bug Fixes 🐛
+
+* **coderabbit:** address local review findings [CU-86ewra5kn] ([004556d](https://github.com/AtomiCloud/sulfone.iridium/commit/004556d3546942b553680dfa6b3604d16bd47454))
+* **coderabbit:** address review findings [CU-86ewra5kn] ([1bf07ff](https://github.com/AtomiCloud/sulfone.iridium/commit/1bf07ffd808f9fa8c9c70c892e375c0d0200331c))
+
 ## [2.6.0](https://github.com/AtomiCloud/sulfone.iridium/compare/v2.5.0...v2.6.0) (2026-02-26)
 
 

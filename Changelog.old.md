@@ -1,3 +1,19 @@
+## [2.6.0](https://github.com/AtomiCloud/sulfone.iridium/compare/v2.5.0...v2.6.0) (2026-02-26)
+
+
+### 📜 Documentation 📜
+
+* add fast-forward branch to merge sequence diagram [CU-86ewk3qxf] ([bd666f7](https://github.com/AtomiCloud/sulfone.iridium/commit/bd666f76603fcd52c59f0fefc97ab7da6b51c5fe))
+* address CodeRabbit local review findings [CU-86ewk3qxf] ([8d23bd9](https://github.com/AtomiCloud/sulfone.iridium/commit/8d23bd9c4a5ac8455f8bb716d26dc4076963aab6))
+* address CodeRabbit PR review findings [CU-86ewk3qxf] ([40b792b](https://github.com/AtomiCloud/sulfone.iridium/commit/40b792b14252bf99242af246043cc6a4065ac468))
+* remove reviewer-only HTML note [CU-86ewk3qxf] ([379e1ae](https://github.com/AtomiCloud/sulfone.iridium/commit/379e1ae80f215d583d6d3dd5f9bec0c4425e84a3))
+
+
+### ✨ Features ✨
+
+* coderabbit config ([84584dd](https://github.com/AtomiCloud/sulfone.iridium/commit/84584dda8e2556f34e681ca42bbadbf4d8064a0c))
+* coderabbit config ([4ea51e6](https://github.com/AtomiCloud/sulfone.iridium/commit/4ea51e6b95ce486b1159bec5969523f25cb13fd2))
+
 ## [2.5.0](https://github.com/AtomiCloud/sulfone.iridium/compare/v2.4.2...v2.5.0) (2026-02-24)
 
 
