@@ -68,7 +68,7 @@ pls update
 # Equivalent to: pls update .
 ```
 
-## Flow
+## Flow (v4+ Batch Processing)
 
 ```mermaid
 sequenceDiagram
@@ -80,24 +80,32 @@ sequenceDiagram
 
     U->>CLI: 1. pls update ./path
     CLI->>FS: 2. Read .cyan_state.yaml
-    CLI->>REG: 3. Fetch latest templates
-    CLI->>COORD: 4. Execute old templates
-    CLI->>COORD: 5. Execute new templates
-    CLI->>CLI: 6. 3-way merge
-    CLI->>FS: 7. Write merged files
-    CLI->>COORD: 8. Clean sessions
+    CLI->>REG: 3. Fetch latest versions
+    CLI->>CLI: 4. BUILD: prev_specs, curr_specs
+    loop MAP: For each spec in prev + curr
+        CLI->>COORD: 5. execute_template(spec)
+        COORD-->>CLI: 6. VFS output
+    end
+    CLI->>CLI: 7. LAYER: merge prev_vfs, curr_vfs
+    CLI->>FS: 8. Load local files
+    CLI->>CLI: 9. MERGE: 3-way merge
+    CLI->>FS: 10. WRITE: persist files
+    CLI->>COORD: 11. Clean sessions
 ```
 
-| #   | Step            | What                              | Key File                                         |
-| --- | --------------- | --------------------------------- | ------------------------------------------------ |
-| 1   | Parse command   | Parse path and options            | `commands.rs:52-72`                              |
-| 2   | Load state      | Read `.cyan_state.yaml`           | `cyancoordinator/src/template/history.rs:69-115` |
-| 3   | Fetch templates | Get latest versions from registry | `registry/client.rs`                             |
-| 4   | Execute old     | Recreate previous composition     | `operator.rs:170-195`                            |
-| 5   | Execute new     | Create new composition            | `operator.rs:197-205`                            |
-| 6   | 3-way merge     | Merge old, local, new             | `merger.rs:perform_git_merge()`                  |
-| 7   | Write files     | Persist merged result             | `fs/writer.rs`                                   |
-| 8   | Cleanup         | Remove sessions                   | `main.rs:217-219`                                |
+| #   | Step           | What                             | Key File                |
+| --- | -------------- | -------------------------------- | ----------------------- |
+| 1   | Parse command  | Parse path and options           | `commands.rs:52-72`     |
+| 2   | Load state     | Read `.cyan_state.yaml`          | `state/reader.rs`       |
+| 3   | Fetch versions | Get latest from registry         | `registry/client.rs`    |
+| 4   | BUILD          | Construct prev_specs, curr_specs | `update/spec.rs`        |
+| 5-6 | MAP            | Execute each spec → VFS          | `run.rs::batch_process` |
+| 7   | LAYER          | Merge VFS lists                  | `run.rs::batch_process` |
+| 8-9 | MERGE          | 3-way merge with local           | `run.rs::batch_process` |
+| 10  | WRITE          | Persist merged result            | `run.rs::batch_process` |
+| 11  | Cleanup        | Remove sessions                  | `main.rs`               |
+
+**Key File**: `cyanprint/src/run.rs::batch_process()`
 
 ## Update Detection
 
@@ -136,7 +144,7 @@ When `--interactive` is enabled:
 3. User selects specific versions
 4. Execute with selected versions
 
-**Key File**: `cyanprint/src/update.rs`
+**Key File**: `cyanprint/src/update/version_manager.rs`
 
 ## Exit Codes
 

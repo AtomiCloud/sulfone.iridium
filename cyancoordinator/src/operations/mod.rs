@@ -74,7 +74,7 @@ impl TemplateOperator {
     }
 
     /// Helper method to get previous template version
-    fn get_previous_template(
+    pub fn get_previous_template(
         &self,
         template: &TemplateVersionRes,
         username: &str,

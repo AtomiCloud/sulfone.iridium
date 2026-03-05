@@ -1,0 +1,11 @@
+username: cyane2e
+name: test-batch-a
+description: Test batch A v2 for batch layering - writes to shared.txt
+project: https://test.com
+source: https://test.com
+email: test@test.com
+tags: []
+readme: cyan/README.MD
+processors: [cyane2e/processor1]
+plugins: []
+templates: []

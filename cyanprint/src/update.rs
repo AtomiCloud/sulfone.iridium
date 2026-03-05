@@ -8,14 +8,14 @@ use cyanregistry::http::client::CyanRegistryClient;
 // Re-export the modular update system
 mod operator_factory;
 mod orchestrator;
-mod template_processor;
-mod upgrade_executor;
+pub mod spec;
 mod utils;
 mod version_manager;
 
 use orchestrator::UpdateOrchestrator;
 
 // Re-export public interface
+pub use spec::{TemplateSpec, TemplateSpecManager, sort_specs};
 pub use utils::{SelectionError, parse_template_key};
 pub use version_manager::{TemplateVersionInfo, format_friendly_date, select_version_interactive};
 

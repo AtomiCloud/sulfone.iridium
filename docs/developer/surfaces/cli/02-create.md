@@ -60,7 +60,7 @@ pls create atomicloud/starter:1 ./my-project
 pls create atomicloud/starter:1 ./my-project --coordinator-endpoint http://localhost:9000
 ```
 
-## Flow
+## Flow (v4+ Batch Processing)
 
 ```mermaid
 sequenceDiagram
@@ -72,24 +72,30 @@ sequenceDiagram
 
     U->>CLI: 1. pls create template:version ./path
     CLI->>REG: 2. GET /template
-    REG-->>CLI: 3. Template metadata
-    CLI->>COORD: 4. Bootstrap session
-    CLI->>COORD: 5. Execute template
-    COORD-->>CLI: 6. Archive data
-    CLI->>FS: 7. Unpack & merge
-    CLI->>COORD: 8. Clean session
+    CLI->>CLI: 3. BUILD: prev_specs=[], curr_specs=[new_spec]
+    loop MAP: For each spec
+        CLI->>COORD: 4. execute_template(spec)
+        COORD-->>CLI: 5. VFS output
+    end
+    CLI->>CLI: 6. LAYER: merge VFS outputs
+    CLI->>FS: 7. Load local files
+    CLI->>CLI: 8. MERGE: 3-way merge
+    CLI->>FS: 9. WRITE: persist files
+    CLI->>COORD: 10. Clean sessions
 ```
 
-| Order | Step              | What                              | Key File              |
-| ----- | ----------------- | --------------------------------- | --------------------- |
-| 1     | Parse command     | Parse template reference and path | `commands.rs:34`      |
-| 2     | Fetch template    | Get template from registry        | `main.rs:142-157`     |
-| 3     | Parse reference   | Extract username, name, version   | `util.rs:parse_ref()` |
-| 4     | Bootstrap session | Initialize coordinator session    | `main.rs:142-157`     |
-| 5     | Execute template  | Run template with coordinator     | `run.rs:cyan_run()`   |
-| 6     | Receive archive   | Get generated files from coord    | `run.rs:cyan_run()`   |
-| 7     | Unpack & merge    | Write files to filesystem         | `run.rs:49-52`        |
-| 8     | Cleanup           | Remove session artifacts          | `main.rs:179-181`     |
+| Order | Step           | What                              | Key File                |
+| ----- | -------------- | --------------------------------- | ----------------------- |
+| 1     | Parse command  | Parse template reference and path | `commands.rs:34`        |
+| 2     | Fetch template | Get template from registry        | `main.rs:142-157`       |
+| 3     | BUILD          | Construct prev_specs, curr_specs  | `update/spec.rs`        |
+| 4-5   | MAP            | Execute each spec → VFS           | `run.rs::batch_process` |
+| 6     | LAYER          | Merge VFS outputs                 | `run.rs::batch_process` |
+| 7-8   | MERGE          | 3-way merge with local            | `run.rs::batch_process` |
+| 9     | WRITE          | Persist merged result             | `run.rs::batch_process` |
+| 10    | Cleanup        | Remove session artifacts          | `main.rs:179-181`       |
+
+**Key File**: `cyanprint/src/run.rs::batch_process()`
 
 ## Template Reference Format
 

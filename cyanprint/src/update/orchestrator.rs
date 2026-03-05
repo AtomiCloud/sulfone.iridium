@@ -8,14 +8,15 @@ use cyancoordinator::state::{DefaultStateManager, StateReader};
 use cyanregistry::http::client::CyanRegistryClient;
 
 use super::operator_factory::OperatorFactory;
-use super::template_processor::TemplateProcessor;
-use super::utils::parse_template_key;
+use super::spec::{TemplateSpec, TemplateSpecManager, sort_specs};
+use crate::run::batch_process;
 
 /// Main orchestrator for the template update process
 pub struct UpdateOrchestrator;
 
 impl UpdateOrchestrator {
     /// Update all templates in a project to their latest versions with automatic composition detection
+    /// Uses unified batch VFS processing: MAP -> LAYER -> MERGE+WRITE
     /// Returns all session IDs that were created and need to be cleaned up
     pub fn update_templates(
         session_id_generator: Box<dyn SessionIdGenerator>,
@@ -27,7 +28,7 @@ impl UpdateOrchestrator {
     ) -> Result<Vec<String>, Box<dyn Error + Send>> {
         let target_dir = Path::new(&path);
 
-        // Create the composition operator (handles both single templates and compositions)
+        // Create the composition operator
         let composition_operator = OperatorFactory::create_composition_operator(
             session_id_generator,
             coord_client,
@@ -35,52 +36,77 @@ impl UpdateOrchestrator {
             debug,
         );
 
-        // 1. Read state
+        // PHASE 1: BUILD SPEC LISTS
+        println!(
+            "🔍 PHASE 1: Reading template state from: {:?}",
+            target_dir.join(".cyan_state.yaml")
+        );
         let state_file_path = target_dir.join(".cyan_state.yaml");
-        println!("🔍 Reading template state from: {state_file_path:?}");
-        let state = DefaultStateManager::new().load_state_file(&state_file_path)?;
+        let cyan_state = DefaultStateManager::new()
+            .load_state_file(&state_file_path)
+            .map_err(|e| {
+                Box::new(std::io::Error::other(format!("Failed to load state: {e}")))
+                    as Box<dyn Error + Send>
+            })?;
 
-        if state.templates.is_empty() {
+        if cyan_state.templates.is_empty() {
             println!("⚠️ No templates found in state file");
             return Ok(Vec::new());
         }
 
-        // 2. Process each template
-        state
-            .templates
-            .iter()
-            .filter(|(_, state)| state.active)
-            .filter_map(|(template_key, template_state)| {
-                template_state
-                    .history
-                    .last()
-                    .map(|entry| (template_key, entry))
-            })
-            .filter_map(|(template_key, latest_entry)| {
-                parse_template_key(template_key)
-                    .map(|(username, template_name)| (username, template_name, latest_entry))
-                    .or_else(|| {
-                        println!("⚠️ Invalid template key format: {template_key}");
-                        None
-                    })
-            })
-            .try_fold(
-                Vec::new(),
-                |mut acc, (username, template_name, latest_entry)| {
-                    // For each template, process upgrade
-                    let session_ids = TemplateProcessor::process_template_upgrade(
-                        &registry_client,
-                        &composition_operator,
-                        target_dir,
-                        &username,
-                        &template_name,
-                        latest_entry,
-                        interactive,
-                    )?;
+        // Create the manager for composable spec operations
+        let manager = TemplateSpecManager::new(Rc::clone(&registry_client));
 
-                    acc.extend(session_ids);
-                    Ok(acc)
-                },
-            )
+        // Build prev_specs from state
+        let mut prev_specs = manager.get(&cyan_state);
+
+        if prev_specs.is_empty() {
+            println!("⚠️ No active templates to update");
+            return Ok(Vec::new());
+        }
+
+        println!("📋 Found {} active templates", prev_specs.len());
+
+        // Build curr_specs for update (with version upgrades)
+        let mut curr_specs = manager.update(prev_specs.clone(), interactive)?;
+
+        // Sort both lists by installation time for consistent LWW ordering
+        sort_specs(&mut prev_specs);
+        sort_specs(&mut curr_specs);
+
+        // Find upgraded by comparing versions
+        let upgraded: Vec<TemplateSpec> = curr_specs
+            .iter()
+            .filter(|c| {
+                prev_specs
+                    .iter()
+                    .find(|p| p.key() == c.key())
+                    .map(|p| p.version != c.version)
+                    .unwrap_or(true) // New template
+            })
+            .cloned()
+            .collect();
+
+        println!(
+            "📊 Template classification: {} total, {} being upgraded",
+            curr_specs.len(),
+            upgraded.len()
+        );
+
+        // Convert to references for batch_process
+        let upgraded_refs: Vec<&TemplateSpec> = upgraded.iter().collect();
+
+        // PHASE 2-4: BATCH PROCESS
+        let session_ids = batch_process(
+            &prev_specs,
+            &curr_specs,
+            &upgraded_refs,
+            target_dir,
+            &registry_client,
+            &composition_operator,
+        )?;
+
+        println!("✅ Batch update complete");
+        Ok(session_ids)
     }
 }
