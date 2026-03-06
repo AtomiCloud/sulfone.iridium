@@ -4,7 +4,7 @@ use std::rc::Rc;
 
 use cyancoordinator::client::CyanCoordinatorClient;
 use cyancoordinator::session::SessionIdGenerator;
-use cyancoordinator::state::{DefaultStateManager, StateReader};
+use cyancoordinator::state::{DefaultStateManager, StateReader, StateWriter};
 use cyanregistry::http::client::CyanRegistryClient;
 
 use super::operator_factory::OperatorFactory;
@@ -28,10 +28,10 @@ impl UpdateOrchestrator {
     ) -> Result<Vec<String>, Box<dyn Error + Send>> {
         let target_dir = Path::new(&path);
 
-        // Create the composition operator
-        let composition_operator = OperatorFactory::create_composition_operator(
+        // Create the composition operator (clone coord_client since we also need it for batch_process)
+        let mut composition_operator = OperatorFactory::create_composition_operator(
             session_id_generator,
-            coord_client,
+            coord_client.clone(),
             registry_client.clone(),
             debug,
         );
@@ -97,14 +97,27 @@ impl UpdateOrchestrator {
         let upgraded_refs: Vec<&TemplateSpec> = upgraded.iter().collect();
 
         // PHASE 2-4: BATCH PROCESS
-        let session_ids = batch_process(
+        let (session_ids, file_conflicts) = batch_process(
             &prev_specs,
             &curr_specs,
             &upgraded_refs,
             target_dir,
             &registry_client,
-            &composition_operator,
+            &coord_client,
+            &mut composition_operator,
         )?;
+
+        // Persist file conflicts to state file (always update to clear stale entries)
+        let state_manager = DefaultStateManager::new();
+        let mut cyan_state = state_manager
+            .load_state_file(&state_file_path)
+            .unwrap_or_default();
+        let conflicts_count = file_conflicts.len();
+        cyan_state.file_conflicts = file_conflicts;
+        state_manager.save_state_file(&cyan_state, &state_file_path)?;
+        if conflicts_count > 0 {
+            println!("📝 Saved {conflicts_count} file conflict(s) to state");
+        }
 
         println!("✅ Batch update complete");
         Ok(session_ids)

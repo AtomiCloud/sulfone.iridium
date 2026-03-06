@@ -1,0 +1,17 @@
+username: cyane2e
+name: test-conflict-a
+description: Test template A with JSON merger resolver for conflict resolution
+project: https://github.com/atomi/test-conflict-a
+source: https://github.com/atomi/test-conflict-a
+email: cyane2e@atomi.cloud
+tags: []
+readme: README.md
+processors: []
+plugins: []
+templates: []
+resolvers:
+  - resolver: 'cyane2e/json-merger:1'
+    config:
+      strategy: 'deep-merge'
+    files:
+      - 'package.json'

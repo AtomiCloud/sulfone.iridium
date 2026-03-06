@@ -6,6 +6,8 @@ use reqwest::blocking::Client;
 
 use cyanregistry::http::models::template_res::TemplateVersionRes;
 
+use crate::conflict_file_resolver::ResolverInput;
+use crate::conflict_file_resolver::ResolverOutput;
 use crate::errors::{GenericError, ProblemDetails};
 use crate::models::req::StartExecutorReq;
 use crate::models::res::{ExecutorWarmRes, StandardRes};
@@ -131,6 +133,38 @@ impl CyanCoordinatorClient {
         http_client
             .post(endpoint)
             .json(template)
+            .send()
+            .map_err(|x| Box::new(x) as Box<dyn Error + Send>)
+            .and_then(|x| {
+                if x.status().is_success() {
+                    x.json().map_err(|e| Box::new(e) as Box<dyn Error + Send>)
+                } else {
+                    let r: Result<ProblemDetails, Box<dyn Error + Send>> =
+                        x.json().map_err(|e| Box::new(e) as Box<dyn Error + Send>);
+                    match r {
+                        Ok(ok) => {
+                            Err(Box::new(GenericError::ProblemDetails(ok)) as Box<dyn Error + Send>)
+                        }
+                        Err(err) => Err(err),
+                    }
+                }
+            })
+    }
+
+    /// Resolve files using a resolver service
+    ///
+    /// Calls POST /proxy/resolver/{cyan_id}/api/resolve with the resolver input
+    pub fn resolve_files(
+        &self,
+        cyan_id: &str,
+        input: &ResolverInput,
+    ) -> Result<Vec<ResolverOutput>, Box<dyn Error + Send>> {
+        let host = (self.endpoint).to_string().to_owned();
+        let endpoint = host + "/proxy/resolver/" + cyan_id + "/api/resolve";
+        let http_client = new_client()?;
+        http_client
+            .post(endpoint)
+            .json(input)
             .send()
             .map_err(|x| Box::new(x) as Box<dyn Error + Send>)
             .and_then(|x| {
