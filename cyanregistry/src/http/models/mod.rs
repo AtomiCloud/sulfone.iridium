@@ -6,6 +6,10 @@ pub mod plugin_req;
 
 pub mod plugin_res;
 
+pub mod resolver_req;
+
+pub mod resolver_res;
+
 pub mod template_req;
 
 pub mod template_res;

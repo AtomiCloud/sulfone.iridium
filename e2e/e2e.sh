@@ -9,6 +9,14 @@ export PATH="${PATH_ADDITION}:$PATH"
 
 cyanprint daemon
 
+# build resolvers
+echo "🔍 Publishing resolvers..."
+./e2e/publish-resolver.sh ./e2e/resolver1 resolver1 push
+./e2e/publish-resolver.sh ./e2e/resolver1 resolver1 push
+
+./e2e/publish-resolver.sh ./e2e/resolver2 resolver2 push
+./e2e/publish-resolver.sh ./e2e/resolver2 resolver2 push
+
 # build processors
 echo "🔍 Publishing processors..."
 ./e2e/publish-processor.sh ./e2e/processor1 processor1 push

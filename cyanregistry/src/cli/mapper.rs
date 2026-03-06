@@ -1,4 +1,5 @@
 use crate::cli::models::plugin_config::CyanPluginFileConfig;
+use crate::cli::models::resolver_config::CyanResolverFileConfig;
 use serde::de::DeserializeOwned;
 use std::error::Error;
 use std::fs::File;
@@ -8,6 +9,7 @@ use crate::cli::models::processor_config::CyanProcessorFileConfig;
 use crate::cli::models::template_config::CyanTemplateFileConfig;
 use crate::domain::config::plugin_config::CyanPluginConfig;
 use crate::domain::config::processor_config::CyanProcessorConfig;
+use crate::domain::config::resolver_config::CyanResolverConfig;
 use crate::domain::config::template_config::{
     CyanPluginRef, CyanProcessorRef, CyanTemplateConfig, CyanTemplateRef,
 };
@@ -220,4 +222,88 @@ pub fn plugin_config_mapper(
                 readme,
             });
     readme_result
+}
+
+pub fn resolver_config_mapper(
+    r: &CyanResolverFileConfig,
+) -> Result<CyanResolverConfig, Box<dyn Error + Send>> {
+    let readme_result: Result<CyanResolverConfig, Box<dyn Error + Send>> =
+        fs::read_to_string(r.readme.clone())
+            .map_err(|e| Box::new(e) as Box<dyn Error + Send>)
+            .map(|readme| CyanResolverConfig {
+                username: r.username.clone(),
+                name: r.name.clone(),
+                description: r.description.clone(),
+                project: r.project.clone(),
+                source: r.source.clone(),
+                email: r.email.clone(),
+                tags: r.tags.clone(),
+                readme,
+            });
+    readme_result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write;
+    use tempfile::TempDir;
+
+    #[test]
+    fn test_resolver_config_mapper_reads_readme() {
+        // Create a temporary directory with a README file
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+        let readme_path = temp_dir.path().join("README.md");
+        let mut readme_file = std::fs::File::create(&readme_path).expect("Failed to create README");
+        readme_file
+            .write_all(b"# Test Resolver\n\nThis is a test resolver.")
+            .expect("Failed to write README");
+
+        let config = CyanResolverFileConfig {
+            username: "testuser".to_string(),
+            name: "test-resolver".to_string(),
+            description: "A test resolver".to_string(),
+            project: "test-project".to_string(),
+            source: "github.com/test/resolvers".to_string(),
+            email: "test@test.com".to_string(),
+            tags: vec!["test".to_string()],
+            readme: readme_path.to_string_lossy().to_string(),
+        };
+
+        let result = resolver_config_mapper(&config);
+        assert!(result.is_ok(), "resolver_config_mapper should succeed");
+
+        let domain_config = result.unwrap();
+        assert_eq!(domain_config.username, "testuser");
+        assert_eq!(domain_config.name, "test-resolver");
+        assert_eq!(domain_config.description, "A test resolver");
+        assert_eq!(domain_config.project, "test-project");
+        assert_eq!(domain_config.source, "github.com/test/resolvers");
+        assert_eq!(domain_config.email, "test@test.com");
+        assert_eq!(domain_config.tags, vec!["test"]);
+        assert_eq!(
+            domain_config.readme,
+            "# Test Resolver\n\nThis is a test resolver."
+        );
+    }
+
+    #[test]
+    fn test_resolver_config_mapper_fails_on_missing_readme() {
+        let config = CyanResolverFileConfig {
+            username: "testuser".to_string(),
+            name: "test-resolver".to_string(),
+            description: "A test resolver".to_string(),
+            project: "test-project".to_string(),
+            source: "github.com/test/resolvers".to_string(),
+            email: "test@test.com".to_string(),
+            tags: vec!["test".to_string()],
+            readme: "/nonexistent/path/README.md".to_string(),
+        };
+
+        let result = resolver_config_mapper(&config);
+        assert!(
+            result.is_err(),
+            "resolver_config_mapper should fail for missing README"
+        );
+    }
 }
