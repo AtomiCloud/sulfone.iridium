@@ -9,3 +9,10 @@ readme: cyan/README.MD
 processors: ['cyane2e/processor1']
 plugins: ['cyane2e/plugin1']
 templates: []
+resolvers:
+  - resolver: 'cyane2e/json-merger:1'
+    config:
+      strategy: 'deep-merge'
+    files:
+      - 'package.json'
+      - '**/tsconfig.json'

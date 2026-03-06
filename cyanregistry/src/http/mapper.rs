@@ -1,11 +1,13 @@
 use crate::domain::config::plugin_config::CyanPluginConfig;
 use crate::domain::config::processor_config::CyanProcessorConfig;
 use crate::domain::config::resolver_config::CyanResolverConfig;
+use crate::domain::config::resolver_ref_config::CyanResolverRef;
 use crate::domain::config::template_config::{
     CyanPluginRef, CyanProcessorRef, CyanTemplateConfig, CyanTemplateRef,
 };
 use crate::http::models::plugin_req::PluginReq;
 use crate::http::models::processor_req::ProcessorReq;
+use crate::http::models::resolver_ref_req::ResolverRefReq;
 use crate::http::models::resolver_req::ResolverReq;
 use crate::http::models::template_req::{
     PluginRefReq, ProcessorRefReq, TemplatePropertyReq, TemplateRefReq, TemplateReq,
@@ -75,6 +77,16 @@ pub fn template_ref_req_mapper(r: &CyanTemplateRef) -> TemplateRefReq {
     }
 }
 
+/// Maps CyanResolverRef domain model to ResolverRefReq HTTP request model
+pub fn resolver_ref_req_mapper(r: &CyanResolverRef) -> ResolverRefReq {
+    ResolverRefReq {
+        resolver_reference: format!("{}/{}", r.username, r.name),
+        resolver_version: r.version.unwrap_or(0),
+        config: r.config.clone(),
+        files: r.files.clone(),
+    }
+}
+
 // Mapper for template with properties
 pub fn template_req_with_properties_mapper(
     r: &CyanTemplateConfig,
@@ -104,6 +116,7 @@ pub fn template_req_with_properties_mapper(
         plugins: r.plugins.iter().map(plugin_ref_req_mapper).collect(),
         processors: r.processors.iter().map(processor_ref_req_mapper).collect(),
         templates: r.templates.iter().map(template_ref_req_mapper).collect(),
+        resolvers: r.resolvers.iter().map(resolver_ref_req_mapper).collect(),
     }
 }
 
@@ -122,6 +135,7 @@ pub fn template_req_without_properties_mapper(r: &CyanTemplateConfig, desc: Stri
         plugins: r.plugins.iter().map(plugin_ref_req_mapper).collect(),
         processors: r.processors.iter().map(processor_ref_req_mapper).collect(),
         templates: r.templates.iter().map(template_ref_req_mapper).collect(),
+        resolvers: r.resolvers.iter().map(resolver_ref_req_mapper).collect(),
     }
 }
 
@@ -228,5 +242,44 @@ mod tests {
         assert_eq!(req.tags, config.tags);
         assert_eq!(req.description, config.description);
         assert_eq!(req.readme, config.readme);
+    }
+
+    #[test]
+    fn test_resolver_ref_req_mapper() {
+        let resolver_ref = CyanResolverRef {
+            username: "atomi".to_string(),
+            name: "json-merger".to_string(),
+            version: Some(1),
+            config: Some(serde_json::json!({"strategy": "deep-merge"})),
+            files: vec!["package.json".to_string(), "**/tsconfig.json".to_string()],
+        };
+
+        let req = resolver_ref_req_mapper(&resolver_ref);
+
+        assert_eq!(req.resolver_reference, "atomi/json-merger");
+        assert_eq!(req.resolver_version, 1);
+        assert_eq!(
+            req.config,
+            Some(serde_json::json!({"strategy": "deep-merge"}))
+        );
+        assert_eq!(req.files, vec!["package.json", "**/tsconfig.json"]);
+    }
+
+    #[test]
+    fn test_resolver_ref_req_mapper_without_version() {
+        let resolver_ref = CyanResolverRef {
+            username: "atomi".to_string(),
+            name: "json-merger".to_string(),
+            version: None,
+            config: None,
+            files: vec!["*.json".to_string()],
+        };
+
+        let req = resolver_ref_req_mapper(&resolver_ref);
+
+        assert_eq!(req.resolver_reference, "atomi/json-merger");
+        assert_eq!(req.resolver_version, 0); // Default to 0 when no version
+        assert_eq!(req.config, None);
+        assert_eq!(req.files, vec!["*.json"]);
     }
 }

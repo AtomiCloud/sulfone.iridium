@@ -1,5 +1,6 @@
 use crate::cli::models::plugin_config::CyanPluginFileConfig;
 use crate::cli::models::resolver_config::CyanResolverFileConfig;
+use crate::cli::models::resolver_ref_config::CyanResolverRefFileConfig;
 use serde::de::DeserializeOwned;
 use std::error::Error;
 use std::fs::File;
@@ -10,6 +11,7 @@ use crate::cli::models::template_config::CyanTemplateFileConfig;
 use crate::domain::config::plugin_config::CyanPluginConfig;
 use crate::domain::config::processor_config::CyanProcessorConfig;
 use crate::domain::config::resolver_config::CyanResolverConfig;
+use crate::domain::config::resolver_ref_config::CyanResolverRef;
 use crate::domain::config::template_config::{
     CyanPluginRef, CyanProcessorRef, CyanTemplateConfig, CyanTemplateRef,
 };
@@ -83,11 +85,42 @@ pub fn template_reference_mapper(s: String) -> Option<CyanTemplateRef> {
     })
 }
 
+/// Maps a resolver reference string (e.g., "username/name:version") to parts
+pub fn resolver_reference_parse(s: &str) -> Option<(String, String, Option<i64>)> {
+    let mut parts = s.splitn(2, '/');
+    let username = parts.next()?.to_string();
+    let rest = parts.next()?;
+
+    // Split the rest by ':'
+    let mut parts = rest.splitn(2, ':');
+    let name = parts.next()?.to_string();
+    let version_str = parts.next();
+
+    // Convert version string to i64
+    let version = version_str.and_then(|v| v.parse::<i64>().ok());
+
+    Some((username, name, version))
+}
+
+/// Maps CyanResolverRefFileConfig to CyanResolverRef
+pub fn resolver_ref_mapper(r: &CyanResolverRefFileConfig) -> Option<CyanResolverRef> {
+    let (username, name, version) = resolver_reference_parse(&r.resolver)?;
+
+    Some(CyanResolverRef {
+        username,
+        name,
+        version,
+        config: r.config.clone(),
+        files: r.files.clone(),
+    })
+}
+
 #[derive(Debug)]
 pub enum ParsingError {
     FailedParsingPluginReference(String),
     FailedParsingProcessorReference(String),
     FailedParsingTemplateReference(String),
+    FailedParsingResolverReference(String),
 }
 
 impl Error for ParsingError {}
@@ -103,6 +136,9 @@ impl fmt::Display for ParsingError {
             }
             ParsingError::FailedParsingTemplateReference(s) => {
                 write!(f, "Incorrect Template Reference: {s}")
+            }
+            ParsingError::FailedParsingResolverReference(s) => {
+                write!(f, "Incorrect Resolver Reference: {s}")
             }
         }
     }
@@ -162,24 +198,39 @@ pub fn template_config_mapper(
         })
         .collect();
 
+    let resolvers: Result<Vec<CyanResolverRef>, Box<dyn Error + Send>> = r
+        .resolvers
+        .iter()
+        .map(resolver_ref_mapper)
+        .map(|opt| {
+            opt.ok_or(ParsingError::FailedParsingResolverReference(
+                "unknown".to_string(),
+            ))
+            .map_err(|e| Box::new(e) as Box<dyn Error + Send>)
+        })
+        .collect();
+
     let readme_result: Result<String, Box<dyn Error + Send>> =
         fs::read_to_string(r.readme.clone()).map_err(|e| Box::new(e) as Box<dyn Error + Send>);
 
     proc.and_then(|proc_result| {
         plug.and_then(|plug_result| {
             temp.and_then(|temp_result| {
-                readme_result.map(|readme_r| CyanTemplateConfig {
-                    readme: readme_r,
-                    email: r.email.clone(),
-                    name: r.name.clone(),
-                    description: r.description.clone(),
-                    project: r.project.clone(),
-                    source: r.source.clone(),
-                    tags: r.tags.clone(),
-                    username: r.username.clone(),
-                    processors: proc_result,
-                    plugins: plug_result,
-                    templates: temp_result,
+                resolvers.and_then(|resolvers_result| {
+                    readme_result.map(|readme_r| CyanTemplateConfig {
+                        readme: readme_r,
+                        email: r.email.clone(),
+                        name: r.name.clone(),
+                        description: r.description.clone(),
+                        project: r.project.clone(),
+                        source: r.source.clone(),
+                        tags: r.tags.clone(),
+                        username: r.username.clone(),
+                        processors: proc_result,
+                        plugins: plug_result,
+                        templates: temp_result,
+                        resolvers: resolvers_result,
+                    })
                 })
             })
         })
@@ -305,5 +356,35 @@ mod tests {
             result.is_err(),
             "resolver_config_mapper should fail for missing README"
         );
+    }
+
+    #[test]
+    fn test_resolver_reference_parse() {
+        // With version
+        let (username, name, version) = resolver_reference_parse("atomi/json-merger:1").unwrap();
+        assert_eq!(username, "atomi");
+        assert_eq!(name, "json-merger");
+        assert_eq!(version, Some(1));
+
+        // Without version
+        let (username, name, version) = resolver_reference_parse("atomi/json-merger").unwrap();
+        assert_eq!(username, "atomi");
+        assert_eq!(name, "json-merger");
+        assert_eq!(version, None);
+    }
+
+    #[test]
+    fn test_resolver_ref_mapper() {
+        let config = CyanResolverRefFileConfig {
+            resolver: "atomi/json-merger:1".to_string(),
+            config: Some(serde_json::json!({"strategy": "deep-merge"})),
+            files: vec!["package.json".to_string(), "**/tsconfig.json".to_string()],
+        };
+
+        let result = resolver_ref_mapper(&config).unwrap();
+        assert_eq!(result.username, "atomi");
+        assert_eq!(result.name, "json-merger");
+        assert_eq!(result.version, Some(1));
+        assert_eq!(result.files, vec!["package.json", "**/tsconfig.json"]);
     }
 }

@@ -12,4 +12,5 @@ pub mod resolver_res;
 
 pub mod template_req;
 
+pub mod resolver_ref_req;
 pub mod template_res;

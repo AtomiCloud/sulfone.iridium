@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+use super::resolver_ref_config::CyanResolverRefFileConfig;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CyanTemplateFileConfig {
     pub username: String,
@@ -23,4 +25,7 @@ pub struct CyanTemplateFileConfig {
     pub plugins: Vec<String>,
 
     pub templates: Vec<String>,
+
+    #[serde(default)]
+    pub resolvers: Vec<CyanResolverRefFileConfig>,
 }

@@ -1,3 +1,5 @@
+use super::resolver_ref_config::CyanResolverRef;
+
 #[derive(Debug, Clone)]
 pub struct CyanTemplateConfig {
     pub username: String,
@@ -21,6 +23,8 @@ pub struct CyanTemplateConfig {
     pub templates: Vec<CyanTemplateRef>,
 
     pub readme: String,
+
+    pub resolvers: Vec<CyanResolverRef>,
 }
 
 #[derive(Debug, Clone)]

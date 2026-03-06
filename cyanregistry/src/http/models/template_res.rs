@@ -28,6 +28,8 @@ pub struct TemplateVersionRes {
     pub plugins: Vec<PluginVersionPrincipalRes>,
     pub processors: Vec<ProcessorVersionPrincipalRes>,
     pub templates: Vec<TemplateVersionPrincipalRes>,
+    #[serde(default)]
+    pub resolvers: Vec<TemplateVersionResolverRes>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -42,4 +44,18 @@ pub struct TemplatePrincipalRes {
     pub description: String,
     pub readme: String,
     pub user_id: String,
+}
+
+/// Resolver reference attached to a template version
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TemplateVersionResolverRes {
+    pub id: String,
+    pub version: i64,
+    pub created_at: String,
+    pub description: Option<String>,
+    pub docker_reference: String,
+    pub docker_tag: String,
+    pub config: serde_json::Value,
+    pub files: Vec<String>, // Glob patterns
 }

@@ -9,3 +9,10 @@ readme: cyan/README.MD
 processors: ['cyane2e/processor2']
 plugins: ['cyane2e/plugin2']
 templates: []
+resolvers:
+  - resolver: 'cyane2e/line-merger:1'
+    config:
+      strategy: 'append'
+    files:
+      - '.gitignore'
+      - '**/.gitignore'

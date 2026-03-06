@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+use super::resolver_ref_req::ResolverRefReq;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TemplateReq {
@@ -26,6 +28,9 @@ pub struct TemplateReq {
     pub processors: Vec<ProcessorRefReq>,
 
     pub templates: Vec<TemplateRefReq>,
+
+    #[serde(default)]
+    pub resolvers: Vec<ResolverRefReq>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
