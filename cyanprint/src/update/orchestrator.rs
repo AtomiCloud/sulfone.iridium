@@ -42,7 +42,8 @@ impl UpdateOrchestrator {
             target_dir.join(".cyan_state.yaml")
         );
         let state_file_path = target_dir.join(".cyan_state.yaml");
-        let cyan_state = DefaultStateManager::new()
+        let state_manager = DefaultStateManager::new();
+        let mut cyan_state = state_manager
             .load_state_file(&state_file_path)
             .map_err(|e| {
                 Box::new(std::io::Error::other(format!("Failed to load state: {e}")))
@@ -108,10 +109,6 @@ impl UpdateOrchestrator {
         )?;
 
         // Persist file conflicts to state file (always update to clear stale entries)
-        let state_manager = DefaultStateManager::new();
-        let mut cyan_state = state_manager
-            .load_state_file(&state_file_path)
-            .unwrap_or_default();
         let conflicts_count = file_conflicts.len();
         cyan_state.file_conflicts = file_conflicts;
         state_manager.save_state_file(&cyan_state, &state_file_path)?;
