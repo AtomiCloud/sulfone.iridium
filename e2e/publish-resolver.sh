@@ -4,13 +4,18 @@ path="$1"
 resolver="$2"
 build_type="${3:-load}"
 
+[ -z "$path" ] && echo "❌ Usage: $0 <path>" && exit 1
+[ -z "$resolver" ] && echo "❌ Usage: $0 <resolver>" && exit 1
+
 [ "$CYANPRINT_USERNAME" = '' ] && echo "❌ 'CYANPRINT_USERNAME' env var not set" && exit 1
 [ "$CYANPRINT_REGISTRY" = '' ] && echo "❌ 'CYANPRINT_REGISTRY' env var not set" && exit 1
 [ "$CYANPRINT_COORDINATOR" = '' ] && echo "❌ 'CYANPRINT_COORDINATOR' env var not set" && exit 1
 [ "$CYAN_TOKEN" = '' ] && echo "❌ 'CYAN_TOKEN' env var not set" && exit 1
 
 [ "$DOCKER_USERNAME" = '' ] && echo "❌ 'DOCKER_USERNAME' env var not set" && exit 1
-set -eou pipefail
+
+# Fix shell option syntax: order: errexit on unset, exit on error
+set -euo pipefail
 
 root="$(pwd)"
 cleanup() {

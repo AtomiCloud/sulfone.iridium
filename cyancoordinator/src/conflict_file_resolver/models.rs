@@ -118,7 +118,6 @@ pub struct ResolverInstanceInfo {
     pub id: String,
     pub docker_ref: String,
     pub docker_tag: String,
-    pub config: serde_json::Value,
 }
 
 /// Template with resolver info for conflict tracking
@@ -140,7 +139,6 @@ impl From<&ResolverInstance> for ResolverInstanceInfo {
             id: resolver.id.clone(),
             docker_ref: resolver.docker_ref.clone(),
             docker_tag: resolver.docker_tag.clone(),
-            config: resolver.config.clone(),
         }
     }
 }

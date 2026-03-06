@@ -34,13 +34,13 @@ Even if two resolvers have the same username/name:version, if they have differen
 
 Example:
 
-```
+```yaml
 resolvers:
   - resolver: 'atomi/json-merger:1'
-    config: { strategy: 'deep-merge' }      # Resolver A
+    config: { strategy: 'deep-merge' } # Resolver A
     files: ['package.json']
   - resolver: 'atomi/json-merger:1'
-    config: { strategy: 'shallow' }         # Resolver B (different!)
+    config: { strategy: 'shallow' } # Resolver B (different!)
     files: ['tsconfig.json']
 ```
 

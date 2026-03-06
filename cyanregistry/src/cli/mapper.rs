@@ -85,8 +85,12 @@ pub fn template_reference_mapper(s: String) -> Option<CyanTemplateRef> {
     })
 }
 
+/// Parsed resolver reference parts (username, name, optional version)
+pub type ResolverReferenceParts = (String, String, Option<u64>);
+
 /// Maps a resolver reference string (e.g., "username/name:version") to parts
-pub fn resolver_reference_parse(s: &str) -> Option<(String, String, Option<i64>)> {
+/// Returns error if version is present but malformed (not a valid non-negative integer)
+pub fn resolver_reference_parse(s: &str) -> Option<Result<ResolverReferenceParts, String>> {
     let mut parts = s.splitn(2, '/');
     let username = parts.next()?.to_string();
     let rest = parts.next()?;
@@ -96,23 +100,36 @@ pub fn resolver_reference_parse(s: &str) -> Option<(String, String, Option<i64>)
     let name = parts.next()?.to_string();
     let version_str = parts.next();
 
-    // Convert version string to i64
-    let version = version_str.and_then(|v| v.parse::<i64>().ok());
+    // Convert version string to u64
+    // If version string is present but malformed, return error
+    let version = match version_str {
+        Some(v) => match v.parse::<u64>() {
+            Ok(ver) => Some(ver),
+            Err(_) => {
+                return Some(Err(format!(
+                    "Invalid version '{v}': must be a non-negative integer"
+                )));
+            }
+        },
+        None => None,
+    };
 
-    Some((username, name, version))
+    Some(Ok((username, name, version)))
 }
 
 /// Maps CyanResolverRefFileConfig to CyanResolverRef
 pub fn resolver_ref_mapper(r: &CyanResolverRefFileConfig) -> Option<CyanResolverRef> {
-    let (username, name, version) = resolver_reference_parse(&r.resolver)?;
-
-    Some(CyanResolverRef {
-        username,
-        name,
-        version,
-        config: r.config.clone(),
-        files: r.files.clone(),
-    })
+    let result = resolver_reference_parse(&r.resolver)?;
+    match result {
+        Ok((username, name, version)) => Some(CyanResolverRef {
+            username,
+            name,
+            version,
+            config: r.config.clone(),
+            files: r.files.clone(),
+        }),
+        Err(_) => None,
+    }
 }
 
 #[derive(Debug)]
@@ -361,13 +378,17 @@ mod tests {
     #[test]
     fn test_resolver_reference_parse() {
         // With version
-        let (username, name, version) = resolver_reference_parse("atomi/json-merger:1").unwrap();
+        let (username, name, version) = resolver_reference_parse("atomi/json-merger:1")
+            .unwrap()
+            .unwrap();
         assert_eq!(username, "atomi");
         assert_eq!(name, "json-merger");
-        assert_eq!(version, Some(1));
+        assert_eq!(version, Some(1u64));
 
         // Without version
-        let (username, name, version) = resolver_reference_parse("atomi/json-merger").unwrap();
+        let (username, name, version) = resolver_reference_parse("atomi/json-merger")
+            .unwrap()
+            .unwrap();
         assert_eq!(username, "atomi");
         assert_eq!(name, "json-merger");
         assert_eq!(version, None);
@@ -384,7 +405,7 @@ mod tests {
         let result = resolver_ref_mapper(&config).unwrap();
         assert_eq!(result.username, "atomi");
         assert_eq!(result.name, "json-merger");
-        assert_eq!(result.version, Some(1));
+        assert_eq!(result.version, Some(1u64));
         assert_eq!(result.files, vec!["package.json", "**/tsconfig.json"]);
     }
 }

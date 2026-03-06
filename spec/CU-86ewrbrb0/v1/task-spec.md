@@ -80,7 +80,7 @@ Enable pushing resolvers to Zinc registry as standalone artifacts.
 
 **Push Resolver:** `POST /api/v{version}/Resolver/push/{username}`
 
-**PushResolverReq:**
+**ResolverReq:**
 
 ```json
 {
@@ -108,14 +108,14 @@ Enable pushing resolvers to Zinc registry as standalone artifacts.
 
 ### Create
 
-- `cyanregistry/src/http/models/resolver_req.rs` - `PushResolverReq`
+- `cyanregistry/src/http/models/resolver_req.rs` - `ResolverReq`
 - `cyanregistry/src/http/models/resolver_res.rs` - `ResolverVersionPrincipalRes`, `ResolverPrincipalRes`, `ResolverVersionRes`
 
 ## Implementation Checklist
 
 ### cyanregistry/src/http/models/resolver_req.rs
 
-- [ ] Create `PushResolverReq` struct with fields: name, project, source, email, tags, description, readme, versionDescription, dockerReference, dockerTag
+- [ ] Create `ResolverReq` struct with fields: name, project, source, email, tags, description, readme, versionDescription, dockerReference, dockerTag
 
 ### cyanregistry/src/http/models/resolver_res.rs
 

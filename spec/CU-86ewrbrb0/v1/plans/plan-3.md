@@ -99,7 +99,7 @@ pub struct TemplateVersionResolverRes {
 
 File: `cyancoordinator/src/conflict_file_resolver/models.rs`
 
-- [ ] `ResolverInstance` - unique resolver (id, docker_ref, docker_tag, config, file_patterns)
+- [ ] `ResolverInstance` - unique resolver (id, docker_reference, docker_tag, config, file_patterns)
 - [ ] `ResolverChoice` enum - `None` or `Some(ResolverInstance)`
 - [ ] `FileOrigin` - template metadata (template_id, template_version, layer)
 - [ ] `ResolverFile` - single file variation (path, content, origin)
@@ -184,7 +184,7 @@ File: `cyancoordinator/src/operations/composition/operator.rs`
 
 ## Resolver Consensus Algorithm
 
-```
+```text
 Input: Vec<(TemplateInfo, ResolverChoice)>
 
 1. Extract all unique resolver choices
@@ -209,7 +209,7 @@ file_conflicts:
     resolution: 'resolver'
     resolver_used:
       id: 'uuid'
-      docker_ref: 'atomi/json-merger'
+      docker_reference: 'atomi/json-merger'
       docker_tag: '1'
       config: { 'strategy': 'deep' }
     variations:
@@ -220,7 +220,7 @@ file_conflicts:
     resolution: 'lww_no_consensus'
     with_resolver:
       - template_id: 'a'
-        docker_ref: 'atomi/line-merger:1'
+        docker_reference: 'atomi/line-merger:1'
     without_resolver:
       - template_id: 'b'
     winner_template: 'b'
@@ -324,7 +324,7 @@ Follow pattern in `docs/developer/`:
 ### Code Quality
 
 - [ ] **3-layer separation**: No mixing of concerns between models/registry/consensus
-- [ ] **No de-duplication**: Each struct has single purpose
+- [ ] **No duplication**: Each struct has single purpose
 - [ ] **Complexity check**:
   - Consensus algorithm should be < 50 lines
   - Registry should use standard glob crate patterns

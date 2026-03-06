@@ -5,4 +5,5 @@ COPY package.json .
 COPY bun.lockb .
 RUN bun install
 COPY . .
+USER bun
 CMD [ "bun", "run", "index.ts" ]

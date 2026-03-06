@@ -6,7 +6,7 @@ pub struct CyanResolverRef {
 
     pub name: String,
 
-    pub version: Option<i64>,
+    pub version: Option<u64>,
 
     /// JSON config passed to resolver at runtime
     pub config: Option<serde_json::Value>,

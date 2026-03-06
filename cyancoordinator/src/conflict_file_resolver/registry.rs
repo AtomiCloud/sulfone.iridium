@@ -65,72 +65,10 @@ impl ConflictFileResolverRegistry {
         let normalized_path = path.replace('\\', "/");
 
         // Try to match with glob crate
+        // Fail closed: return false on invalid glob patterns
         match Pattern::new(pattern) {
             Ok(glob_pattern) => glob_pattern.matches(&normalized_path),
-            Err(_) => {
-                // If glob pattern is invalid, fall back to simple matching
-                // Handle ** patterns for recursive matching
-                if pattern.contains("**") {
-                    self.matches_globstar(&normalized_path, pattern)
-                } else if pattern.contains('*') {
-                    self.matches_simple_glob(&normalized_path, pattern)
-                } else {
-                    // Exact match
-                    normalized_path == pattern
-                }
-            }
-        }
-    }
-
-    /// Handle ** (globstar) patterns
-    fn matches_globstar(&self, path: &str, pattern: &str) -> bool {
-        // Simple implementation: check if the pattern prefix/suffix matches
-        let parts: Vec<&str> = pattern.split("**").collect();
-
-        match parts.len() {
-            0 => true,
-            1 => {
-                // Pattern is just ** (matches everything)
-                pattern == "**"
-            }
-            2 => {
-                let prefix = parts[0].trim_start_matches('/');
-                let suffix = parts[1].trim_end_matches('/');
-
-                // Check prefix match
-                if !prefix.is_empty() && !path.starts_with(prefix) {
-                    // Also try without leading path component
-                    if !path.ends_with(prefix.trim_start_matches('.').trim_start_matches('/')) {
-                        return false;
-                    }
-                }
-
-                // Check suffix match
-                if !suffix.is_empty() && !path.ends_with(suffix) {
-                    return false;
-                }
-
-                true
-            }
-            _ => {
-                // Multiple ** in pattern - fall back to simple check
-                path.contains(&pattern.replace("**", ""))
-            }
-        }
-    }
-
-    /// Handle simple * patterns (single wildcard)
-    fn matches_simple_glob(&self, path: &str, pattern: &str) -> bool {
-        // Convert simple glob to regex-like matching
-        let pattern_parts: Vec<&str> = pattern.split('*').collect();
-
-        if pattern_parts.len() == 2 {
-            let prefix = pattern_parts[0];
-            let suffix = pattern_parts[1];
-            path.starts_with(prefix) && path.ends_with(suffix)
-        } else {
-            // More complex pattern, try direct match
-            path.contains(&pattern.replace('*', ""))
+            Err(_) => false,
         }
     }
 }

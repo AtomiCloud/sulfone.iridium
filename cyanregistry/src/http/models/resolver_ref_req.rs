@@ -7,8 +7,8 @@ pub struct ResolverRefReq {
     /// Resolver reference in format "username/name"
     pub resolver_reference: String,
 
-    /// Resolver version
-    pub resolver_version: i64,
+    /// Resolver version (must be non-negative)
+    pub resolver_version: u64,
 
     /// JSON config passed to resolver at runtime
     #[serde(skip_serializing_if = "Option::is_none")]

@@ -160,7 +160,12 @@ impl CyanCoordinatorClient {
         input: &ResolverInput,
     ) -> Result<Vec<ResolverOutput>, Box<dyn Error + Send>> {
         let host = (self.endpoint).to_string().to_owned();
-        let endpoint = host + "/proxy/resolver/" + cyan_id + "/api/resolve";
+        // Sanitize cyan_id to prevent path injection
+        let sanitized_cyan_id: String = cyan_id
+            .chars()
+            .filter(|c| c.is_alphanumeric() || *c == '-' || *c == '_')
+            .collect();
+        let endpoint = host + "/proxy/resolver/" + &sanitized_cyan_id + "/api/resolve";
         let http_client = new_client()?;
         http_client
             .post(endpoint)
