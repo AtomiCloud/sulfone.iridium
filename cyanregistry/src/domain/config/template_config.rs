@@ -1,5 +1,3 @@
-use super::resolver_ref_config::CyanResolverRef;
-
 #[derive(Debug, Clone)]
 pub struct CyanTemplateConfig {
     pub username: String,
@@ -46,4 +44,17 @@ pub struct CyanTemplateRef {
     pub username: String,
     pub name: String,
     pub version: Option<i64>,
+}
+
+/// Resolver reference in domain layer
+/// Parsed from CLI config, used for business logic
+#[derive(Debug, Clone)]
+pub struct CyanResolverRef {
+    pub username: String,
+    pub name: String,
+    pub version: Option<u64>,
+    /// JSON config passed to resolver at runtime (defaults to empty object)
+    pub config: serde_json::Value,
+    /// Glob patterns for which files this resolver handles
+    pub files: Vec<String>,
 }

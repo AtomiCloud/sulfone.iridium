@@ -1,9 +1,8 @@
 use crate::domain::config::plugin_config::CyanPluginConfig;
 use crate::domain::config::processor_config::CyanProcessorConfig;
 use crate::domain::config::resolver_config::CyanResolverConfig;
-use crate::domain::config::resolver_ref_config::CyanResolverRef;
 use crate::domain::config::template_config::{
-    CyanPluginRef, CyanProcessorRef, CyanTemplateConfig, CyanTemplateRef,
+    CyanPluginRef, CyanProcessorRef, CyanResolverRef, CyanTemplateConfig, CyanTemplateRef,
 };
 use crate::http::models::plugin_req::PluginReq;
 use crate::http::models::processor_req::ProcessorReq;
@@ -250,7 +249,7 @@ mod tests {
             username: "atomi".to_string(),
             name: "json-merger".to_string(),
             version: Some(1),
-            config: Some(serde_json::json!({"strategy": "deep-merge"})),
+            config: serde_json::json!({"strategy": "deep-merge"}),
             files: vec!["package.json".to_string(), "**/tsconfig.json".to_string()],
         };
 
@@ -258,10 +257,7 @@ mod tests {
 
         assert_eq!(req.resolver_reference, "atomi/json-merger");
         assert_eq!(req.resolver_version, 1);
-        assert_eq!(
-            req.config,
-            Some(serde_json::json!({"strategy": "deep-merge"}))
-        );
+        assert_eq!(req.config, serde_json::json!({"strategy": "deep-merge"}));
         assert_eq!(req.files, vec!["package.json", "**/tsconfig.json"]);
     }
 
@@ -271,7 +267,7 @@ mod tests {
             username: "atomi".to_string(),
             name: "json-merger".to_string(),
             version: None,
-            config: None,
+            config: serde_json::json!({}),
             files: vec!["*.json".to_string()],
         };
 
@@ -279,7 +275,7 @@ mod tests {
 
         assert_eq!(req.resolver_reference, "atomi/json-merger");
         assert_eq!(req.resolver_version, 0); // Default to 0 when no version
-        assert_eq!(req.config, None);
+        assert_eq!(req.config, serde_json::json!({}));
         assert_eq!(req.files, vec!["*.json"]);
     }
 }

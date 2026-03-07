@@ -1,19 +1,17 @@
 use crate::cli::models::plugin_config::CyanPluginFileConfig;
 use crate::cli::models::resolver_config::CyanResolverFileConfig;
-use crate::cli::models::resolver_ref_config::CyanResolverRefFileConfig;
 use serde::de::DeserializeOwned;
 use std::error::Error;
 use std::fs::File;
 use std::{fmt, fs};
 
 use crate::cli::models::processor_config::CyanProcessorFileConfig;
-use crate::cli::models::template_config::CyanTemplateFileConfig;
+use crate::cli::models::template_config::{CyanResolverRefFileConfig, CyanTemplateFileConfig};
 use crate::domain::config::plugin_config::CyanPluginConfig;
 use crate::domain::config::processor_config::CyanProcessorConfig;
 use crate::domain::config::resolver_config::CyanResolverConfig;
-use crate::domain::config::resolver_ref_config::CyanResolverRef;
 use crate::domain::config::template_config::{
-    CyanPluginRef, CyanProcessorRef, CyanTemplateConfig, CyanTemplateRef,
+    CyanPluginRef, CyanProcessorRef, CyanResolverRef, CyanTemplateConfig, CyanTemplateRef,
 };
 
 pub fn processor_reference_mapper(s: String) -> Option<CyanProcessorRef> {
@@ -398,7 +396,7 @@ mod tests {
     fn test_resolver_ref_mapper() {
         let config = CyanResolverRefFileConfig {
             resolver: "atomi/json-merger:1".to_string(),
-            config: Some(serde_json::json!({"strategy": "deep-merge"})),
+            config: serde_json::json!({"strategy": "deep-merge"}),
             files: vec!["package.json".to_string(), "**/tsconfig.json".to_string()],
         };
 
