@@ -79,8 +79,9 @@ pub fn template_ref_req_mapper(r: &CyanTemplateRef) -> TemplateRefReq {
 /// Maps CyanResolverRef domain model to ResolverRefReq HTTP request model
 pub fn resolver_ref_req_mapper(r: &CyanResolverRef) -> ResolverRefReq {
     ResolverRefReq {
-        resolver_reference: format!("{}/{}", r.username, r.name),
-        resolver_version: r.version.unwrap_or(0),
+        username: r.username.clone(),
+        name: r.name.clone(),
+        version: r.version.map(|v| v as i64).unwrap_or(0),
         config: r.config.clone(),
         files: r.files.clone(),
     }
@@ -255,8 +256,9 @@ mod tests {
 
         let req = resolver_ref_req_mapper(&resolver_ref);
 
-        assert_eq!(req.resolver_reference, "atomi/json-merger");
-        assert_eq!(req.resolver_version, 1);
+        assert_eq!(req.username, "atomi");
+        assert_eq!(req.name, "json-merger");
+        assert_eq!(req.version, 1);
         assert_eq!(req.config, serde_json::json!({"strategy": "deep-merge"}));
         assert_eq!(req.files, vec!["package.json", "**/tsconfig.json"]);
     }
@@ -273,8 +275,9 @@ mod tests {
 
         let req = resolver_ref_req_mapper(&resolver_ref);
 
-        assert_eq!(req.resolver_reference, "atomi/json-merger");
-        assert_eq!(req.resolver_version, 0); // Default to 0 when no version
+        assert_eq!(req.username, "atomi");
+        assert_eq!(req.name, "json-merger");
+        assert_eq!(req.version, 0); // Default to 0 when no version
         assert_eq!(req.config, serde_json::json!({}));
         assert_eq!(req.files, vec!["*.json"]);
     }

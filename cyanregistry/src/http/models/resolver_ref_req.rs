@@ -2,13 +2,13 @@ use serde::{Deserialize, Serialize};
 
 /// Resolver reference request for template push API
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct ResolverRefReq {
-    /// Resolver reference in format "username/name"
-    pub resolver_reference: String,
+    pub username: String,
 
-    /// Resolver version (must be non-negative)
-    pub resolver_version: u64,
+    pub name: String,
+
+    #[serde(default)]
+    pub version: i64,
 
     /// JSON config passed to resolver at runtime (defaults to empty object)
     #[serde(default = "default_config")]
