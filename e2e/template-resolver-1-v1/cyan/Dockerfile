@@ -1,9 +1,8 @@
-FROM oven/bun:1.1.30
+FROM oven/bun:1.1.31
 WORKDIR /app
 LABEL cyanprint.dev=true
 COPY package.json .
-COPY bun.lock .
+COPY bun.lockb .
 RUN bun install
 COPY . .
-USER bun
-CMD [ "bun", "run", "index.ts" ]
+CMD ["bun", "run", "index.ts"]

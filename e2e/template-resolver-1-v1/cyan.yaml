@@ -1,5 +1,5 @@
 username: cyane2e
-name: template1
+name: template-resolver-1
 description: Template1
 project: https://google.com
 source: https://google.com
@@ -9,4 +9,8 @@ readme: cyan/README.MD
 processors: ['cyane2e/processor1']
 plugins: ['cyane2e/plugin1']
 templates: []
-resolvers: []
+resolvers:
+  - resolver: cyane2e/resolver2:1
+    config: {}
+    files:
+      - .gitignore

@@ -1,13 +1,11 @@
 import { ResolverOutput, StartResolverWithLambda } from '@atomicloud/cyan-sdk';
 
 StartResolverWithLambda(async (input): Promise<ResolverOutput> => {
-  // Simple JSON merger resolver - placeholder that returns first variation
   // In a real resolver, this would perform actual deep merge
-  console.log(`Resolving conflicts for: ${input.filePath}`);
-
+  console.log(`Resolving conflicts for: ${input.files}`);
   // Return the merged content (in a real resolver, this would perform actual merge)
   return {
-    content: input.content,
-    success: true,
+    content: 'heh',
+    path: 'random',
   };
 });

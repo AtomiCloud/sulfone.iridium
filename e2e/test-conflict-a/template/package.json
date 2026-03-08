@@ -1,6 +1,0 @@
-{
-  "name": "test-conflict-a",
-  "version": "1.0.0",
-  "description": "Test package from conflict template A",
-  "dependencies": {}
-}
