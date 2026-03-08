@@ -39,11 +39,13 @@ pub struct TemplateInfo {
     pub layer: i32,
 }
 
-/// File origin metadata
+/// File origin metadata - matches Helium SDK FileOrigin
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct FileOrigin {
-    /// Template that produced this file
-    pub template: TemplateInfo,
+    /// Template ID that produced this file
+    pub template: String,
+    /// Layer index (order in composition)
+    pub layer: i32,
 }
 
 /// Single file variation from a template

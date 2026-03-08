@@ -157,7 +157,8 @@ impl ResolverAwareLayerer {
                 path: path_str.to_string(),
                 content: Self::bytes_to_string(content),
                 origin: FileOrigin {
-                    template: template_info.clone(),
+                    template: template_info.template_id.clone(),
+                    layer: template_info.layer,
                 },
             })
             .collect();
