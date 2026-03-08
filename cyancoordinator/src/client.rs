@@ -158,7 +158,7 @@ impl CyanCoordinatorClient {
         &self,
         cyan_id: &str,
         input: &ResolverInput,
-    ) -> Result<Vec<ResolverOutput>, Box<dyn Error + Send>> {
+    ) -> Result<ResolverOutput, Box<dyn Error + Send>> {
         let host = (self.endpoint).to_string().to_owned();
         // Sanitize cyan_id to prevent path injection
         let sanitized_cyan_id: String = cyan_id

@@ -169,19 +169,10 @@ impl ResolverAwareLayerer {
         };
 
         // Call resolver via HTTP
-        let outputs = self.client.resolve_files(&resolver.id, &input)?;
+        let output = self.client.resolve_files(&resolver.id, &input)?;
 
         // Return resolved content
-        outputs
-            .into_iter()
-            .next()
-            .map(|output| output.content.into_bytes())
-            .ok_or_else(|| {
-                Box::new(std::io::Error::new(
-                    std::io::ErrorKind::NotFound,
-                    "Resolver returned no output",
-                )) as Box<dyn Error + Send>
-            })
+        Ok(output.content.into_bytes())
     }
 
     /// Create a FileConflictEntry for tracking
