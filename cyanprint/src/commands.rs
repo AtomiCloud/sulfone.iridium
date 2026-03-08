@@ -140,4 +140,10 @@ pub enum PushCommands {
 
         tag: String,
     },
+    #[command(about = "Push a conflict resolver artifact")]
+    Resolver {
+        image: String,
+
+        tag: String,
+    },
 }

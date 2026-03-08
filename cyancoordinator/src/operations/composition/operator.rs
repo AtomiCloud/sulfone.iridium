@@ -3,10 +3,14 @@ use std::collections::HashMap;
 use std::error::Error;
 use std::path::Path;
 
+use crate::client::CyanCoordinatorClient;
+use crate::conflict_file_resolver::{
+    ConflictFileResolverRegistry, FileConflictEntry, ResolverInstance, TemplateInfo,
+};
 use crate::fs::VirtualFileSystem;
 use crate::operations::TemplateOperator;
 
-use super::layerer::VfsLayerer;
+use super::layerer::{DefaultVfsLayerer, ResolverAwareLayerer, VfsLayerer};
 use super::resolver::DependencyResolver;
 use super::state::CompositionState;
 
@@ -15,6 +19,10 @@ pub struct CompositionOperator {
     template_operator: TemplateOperator,
     dependency_resolver: Box<dyn DependencyResolver>,
     vfs_layerer: Box<dyn VfsLayerer>,
+    /// Optional client for resolver-aware layering
+    client: Option<CyanCoordinatorClient>,
+    /// File conflicts tracked during the last composition
+    file_conflicts: Vec<FileConflictEntry>,
 }
 
 impl CompositionOperator {
@@ -27,18 +35,86 @@ impl CompositionOperator {
             template_operator,
             dependency_resolver,
             vfs_layerer,
+            client: None,
+            file_conflicts: Vec::new(),
         }
+    }
+
+    /// Create a composition operator with resolver-aware layering
+    pub fn with_client(
+        template_operator: TemplateOperator,
+        dependency_resolver: Box<dyn DependencyResolver>,
+        client: CyanCoordinatorClient,
+    ) -> Self {
+        Self {
+            template_operator,
+            dependency_resolver,
+            vfs_layerer: Box::new(DefaultVfsLayerer),
+            client: Some(client),
+            file_conflicts: Vec::new(),
+        }
+    }
+
+    /// Build a resolver registry from template response data
+    fn build_resolver_registry(
+        templates: &[cyanregistry::http::models::template_res::TemplateVersionRes],
+    ) -> ConflictFileResolverRegistry {
+        let mut registry = ConflictFileResolverRegistry::new();
+
+        for template in templates {
+            let template_id = template.principal.id.clone();
+            let resolvers: Vec<ResolverInstance> = template
+                .resolvers
+                .iter()
+                .map(|r| ResolverInstance {
+                    id: r.id.clone(),
+                    docker_ref: r.docker_reference.clone(),
+                    docker_tag: r.docker_tag.clone(),
+                    config: r.config.clone(),
+                    file_patterns: r.files.clone(),
+                })
+                .collect();
+
+            if !resolvers.is_empty() {
+                registry.register(template_id, resolvers);
+            }
+        }
+
+        registry
+    }
+
+    /// Build template info list for layerer from template response data
+    fn build_template_infos(
+        templates: &[cyanregistry::http::models::template_res::TemplateVersionRes],
+    ) -> Vec<TemplateInfo> {
+        templates
+            .iter()
+            .enumerate()
+            .map(|(idx, t)| TemplateInfo {
+                template_id: t.principal.id.clone(),
+                template_version: t.principal.version,
+                layer: idx as i32,
+            })
+            .collect()
+    }
+
+    /// Get file conflicts from the last composition
+    pub fn get_file_conflicts(&self) -> &[FileConflictEntry] {
+        &self.file_conflicts
     }
 
     /// Execute a composition of templates (recursive dependencies)
     fn execute_composition(
-        &self,
+        &mut self,
         templates: &[cyanregistry::http::models::template_res::TemplateVersionRes],
         initial_shared_state: &CompositionState,
     ) -> Result<(VirtualFileSystem, CompositionState, Vec<String>), Box<dyn Error + Send>> {
         let mut shared_state = initial_shared_state.clone();
         let mut vfs_outputs = Vec::new();
         let mut all_session_ids = Vec::new();
+
+        // Clear previous conflicts
+        self.file_conflicts.clear();
 
         for template in templates {
             // Check if template has execution artifacts (properties field)
@@ -86,12 +162,26 @@ impl CompositionOperator {
             all_session_ids.push(actual_session_id);
         }
 
-        // Layer all VFS outputs (later templates overwrite earlier ones)
+        // Layer all VFS outputs
         let layered_vfs = if vfs_outputs.is_empty() {
             // No templates produced output (all were group templates)
             println!("ℹ️ No execution artifacts produced - all templates were group templates");
             VirtualFileSystem::new()
+        } else if let Some(ref client) = self.client {
+            // Use resolver-aware layering
+            // Vertical layering: collect resolvers from ALL templates in dependency tree
+            let registry = Self::build_resolver_registry(templates);
+            let template_infos = Self::build_template_infos(templates);
+            let layerer = ResolverAwareLayerer::new(registry, template_infos, client.clone());
+
+            let result = layerer.layer_merge(&vfs_outputs)?;
+
+            // Track conflicts for state writing
+            self.file_conflicts = layerer.get_conflicts();
+
+            result
         } else {
+            // Use default layering (LWW)
             self.vfs_layerer.layer_merge(&vfs_outputs)?
         };
 
@@ -117,7 +207,7 @@ impl CompositionOperator {
     /// Dependencies are resolved in post-order and layered internally.
     /// Returns the final CompositionState which contains answers after Q&A.
     pub fn execute_template(
-        &self,
+        &mut self,
         template: &cyanregistry::http::models::template_res::TemplateVersionRes,
         answers: &HashMap<String, Answer>,
         deterministic_states: &HashMap<String, String>,
@@ -141,6 +231,37 @@ impl CompositionOperator {
         vfs_list: &[VirtualFileSystem],
     ) -> Result<VirtualFileSystem, Box<dyn Error + Send>> {
         self.vfs_layerer.layer_merge(vfs_list)
+    }
+
+    /// Horizontal layering with resolver support.
+    /// Collects resolvers ONLY from root templates being merged (not from dependencies).
+    /// This is used when merging multiple independent templates in batch processing.
+    pub fn layer_merge_with_resolvers(
+        &mut self,
+        vfs_list: &[VirtualFileSystem],
+        root_templates: &[cyanregistry::http::models::template_res::TemplateVersionRes],
+        client: &CyanCoordinatorClient,
+    ) -> Result<VirtualFileSystem, Box<dyn Error + Send>> {
+        if vfs_list.is_empty() {
+            return Ok(VirtualFileSystem::new());
+        }
+
+        if vfs_list.len() == 1 {
+            return Ok(vfs_list[0].clone());
+        }
+
+        // Build resolver registry from ONLY root templates (horizontal layering scope)
+        let registry = Self::build_resolver_registry(root_templates);
+        let template_infos = Self::build_template_infos(root_templates);
+
+        // Use resolver-aware layerer
+        let layerer = ResolverAwareLayerer::new(registry, template_infos, client.clone());
+        let result = layerer.layer_merge(vfs_list)?;
+
+        // Track conflicts for state writing
+        self.file_conflicts = layerer.get_conflicts();
+
+        Ok(result)
     }
 
     /// 3-way merge: (base, local, incoming) -> merged.

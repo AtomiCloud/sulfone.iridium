@@ -5,20 +5,24 @@ use std::rc::Rc;
 use serde::Serialize;
 
 use crate::cli::mapper::{
-    plugin_config_mapper, processor_config_mapper, read_yaml, template_config_mapper,
+    plugin_config_mapper, processor_config_mapper, read_yaml, resolver_config_mapper,
+    template_config_mapper,
 };
 use crate::cli::models::plugin_config::CyanPluginFileConfig;
 use crate::cli::models::processor_config::CyanProcessorFileConfig;
+use crate::cli::models::resolver_config::CyanResolverFileConfig;
 use crate::cli::models::template_config::CyanTemplateFileConfig;
 use crate::http::errors::{GenericError, ProblemDetails};
 use crate::http::mapper::{
-    plugin_req_mapper, processor_req_mapper, template_req_with_properties_mapper,
-    template_req_without_properties_mapper,
+    plugin_req_mapper, processor_req_mapper, resolver_req_mapper,
+    template_req_with_properties_mapper, template_req_without_properties_mapper,
 };
 use crate::http::models::plugin_req::PluginReq;
 use crate::http::models::plugin_res::{PluginVersionPrincipalRes, PluginVersionRes};
 use crate::http::models::processor_req::ProcessorReq;
 use crate::http::models::processor_res::{ProcessorVersionPrincipalRes, ProcessorVersionRes};
+use crate::http::models::resolver_req::ResolverReq;
+use crate::http::models::resolver_res::ResolverVersionPrincipalRes;
 use crate::http::models::template_req::TemplateReq;
 use crate::http::models::template_res::{TemplateVersionPrincipalRes, TemplateVersionRes};
 
@@ -106,6 +110,38 @@ impl CyanRegistryClient {
             })
     }
 
+    fn push_resolver_internal(
+        &self,
+        username: String,
+        token: String,
+        r: &ResolverReq,
+    ) -> Result<ResolverVersionPrincipalRes, Box<dyn Error + Send>> {
+        let host = (self.endpoint).to_string().to_owned();
+        let version = (self.version).to_string().to_owned();
+        let endpoint = host
+            + "/api/v".to_string().as_str()
+            + version.as_str()
+            + "/Resolver/push/".to_string().as_str()
+            + username.as_str();
+
+        self.json_post(endpoint, r, Some(token))
+            .map_err(|x| Box::new(x) as Box<dyn Error + Send>)
+            .and_then(|x| {
+                if x.status().is_success() {
+                    x.json().map_err(|e| Box::new(e) as Box<dyn Error + Send>)
+                } else {
+                    let r: Result<ProblemDetails, Box<dyn Error + Send>> =
+                        x.json().map_err(|e| Box::new(e) as Box<dyn Error + Send>);
+                    match r {
+                        Ok(ok) => {
+                            Err(Box::new(GenericError::ProblemDetails(ok)) as Box<dyn Error + Send>)
+                        }
+                        Err(err) => Err(err),
+                    }
+                }
+            })
+    }
+
     fn push_template_internal(
         &self,
         username: String,
@@ -166,6 +202,21 @@ impl CyanRegistryClient {
         let domain = plugin_config_mapper(&config)?;
         let req = plugin_req_mapper(&domain, desc, docker_ref, docker_tag);
         self.push_plugin_internal(domain.username, token, &req)
+    }
+
+    pub fn push_resolver(
+        &self,
+        config_path: String,
+        token: String,
+        desc: String,
+        docker_ref: String,
+        docker_tag: String,
+    ) -> Result<ResolverVersionPrincipalRes, Box<dyn Error + Send>> {
+        let a: Result<CyanResolverFileConfig, Box<dyn Error + Send>> = read_yaml(config_path);
+        let config = a?;
+        let domain = resolver_config_mapper(&config)?;
+        let req = resolver_req_mapper(&domain, desc, docker_ref, docker_tag);
+        self.push_resolver_internal(domain.username, token, &req)
     }
 
     #[allow(clippy::too_many_arguments)]

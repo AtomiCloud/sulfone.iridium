@@ -6,12 +6,11 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 use cyancoordinator::client::CyanCoordinatorClient;
+use cyancoordinator::conflict_file_resolver::FileConflictEntry;
 use cyancoordinator::fs::{DiskFileLoader, DiskFileWriter, GitLikeMerger, TarGzUnpacker};
 use cyancoordinator::operations::TemplateOperator;
-use cyancoordinator::operations::composition::{
-    CompositionOperator, DefaultDependencyResolver, DefaultVfsLayerer,
-};
-use cyancoordinator::state::{DefaultStateManager, StateReader};
+use cyancoordinator::operations::composition::{CompositionOperator, DefaultDependencyResolver};
+use cyancoordinator::state::{DefaultStateManager, StateReader, StateWriter};
 use cyancoordinator::template::TemplateHistory;
 use cyanprompt::domain::models::answer::Answer;
 use cyanprompt::domain::models::cyan::Cyan;
@@ -38,15 +37,16 @@ fn has_dependencies(template: &TemplateVersionRes) -> bool {
 
 /// Unified batch processing for both create and update commands.
 /// Handles MAP, LAYER, and MERGE+WRITE phases.
-/// Returns session IDs for cleanup.
+/// Returns session IDs for cleanup and file conflicts for state persistence.
 pub fn batch_process(
     prev_specs: &[TemplateSpec],
     curr_specs: &[TemplateSpec],
     upgraded_specs: &[&TemplateSpec], // Templates that need metadata saved
     target_dir: &Path,
     registry: &CyanRegistryClient,
-    operator: &CompositionOperator,
-) -> Result<Vec<String>, Box<dyn Error + Send>> {
+    coord_client: &CyanCoordinatorClient,
+    operator: &mut CompositionOperator,
+) -> Result<(Vec<String>, Vec<FileConflictEntry>), Box<dyn Error + Send>> {
     // PHASE 2: MAP (execute each template spec → VFS)
     println!(
         "\n📦 PHASE 2: MAP - Executing {} prev + {} curr templates",
@@ -54,9 +54,10 @@ pub fn batch_process(
         curr_specs.len()
     );
 
-    // Execute prev_specs
+    // Execute prev_specs and collect template responses for horizontal layering
     let mut prev_vfs_list = Vec::new();
     let mut prev_session_ids = Vec::new();
+    let mut prev_template_res_list = Vec::new();
 
     for spec in prev_specs {
         println!("  🔄 Executing prev: {} v{}", spec.key(), spec.version);
@@ -69,6 +70,7 @@ pub fn batch_process(
             operator.execute_template(&template_res, &spec.answers, &spec.deterministic_states)?;
         prev_vfs_list.push(vfs);
         prev_session_ids.extend(session_ids);
+        prev_template_res_list.push(template_res);
     }
 
     // Execute curr_specs and track final states for metadata
@@ -76,6 +78,7 @@ pub fn batch_process(
     let mut curr_session_ids = Vec::new();
     // Map template_key -> final answers for metadata persistence
     let mut final_answers_map: HashMap<String, HashMap<String, Answer>> = HashMap::new();
+    let mut curr_template_res_list = Vec::new();
 
     for spec in curr_specs {
         println!("  🔄 Executing curr: {} v{}", spec.key(), spec.version);
@@ -90,9 +93,11 @@ pub fn batch_process(
         curr_session_ids.extend(session_ids);
         // Store the final answers for this template (includes Q&A answers)
         final_answers_map.insert(spec.key(), final_state.shared_answers);
+        curr_template_res_list.push(template_res);
     }
 
     // PHASE 3: LAYER (merge each list into ONE VFS)
+    // Horizontal layering: collect resolvers from ONLY root templates (not dependencies)
     println!(
         "\n🔀 PHASE 3: LAYER - Merging {} prev + {} curr VFS outputs",
         prev_vfs_list.len(),
@@ -101,14 +106,28 @@ pub fn batch_process(
 
     let prev_vfs = if prev_vfs_list.is_empty() {
         cyancoordinator::fs::VirtualFileSystem::new()
+    } else if prev_vfs_list.len() == 1 {
+        prev_vfs_list.into_iter().next().unwrap()
     } else {
-        operator.layer_merge(&prev_vfs_list)?
+        // Use resolver-aware horizontal layering
+        operator.layer_merge_with_resolvers(
+            &prev_vfs_list,
+            &prev_template_res_list,
+            coord_client,
+        )?
     };
 
     let curr_vfs = if curr_vfs_list.is_empty() {
         cyancoordinator::fs::VirtualFileSystem::new()
+    } else if curr_vfs_list.len() == 1 {
+        curr_vfs_list.into_iter().next().unwrap()
     } else {
-        operator.layer_merge(&curr_vfs_list)?
+        // Use resolver-aware horizontal layering
+        operator.layer_merge_with_resolvers(
+            &curr_vfs_list,
+            &curr_template_res_list,
+            coord_client,
+        )?
     };
 
     // PHASE 4: MERGE + WRITE
@@ -160,8 +179,11 @@ pub fn batch_process(
     let mut all_session_ids = prev_session_ids;
     all_session_ids.extend(curr_session_ids);
 
+    // Collect file conflicts from operator for state persistence
+    let file_conflicts = operator.get_file_conflicts().to_vec();
+
     println!("✅ Batch process complete");
-    Ok(all_session_ids)
+    Ok((all_session_ids, file_conflicts))
 }
 
 /// Run the cyan template generation process with automatic composition detection
@@ -209,11 +231,14 @@ pub fn cyan_run(
     // Create composition-specific components (needed for both single and composition templates
     // to support batch processing when adding to existing projects)
     let dependency_resolver = Box::new(DefaultDependencyResolver::new(registry_client.clone()));
-    let vfs_layerer = Box::new(DefaultVfsLayerer);
 
-    // Create the CompositionOperator (handles both single templates and compositions)
-    let composition_operator =
-        CompositionOperator::new(template_operator, dependency_resolver, vfs_layerer);
+    // Create the CompositionOperator with client for resolver-aware layering
+    // Clone the client since we also need it for batch_process
+    let mut composition_operator = CompositionOperator::with_client(
+        template_operator,
+        dependency_resolver,
+        coord_client.clone(),
+    );
 
     // Check if this is a composition template (has dependencies)
     let is_composition = has_dependencies(&template);
@@ -411,14 +436,29 @@ pub fn cyan_run(
     let upgraded_refs: Vec<&TemplateSpec> = upgraded_specs.iter().collect();
 
     // Execute unified batch processing
-    batch_process(
+    let (session_ids, file_conflicts) = batch_process(
         &prev_specs,
         &curr_specs,
         &upgraded_refs,
         target_dir,
         &registry_client,
-        &composition_operator,
-    )
+        &coord_client,
+        &mut composition_operator,
+    )?;
+
+    // Persist file conflicts to state file (always update to clear stale entries)
+    let state_manager = DefaultStateManager::new();
+    let mut cyan_state = state_manager
+        .load_state_file(&state_file_path)
+        .unwrap_or_default();
+    let conflicts_count = file_conflicts.len();
+    cyan_state.file_conflicts = file_conflicts;
+    state_manager.save_state_file(&cyan_state, &state_file_path)?;
+    if conflicts_count > 0 {
+        println!("📝 Saved {conflicts_count} file conflict(s) to state");
+    }
+
+    Ok(session_ids)
 }
 
 /// Parse template key from the update module

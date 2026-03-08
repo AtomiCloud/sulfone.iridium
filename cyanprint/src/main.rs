@@ -127,6 +127,26 @@ fn main() -> Result<(), Box<dyn Error + Send>> {
                     }
                 }
             }
+            PushCommands::Resolver { image, tag } => {
+                let PushArgs {
+                    config,
+                    token,
+                    message,
+                    ..
+                } = push_arg;
+                let res = registry.push_resolver(config, token, message, image, tag);
+                match res {
+                    Ok(r) => {
+                        println!("✅ Pushed resolver successfully");
+                        println!("📦 Resolver ID: {}", r.id);
+                        Ok(())
+                    }
+                    Err(e) => {
+                        eprintln!("❌ Error pushing resolver: {e:#?}");
+                        Err(e)
+                    }
+                }
+            }
         },
         Commands::Create {
             template_ref,

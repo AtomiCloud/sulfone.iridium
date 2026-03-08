@@ -3,6 +3,8 @@ use cyanprompt::domain::models::answer::Answer;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+use crate::conflict_file_resolver::FileConflictEntry;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TemplateHistoryEntry {
     pub version: i64,
@@ -21,4 +23,8 @@ pub struct TemplateState {
 pub struct CyanState {
     #[serde(flatten)]
     pub templates: HashMap<String, TemplateState>,
+
+    /// File conflicts resolved during layering
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub file_conflicts: Vec<FileConflictEntry>,
 }

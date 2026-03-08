@@ -10,3 +10,4 @@ processors: []
 plugins: []
 templates:
   - cyane2e/template3:1
+resolvers: []
