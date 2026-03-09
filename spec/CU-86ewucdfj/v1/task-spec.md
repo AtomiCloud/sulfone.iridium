@@ -53,13 +53,14 @@ Behavior:
 
 ## Files to Modify
 
-| File                            | Changes                                                               |
-| ------------------------------- | --------------------------------------------------------------------- |
-| `cyanprint/src/commands.rs`     | Convert `Daemon` to subcommand group with `Start` and `Stop` variants |
-| `cyanprint/src/main.rs`         | Handle new `DaemonStart` and `DaemonStop` command variants            |
-| `cyanprint/src/coord.rs`        | Add `stop_coordinator()` async function                               |
-| `cyancoordinator/src/client.rs` | Add `cleanup()` method to call `DELETE /cleanup`                      |
-| `e2e/setup.sh`                  | Change `cyanprint daemon` to `cyanprint daemon start` (line 10)       |
+| File                                       | Changes                                                               |
+| ------------------------------------------ | --------------------------------------------------------------------- |
+| `cyanprint/src/commands.rs`                | Convert `Daemon` to subcommand group with `Start` and `Stop` variants |
+| `cyanprint/src/main.rs`                    | Handle new `DaemonStart` and `DaemonStop` command variants            |
+| `cyanprint/src/coord.rs`                   | Add `stop_coordinator()` async function                               |
+| `cyancoordinator/src/client.rs`            | Add `cleanup()` method to call `DELETE /cleanup`                      |
+| `e2e/setup.sh`                             | Change `cyanprint daemon` to `cyanprint daemon start` (line 10)       |
+| `docs/developer/surfaces/cli/04-daemon.md` | Update for subcommand structure, add `daemon stop` documentation      |
 
 ## Edge Cases
 
