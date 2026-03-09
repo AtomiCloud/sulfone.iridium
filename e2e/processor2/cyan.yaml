@@ -6,3 +6,12 @@ source: https://google.com
 email: cyane2e@atomi.cloud
 tags: []
 readme: README.MD
+
+build:
+  registry: kirinnee
+  platforms:
+    - linux/amd64
+  images:
+    processor:
+      dockerfile: Dockerfile
+      context: .

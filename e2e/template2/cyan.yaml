@@ -10,3 +10,15 @@ processors: ['cyane2e/processor2']
 plugins: ['cyane2e/plugin2']
 templates: []
 resolvers: []
+
+build:
+  registry: kirinnee
+  platforms:
+    - linux/amd64
+  images:
+    template:
+      dockerfile: cyan/Dockerfile
+      context: ./cyan
+    blob:
+      dockerfile: blob.Dockerfile
+      context: .
