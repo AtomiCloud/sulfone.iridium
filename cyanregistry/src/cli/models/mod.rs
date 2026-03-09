@@ -1,3 +1,4 @@
+pub mod build_config;
 pub mod plugin_config;
 pub mod processor_config;
 pub mod resolver_config;

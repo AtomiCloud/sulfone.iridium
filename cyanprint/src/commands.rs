@@ -26,6 +26,27 @@ pub struct Cli {
 
 #[derive(Subcommand)]
 pub enum Commands {
+    #[command(alias = "b", about = "Build Docker images using buildx")]
+    Build {
+        #[arg(value_name = "TAG")]
+        tag: String,
+
+        #[arg(short, long, default_value = "cyan.yaml")]
+        config: String,
+
+        #[arg(short, long, help = "Target platforms (comma-separated)")]
+        platform: Option<String>,
+
+        #[arg(short, long, help = "Buildx builder to use")]
+        builder: Option<String>,
+
+        #[arg(long, help = "Don't use cache")]
+        no_cache: bool,
+
+        #[arg(long, help = "Show commands without executing")]
+        dry_run: bool,
+    },
+
     #[command(alias = "p", about = "Publish a CyanPrint artifact")]
     Push(PushArgs),
 
