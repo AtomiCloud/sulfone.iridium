@@ -1,3 +1,30 @@
+## [2.8.0](https://github.com/AtomiCloud/sulfone.iridium/compare/v2.7.0...v2.8.0) (2026-03-09)
+
+
+### 📜 Documentation 📜
+
+* **spec:** add CU-86ewrbrb0 conflict resolver specs [CU-86ewrbrb0] ([aa7027a](https://github.com/AtomiCloud/sulfone.iridium/commit/aa7027a2086662f705a4e63e64549433dd1cf626))
+
+
+### ✨ Features ✨
+
+* **cyancoordinator:** add conflict file resolver [CU-86ewrbrb0] ([4bba996](https://github.com/AtomiCloud/sulfone.iridium/commit/4bba9963580fbca9a029fd7e4a48ebb0f0ffbfeb))
+* **cyanregistry:** add push_resolver() for resolvers [CU-86ewrbrb0] ([f7d836b](https://github.com/AtomiCloud/sulfone.iridium/commit/f7d836b4959b3e9d13efc6403e67cbf33d5db096))
+* **e2e:** add resolver conflict test fixtures and update test templates ([e70025e](https://github.com/AtomiCloud/sulfone.iridium/commit/e70025ee53fdc4c6812ca333b013f50d4e4ad0f8))
+* **cyanprint:** add resolver push command [CU-86ewrbrb0] ([97ea551](https://github.com/AtomiCloud/sulfone.iridium/commit/97ea551aea380b7d385a6e67ac79ed7dd7806360))
+* **cyanregistry:** add resolvers to template push [CU-86ewrbrb0] ([c3d5f90](https://github.com/AtomiCloud/sulfone.iridium/commit/c3d5f9000332c31a955a425d783e4ce976e4bddf))
+* resolver-aware e2e ([85fae6e](https://github.com/AtomiCloud/sulfone.iridium/commit/85fae6ec1c457845ca5cf04ef8a3821c022b57d0))
+
+
+### 🐛 Bug Fixes 🐛
+
+* address coderabbit local review findings [CU-86ewrbrb0] ([b5b44f0](https://github.com/AtomiCloud/sulfone.iridium/commit/b5b44f0bd71550878f2382cf69f7856be82509d0))
+* **e2e:** address coderabbit review feedback [CU-86ewrbrb0] ([c253f7b](https://github.com/AtomiCloud/sulfone.iridium/commit/c253f7bd37887d01a31a697c6876fc438bf0aa89))
+* **security:** address coderabbit security findings [CU-86ewrbrb0] ([e9490bc](https://github.com/AtomiCloud/sulfone.iridium/commit/e9490bc3980edd70d6dfaa45c490ac7488710d2a))
+* **cyancoordinator:** fix FileOrigin to match API [CU-86ewrbrb0] ([8ea2695](https://github.com/AtomiCloud/sulfone.iridium/commit/8ea26955dd8a242d56c09f63ca2738990bd7c154))
+* **cyanregistry:** fix ResolverRefReq field naming [CU-86ewrbrb0] ([5236fa2](https://github.com/AtomiCloud/sulfone.iridium/commit/5236fa24e1846e07c5250e9c6bfdba42b815acaa))
+* **cyancoordinator:** ResolverOutput single not Vec [CU-86ewrbrb0] ([afc33d8](https://github.com/AtomiCloud/sulfone.iridium/commit/afc33d8fb638c1a52efcc88eb97edde5e1f5a93f))
+
 ## [2.7.0](https://github.com/AtomiCloud/sulfone.iridium/compare/v2.6.0...v2.7.0) (2026-03-05)
 
 
