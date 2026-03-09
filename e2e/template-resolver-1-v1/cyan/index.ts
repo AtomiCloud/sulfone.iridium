@@ -16,6 +16,11 @@ StartTemplateWithLambda(async (i: IInquirer, d: IDeterminism) => {
         config: {},
       },
     ],
-    plugins: [],
+    plugins: [
+      {
+        name: 'cyane2e/plugin1',
+        config: {},
+      },
+    ],
   };
 });

@@ -9,6 +9,7 @@
     "typescript": "^5.8.3"
   },
   "dependencies": {
-    "@atomicloud/cyan-sdk": "latest"
+    "@atomicloud/cyan-sdk": "latest",
+    "smob": "^1.6.1"
   }
 }

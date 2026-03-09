@@ -46,6 +46,6 @@ echo "🔍 Publishing templates..."
 ./e2e/publish-template.sh ./e2e/template-resolver-2-v1 template-resolver-2 push
 
 echo "🔍 Publishing group..."
-./e2e/publish-group.sh ./e2e/template4 template4 push
+# ./e2e/publish-group.sh ./e2e/template4 template4 push
 
 echo "✅ Done"

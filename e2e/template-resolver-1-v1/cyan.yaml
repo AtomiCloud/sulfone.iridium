@@ -14,3 +14,33 @@ resolvers:
     config: {}
     files:
       - .gitignore
+  - resolver: cyane2e/resolver1:1
+    config:
+      arrayStrategy: 'concat'
+    files:
+      - c1.json
+  - resolver: cyane2e/resolver1:1
+    config:
+      arrayStrategy: 'replace'
+    files:
+      - c2.json
+  - resolver: cyane2e/resolver1:1
+    config:
+      arrayStrategy: 'distinct'
+    files:
+      - c3.json
+  - resolver: cyane2e/resolver1:1
+    config:
+      arrayStrategy: 'array'
+    files:
+      - c4.json
+  - resolver: cyane2e/resolver1:1
+    config:
+      arrayStrategy: 'array'
+    files:
+      - c5.json
+  - resolver: cyane2e/resolver1:1
+    config:
+      arrayStrategy: 'array'
+    files:
+      - c6.json
