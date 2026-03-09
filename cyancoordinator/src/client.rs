@@ -10,7 +10,7 @@ use crate::conflict_file_resolver::ResolverInput;
 use crate::conflict_file_resolver::ResolverOutput;
 use crate::errors::{GenericError, ProblemDetails};
 use crate::models::req::StartExecutorReq;
-use crate::models::res::{ExecutorWarmRes, StandardRes};
+use crate::models::res::{CleanupRes, ExecutorWarmRes, StandardRes};
 use crate::state::{DefaultStateManager, StateManager};
 
 #[derive(Clone)]
@@ -47,6 +47,30 @@ impl CyanCoordinatorClient {
     pub fn clean(&self, session_id: String) -> Result<StandardRes, Box<dyn Error + Send>> {
         let host = (self.endpoint).to_string().to_owned();
         let endpoint = host + "/executor/" + session_id.as_str();
+        let http_client = new_client()?;
+        http_client
+            .delete(endpoint)
+            .send()
+            .map_err(|x| Box::new(x) as Box<dyn Error + Send>)
+            .and_then(|x| {
+                if x.status().is_success() {
+                    x.json().map_err(|e| Box::new(e) as Box<dyn Error + Send>)
+                } else {
+                    let r: Result<ProblemDetails, Box<dyn Error + Send>> =
+                        x.json().map_err(|e| Box::new(e) as Box<dyn Error + Send>);
+                    match r {
+                        Ok(ok) => {
+                            Err(Box::new(GenericError::ProblemDetails(ok)) as Box<dyn Error + Send>)
+                        }
+                        Err(err) => Err(err),
+                    }
+                }
+            })
+    }
+
+    pub fn cleanup(&self) -> Result<CleanupRes, Box<dyn Error + Send>> {
+        let host = (self.endpoint).to_string().to_owned();
+        let endpoint = host + "/cleanup";
         let http_client = new_client()?;
         http_client
             .delete(endpoint)

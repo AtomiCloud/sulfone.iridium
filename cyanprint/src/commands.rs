@@ -71,8 +71,17 @@ pub enum Commands {
         interactive: bool,
     },
 
-    #[command(alias = "d", about = "Starts the CyanPrint Coordinator locally daemon")]
+    #[command(alias = "d", about = "Manage the CyanPrint Coordinator daemon")]
     Daemon {
+        #[command(subcommand)]
+        command: DaemonCommands,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum DaemonCommands {
+    #[command(about = "Start the CyanPrint Coordinator daemon")]
+    Start {
         #[arg(value_name = "COORDINATOR_VERSION", default_value = "latest")]
         version: String,
 
@@ -94,6 +103,18 @@ pub enum Commands {
             env = "CYANPRINT_REGISTRY"
         )]
         registry: Option<String>,
+    },
+
+    #[command(about = "Stop the CyanPrint Coordinator daemon and cleanup")]
+    Stop {
+        #[arg(
+            short,
+            long,
+            value_name = "PORT",
+            help = "Port where daemon is running",
+            default_value = "9000"
+        )]
+        port: u16,
     },
 }
 
@@ -146,4 +167,101 @@ pub enum PushCommands {
 
         tag: String,
     },
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_daemon_start_default_values() {
+        let cli = Cli::try_parse_from(["cyanprint", "daemon", "start"]);
+        assert!(cli.is_ok());
+        if let Commands::Daemon { command } = cli.unwrap().command {
+            if let DaemonCommands::Start {
+                version,
+                port,
+                registry,
+            } = command
+            {
+                assert_eq!(version, "latest");
+                assert_eq!(port, 9000);
+                assert_eq!(
+                    registry,
+                    Some("https://api.zinc.sulfone.raichu.cluster.atomi.cloud".to_string())
+                );
+            } else {
+                panic!("Expected DaemonCommands::Start");
+            }
+        } else {
+            panic!("Expected Commands::Daemon");
+        }
+    }
+
+    #[test]
+    fn test_daemon_start_custom_values() {
+        let cli = Cli::try_parse_from([
+            "cyanprint",
+            "daemon",
+            "start",
+            "1.5.0",
+            "--port",
+            "8080",
+            "--registry",
+            "https://custom.com",
+        ]);
+        assert!(cli.is_ok());
+        if let Commands::Daemon { command } = cli.unwrap().command {
+            if let DaemonCommands::Start {
+                version,
+                port,
+                registry,
+            } = command
+            {
+                assert_eq!(version, "1.5.0");
+                assert_eq!(port, 8080);
+                assert_eq!(registry, Some("https://custom.com".to_string()));
+            } else {
+                panic!("Expected DaemonCommands::Start");
+            }
+        } else {
+            panic!("Expected Commands::Daemon");
+        }
+    }
+
+    #[test]
+    fn test_daemon_stop_default_port() {
+        let cli = Cli::try_parse_from(["cyanprint", "daemon", "stop"]);
+        assert!(cli.is_ok());
+        if let Commands::Daemon { command } = cli.unwrap().command {
+            if let DaemonCommands::Stop { port } = command {
+                assert_eq!(port, 9000);
+            } else {
+                panic!("Expected DaemonCommands::Stop");
+            }
+        } else {
+            panic!("Expected Commands::Daemon");
+        }
+    }
+
+    #[test]
+    fn test_daemon_stop_custom_port() {
+        let cli = Cli::try_parse_from(["cyanprint", "daemon", "stop", "--port", "8080"]);
+        assert!(cli.is_ok());
+        if let Commands::Daemon { command } = cli.unwrap().command {
+            if let DaemonCommands::Stop { port } = command {
+                assert_eq!(port, 8080);
+            } else {
+                panic!("Expected DaemonCommands::Stop");
+            }
+        } else {
+            panic!("Expected Commands::Daemon");
+        }
+    }
+
+    #[test]
+    fn test_daemon_requires_subcommand() {
+        let result = Cli::try_parse_from(["cyanprint", "daemon"]);
+        assert!(result.is_err(), "daemon without subcommand should fail");
+    }
 }

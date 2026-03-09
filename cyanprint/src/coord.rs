@@ -12,6 +12,71 @@ use bollard::query_parameters::{
 use futures_util::stream::StreamExt;
 use futures_util::stream::TryStreamExt;
 
+pub async fn stop_coordinator(docker: Docker, port: u16) -> Result<(), Box<dyn Error + Send>> {
+    let coord = "cyanprint-coordinator";
+
+    // 1. Call DELETE /cleanup on the Boron container
+    println!("🧹 Calling cleanup endpoint on coordinator...");
+    let client = crate::CyanCoordinatorClient::new(format!("http://localhost:{port}"));
+    match client.cleanup() {
+        Ok(res) => {
+            println!("✅ Cleanup completed");
+            if !res.removed_containers.is_empty() {
+                println!("   Removed containers: {:?}", res.removed_containers);
+            }
+            if !res.removed_images.is_empty() {
+                println!("   Removed images: {:?}", res.removed_images);
+            }
+            if !res.removed_volumes.is_empty() {
+                println!("   Removed volumes: {:?}", res.removed_volumes);
+            }
+        }
+        Err(e) => {
+            eprintln!("⚠️ Cleanup endpoint failed: {e}");
+            // Continue to container removal anyway
+        }
+    }
+
+    // 2. Find and remove the coordinator container
+    println!("🔍 Looking for coordinator container...");
+    let containers = docker
+        .list_containers(Some(ListContainersOptions {
+            all: true,
+            filters: {
+                let mut filters = HashMap::new();
+                filters.insert("name".to_string(), vec![coord.to_string()]);
+                Some(filters)
+            },
+            ..Default::default()
+        }))
+        .await
+        .map_err(|e| Box::new(e) as Box<dyn Error + Send>)?;
+
+    if containers.is_empty() {
+        println!("✅ No coordinator container found");
+        return Ok(());
+    }
+
+    for container in containers {
+        if let Some(id) = &container.id {
+            println!("🗑️ Removing container: {id}");
+            docker
+                .remove_container(
+                    id,
+                    Some(RemoveContainerOptions {
+                        force: true,
+                        ..Default::default()
+                    }),
+                )
+                .await
+                .map_err(|e| Box::new(e) as Box<dyn Error + Send>)?;
+            println!("✅ Container removed");
+        }
+    }
+
+    Ok(())
+}
+
 pub async fn start_coordinator(
     docker: Docker,
     img: String,
