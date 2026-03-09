@@ -55,14 +55,53 @@ fn run() -> Result<(), Box<dyn Error + Send>> {
             dry_run,
         } => handle_build(tag, config, platform, builder, no_cache, dry_run),
         Commands::Push(push_arg) => match push_arg.commands {
-            PushCommands::Processor { image, tag } => {
+            PushCommands::Processor { build, image, tag } => {
                 let PushArgs {
                     config,
                     token,
                     message,
+                    platform,
+                    builder,
+                    no_cache,
+                    dry_run,
                     ..
                 } = push_arg;
-                let res = registry.push_processor(config, token, message, image, tag);
+
+                let (image_ref, tag_val) = if let Some(build_tag) = build {
+                    // Build mode
+                    if image.is_some() || tag.is_some() {
+                        eprintln!("❌ Error: --build cannot be used with image arguments");
+                        return Err(Box::new(std::io::Error::other(
+                            "--build cannot be used with image arguments",
+                        )) as Box<dyn Error + Send>);
+                    }
+
+                    let result = build_for_push(
+                        &config,
+                        &build_tag,
+                        &["processor"],
+                        platform.as_deref(),
+                        builder.as_deref(),
+                        no_cache,
+                        dry_run,
+                    )?;
+
+                    let image_ref = format!("{}/processor", result.registry);
+                    (image_ref, build_tag)
+                } else {
+                    // Push existing mode
+                    match (image, tag) {
+                        (Some(i), Some(t)) => (i, t),
+                        _ => {
+                            eprintln!("❌ Error: must provide either --build or image and tag");
+                            return Err(Box::new(std::io::Error::other(
+                                "must provide either --build or image and tag",
+                            )) as Box<dyn Error + Send>);
+                        }
+                    }
+                };
+
+                let res = registry.push_processor(config, token, message, image_ref, tag_val);
                 match res {
                     Ok(r) => {
                         println!("Pushed processor successfully");
@@ -76,6 +115,7 @@ fn run() -> Result<(), Box<dyn Error + Send>> {
                 }
             }
             PushCommands::Template {
+                build,
                 template_image,
                 template_tag,
                 blob_image,
@@ -85,16 +125,64 @@ fn run() -> Result<(), Box<dyn Error + Send>> {
                     config,
                     token,
                     message,
+                    platform,
+                    builder,
+                    no_cache,
+                    dry_run,
                     ..
                 } = push_arg;
+
+                let (blob_ref, blob_tag_val, template_ref, template_tag_val) =
+                    if let Some(build_tag) = build {
+                        // Build mode
+                        if blob_image.is_some()
+                            || blob_tag.is_some()
+                            || template_image.is_some()
+                            || template_tag.is_some()
+                        {
+                            eprintln!("❌ Error: --build cannot be used with image arguments");
+                            return Err(Box::new(std::io::Error::other(
+                                "--build cannot be used with image arguments",
+                            )) as Box<dyn Error + Send>);
+                        }
+
+                        let result = build_for_push(
+                            &config,
+                            &build_tag,
+                            &["template", "blob"],
+                            platform.as_deref(),
+                            builder.as_deref(),
+                            no_cache,
+                            dry_run,
+                        )?;
+
+                        let blob_ref = format!("{}/blob", result.registry);
+                        let template_ref = format!("{}/template", result.registry);
+                        (blob_ref, build_tag.clone(), template_ref, build_tag)
+                    } else {
+                        // Push existing mode
+                        match (blob_image, blob_tag, template_image, template_tag) {
+                            (Some(bi), Some(bt), Some(ti), Some(tt)) => (bi, bt, ti, tt),
+                            _ => {
+                                eprintln!(
+                                    "❌ Error: must provide either --build or all image arguments"
+                                );
+                                return Err(Box::new(std::io::Error::other(
+                                    "must provide either --build or all image arguments",
+                                ))
+                                    as Box<dyn Error + Send>);
+                            }
+                        }
+                    };
+
                 let res = registry.push_template(
                     config,
                     token,
                     message,
-                    blob_image,
-                    blob_tag,
-                    template_image,
-                    template_tag,
+                    blob_ref,
+                    blob_tag_val,
+                    template_ref,
+                    template_tag_val,
                 );
                 match res {
                     Ok(r) => {
@@ -108,7 +196,15 @@ fn run() -> Result<(), Box<dyn Error + Send>> {
                     }
                 }
             }
-            PushCommands::Group => {
+            PushCommands::Group { build } => {
+                // Group subcommand does not support --build (no Docker images)
+                if build.is_some() {
+                    eprintln!("❌ Error: group does not support --build (no Docker images)");
+                    return Err(Box::new(std::io::Error::other(
+                        "group does not support --build (no Docker images)",
+                    )) as Box<dyn Error + Send>);
+                }
+
                 let PushArgs {
                     config,
                     token,
@@ -129,14 +225,53 @@ fn run() -> Result<(), Box<dyn Error + Send>> {
                     }
                 }
             }
-            PushCommands::Plugin { image, tag } => {
+            PushCommands::Plugin { build, image, tag } => {
                 let PushArgs {
                     config,
                     token,
                     message,
+                    platform,
+                    builder,
+                    no_cache,
+                    dry_run,
                     ..
                 } = push_arg;
-                let res = registry.push_plugin(config, token, message, image, tag);
+
+                let (image_ref, tag_val) = if let Some(build_tag) = build {
+                    // Build mode
+                    if image.is_some() || tag.is_some() {
+                        eprintln!("❌ Error: --build cannot be used with image arguments");
+                        return Err(Box::new(std::io::Error::other(
+                            "--build cannot be used with image arguments",
+                        )) as Box<dyn Error + Send>);
+                    }
+
+                    let result = build_for_push(
+                        &config,
+                        &build_tag,
+                        &["plugin"],
+                        platform.as_deref(),
+                        builder.as_deref(),
+                        no_cache,
+                        dry_run,
+                    )?;
+
+                    let image_ref = format!("{}/plugin", result.registry);
+                    (image_ref, build_tag)
+                } else {
+                    // Push existing mode
+                    match (image, tag) {
+                        (Some(i), Some(t)) => (i, t),
+                        _ => {
+                            eprintln!("❌ Error: must provide either --build or image and tag");
+                            return Err(Box::new(std::io::Error::other(
+                                "must provide either --build or image and tag",
+                            )) as Box<dyn Error + Send>);
+                        }
+                    }
+                };
+
+                let res = registry.push_plugin(config, token, message, image_ref, tag_val);
                 match res {
                     Ok(r) => {
                         println!("Pushed plugin successfully");
@@ -149,14 +284,53 @@ fn run() -> Result<(), Box<dyn Error + Send>> {
                     }
                 }
             }
-            PushCommands::Resolver { image, tag } => {
+            PushCommands::Resolver { build, image, tag } => {
                 let PushArgs {
                     config,
                     token,
                     message,
+                    platform,
+                    builder,
+                    no_cache,
+                    dry_run,
                     ..
                 } = push_arg;
-                let res = registry.push_resolver(config, token, message, image, tag);
+
+                let (image_ref, tag_val) = if let Some(build_tag) = build {
+                    // Build mode
+                    if image.is_some() || tag.is_some() {
+                        eprintln!("❌ Error: --build cannot be used with image arguments");
+                        return Err(Box::new(std::io::Error::other(
+                            "--build cannot be used with image arguments",
+                        )) as Box<dyn Error + Send>);
+                    }
+
+                    let result = build_for_push(
+                        &config,
+                        &build_tag,
+                        &["resolver"],
+                        platform.as_deref(),
+                        builder.as_deref(),
+                        no_cache,
+                        dry_run,
+                    )?;
+
+                    let image_ref = format!("{}/resolver", result.registry);
+                    (image_ref, build_tag)
+                } else {
+                    // Push existing mode
+                    match (image, tag) {
+                        (Some(i), Some(t)) => (i, t),
+                        _ => {
+                            eprintln!("❌ Error: must provide either --build or image and tag");
+                            return Err(Box::new(std::io::Error::other(
+                                "must provide either --build or image and tag",
+                            )) as Box<dyn Error + Send>);
+                        }
+                    }
+                };
+
+                let res = registry.push_resolver(config, token, message, image_ref, tag_val);
                 match res {
                     Ok(r) => {
                         println!("✅ Pushed resolver successfully");
@@ -479,6 +653,127 @@ fn handle_build(
         println!("\n✅ All images built successfully!");
         Ok(())
     }
+}
+
+/// Result of building images for push --build mode
+struct PushBuildResult {
+    /// Registry URL from config
+    registry: String,
+}
+
+/// Build specific images for push --build mode
+///
+/// # Arguments
+/// * `config_path` - Path to cyan.yaml
+/// * `tag` - Tag to use for built images
+/// * `image_names` - List of image names to build (e.g., ["template", "blob"])
+/// * `platform` - Optional platform override
+/// * `builder` - Optional builder override
+/// * `no_cache` - Whether to disable cache
+/// * `dry_run` - Whether to show commands without executing
+fn build_for_push(
+    config_path: &str,
+    tag: &str,
+    image_names: &[&str],
+    platform: Option<&str>,
+    builder: Option<&str>,
+    no_cache: bool,
+    dry_run: bool,
+) -> Result<PushBuildResult, Box<dyn Error + Send>> {
+    println!("🔨 Building images for push with tag: {tag}");
+
+    // Pre-flight checks (skip in dry-run mode)
+    if !dry_run {
+        if let Err(e) = BuildxBuilder::check_docker() {
+            eprintln!("❌ Error: {e}");
+            return Err(e);
+        }
+        if let Err(e) = BuildxBuilder::check_buildx() {
+            eprintln!("❌ Error: {e}");
+            return Err(e);
+        }
+    }
+
+    // Load config
+    println!("📄 Loading configuration from: {config_path}");
+    let build_config = read_build_config(config_path.to_string())?;
+
+    let registry = build_config.registry.as_ref().ok_or_else(|| {
+        Box::new(std::io::Error::other("No registry configured in cyan.yaml"))
+            as Box<dyn Error + Send>
+    })?;
+
+    let images = build_config.images.as_ref().ok_or_else(|| {
+        Box::new(std::io::Error::other("No images configured in cyan.yaml"))
+            as Box<dyn Error + Send>
+    })?;
+
+    println!("  ✓ Registry: {registry}");
+
+    // Resolve platforms
+    let platforms = resolve_platforms(
+        platform,
+        build_config.platforms.as_ref(),
+        get_current_platform,
+    );
+
+    // Create builder
+    let mut buildx = BuildxBuilder::new();
+    if let Some(b) = builder {
+        buildx = buildx.with_builder(b);
+        println!("  ✓ Using builder: {b}");
+    }
+
+    if dry_run {
+        println!("🏃 Dry-run mode - showing commands without executing:\n");
+    }
+
+    // Build each requested image
+    for image_name in image_names {
+        let img_config = match *image_name {
+            "template" => images.template.as_ref(),
+            "blob" => images.blob.as_ref(),
+            "processor" => images.processor.as_ref(),
+            "plugin" => images.plugin.as_ref(),
+            "resolver" => images.resolver.as_ref(),
+            _ => None,
+        };
+
+        let img_config = match img_config {
+            Some(c) => c,
+            None => {
+                return Err(Box::new(std::io::Error::other(format!(
+                    "No {image_name} image configuration found in cyan.yaml"
+                ))) as Box<dyn Error + Send>);
+            }
+        };
+
+        println!("\n🔨 Building image: {image_name}");
+        println!("  Dockerfile: {}", img_config.dockerfile);
+        println!("  Context: {}", img_config.context);
+
+        let result = buildx.build(BuildOptions {
+            registry,
+            image_name,
+            tag,
+            dockerfile: &img_config.dockerfile,
+            context: &img_config.context,
+            platforms: &platforms,
+            no_cache,
+            dry_run,
+        });
+
+        if let Err(e) = result {
+            eprintln!("  ❌ Failed to build {image_name}: {e}");
+            return Err(e);
+        }
+
+        println!("  ✅ Successfully built {image_name}");
+    }
+
+    Ok(PushBuildResult {
+        registry: registry.clone(),
+    })
 }
 
 #[cfg(test)]

@@ -157,36 +157,78 @@ pub struct PushArgs {
 
     #[arg(short, long, value_name = "API_TOKEN", env = "CYAN_TOKEN")]
     pub token: String,
+
+    #[arg(long, help = "Target platforms for build (comma-separated)")]
+    pub platform: Option<String>,
+
+    #[arg(long, help = "Buildx builder to use for build")]
+    pub builder: Option<String>,
+
+    #[arg(long, help = "Don't use cache during build")]
+    pub no_cache: bool,
+
+    #[arg(long, help = "Show build commands without executing")]
+    pub dry_run: bool,
 }
 
 #[derive(Debug, Subcommand)]
 pub enum PushCommands {
     Template {
-        blob_image: String,
+        #[arg(
+            long,
+            help = "Build with tag before pushing (requires build config in cyan.yaml)"
+        )]
+        build: Option<String>,
 
-        blob_tag: String,
+        blob_image: Option<String>,
 
-        template_image: String,
+        blob_tag: Option<String>,
 
-        template_tag: String,
+        template_image: Option<String>,
+
+        template_tag: Option<String>,
     },
     #[command(about = "Push a template group (meta-template that combines other templates)")]
-    Group,
+    Group {
+        #[arg(
+            long,
+            help = "Build with tag before pushing (requires build config in cyan.yaml)"
+        )]
+        build: Option<String>,
+    },
     Plugin {
-        image: String,
+        #[arg(
+            long,
+            help = "Build with tag before pushing (requires build config in cyan.yaml)"
+        )]
+        build: Option<String>,
 
-        tag: String,
+        image: Option<String>,
+
+        tag: Option<String>,
     },
     Processor {
-        image: String,
+        #[arg(
+            long,
+            help = "Build with tag before pushing (requires build config in cyan.yaml)"
+        )]
+        build: Option<String>,
 
-        tag: String,
+        image: Option<String>,
+
+        tag: Option<String>,
     },
     #[command(about = "Push a conflict resolver artifact")]
     Resolver {
-        image: String,
+        #[arg(
+            long,
+            help = "Build with tag before pushing (requires build config in cyan.yaml)"
+        )]
+        build: Option<String>,
 
-        tag: String,
+        image: Option<String>,
+
+        tag: Option<String>,
     },
 }
 

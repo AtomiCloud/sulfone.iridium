@@ -5,36 +5,74 @@
 ## Usage
 
 ```bash
-pls push <type> [options]
+pls push [OPTIONS] --token <API_TOKEN> <COMMAND> [SUBCOMMAND_OPTIONS] [ARGS]
 ```
+
+> **Important**: Push options (`--config`, `--message`, `--token`, `--platform`, `--builder`, `--no-cache`, `--dry-run`) must come BEFORE the subcommand. Subcommand-specific options (like `--build`) come after the subcommand name.
 
 ## Description
 
 Publishes CyanPrint artifacts (templates, template groups, plugins, processors, resolvers) to the registry.
 
+Supports two modes:
+
+1. **Push existing images**: Provide image reference and tag arguments
+2. **Build and push**: Use `--build <tag>` to build Docker images first, then push to registry
+
 ## Subcommands
 
-| Subcommand  | Description                                 | `properties` Field |
-| ----------- | ------------------------------------------- | ------------------ |
-| `template`  | Push executable template with Docker images | `Some(...)`        |
-| `group`     | Push template group (no Docker artifacts)   | `None`             |
-| `plugin`    | Push plugin Docker image                    | N/A                |
-| `processor` | Push processor Docker image                 | N/A                |
-| `resolver`  | Push resolver Docker image                  | N/A                |
+| Subcommand  | Description                                 | `properties` Field | Supports --build |
+| ----------- | ------------------------------------------- | ------------------ | ---------------- |
+| `template`  | Push executable template with Docker images | `Some(...)`        | Yes              |
+| `group`     | Push template group (no Docker artifacts)   | `None`             | No               |
+| `plugin`    | Push plugin Docker image                    | N/A                | Yes              |
+| `processor` | Push processor Docker image                 | N/A                | Yes              |
+| `resolver`  | Push resolver Docker image                  | N/A                | Yes              |
 
 > See [Properties Field](../../concepts/08-properties-field.md) for how the subcommand determines the `properties` field.
 
 ## Options
 
-| Option      | Short | Default          | Description                  |
-| ----------- | ----- | ---------------- | ---------------------------- |
-| `--config`  | `-c`  | `cyan.yaml`      | Configuration file path      |
-| `--message` | `-m`  | `No description` | Publish message/description  |
-| `--token`   | `-t`  | (required)       | API token for authentication |
+| Option       | Short | Default          | Description                                  |
+| ------------ | ----- | ---------------- | -------------------------------------------- |
+| `--config`   | `-c`  | `cyan.yaml`      | Configuration file path                      |
+| `--message`  | `-m`  | `No description` | Publish message/description                  |
+| `--token`    | `-t`  | (required)       | API token for authentication                 |
+| `--platform` |       | (from config)    | Target platforms for build (comma-separated) |
+| `--builder`  |       | (default)        | Buildx builder to use for build              |
+| `--no-cache` |       | false            | Don't use cache during build                 |
+| `--dry-run`  |       | false            | Show build commands without executing        |
 
 **Environment Variable**: `CYAN_TOKEN`
 
 **Key File**: `cyanprint/src/commands.rs:100-118`
+
+## Build-Mode Options
+
+When using `--build <tag>`, the following options control the build process:
+
+| Option       | Description                                                 |
+| ------------ | ----------------------------------------------------------- |
+| `--platform` | Override target platforms (e.g., `linux/amd64,linux/arm64`) |
+| `--builder`  | Use a specific buildx builder                               |
+| `--no-cache` | Disable Docker build cache                                  |
+| `--dry-run`  | Print build commands without executing                      |
+
+These options require a valid `build` section in `cyan.yaml`:
+
+```yaml
+build:
+  registry: ghcr.io/atomicloud
+  platforms:
+    - linux/amd64
+  images:
+    template:
+      dockerfile: Dockerfile.template
+      context: .
+    blob:
+      dockerfile: Dockerfile.blob
+      context: ./blob
+```
 
 ## Subcommand Details
 
@@ -42,29 +80,33 @@ Publishes CyanPrint artifacts (templates, template groups, plugins, processors, 
 
 Publish executable template with blob and template Docker images.
 
+**With --build (build and push in one step):**
+
 ```bash
-pls push template \
-  --config cyan.yaml \
-  --token YOUR_TOKEN \
-  --message "Initial release" \
-  --template-image registry/user/template:latest \
-  --template-tag latest \
-  --blob-image registry/user/blobs:latest \
-  --blob-tag latest
+pls push --config cyan.yaml --token YOUR_TOKEN --message "Initial release" template --build v1.0.0
 ```
 
-**Arguments**:
+**With explicit images (push pre-built images):**
 
-- `--template-image` - Template container image
-- `--template-tag` - Template image tag
-- `--blob-image` - Blob storage container image
-- `--blob-tag` - Blob image tag
+```bash
+pls push --config cyan.yaml --token YOUR_TOKEN --message "Initial release" template \
+  registry/user/blob:v1.0.0 v1.0.0 registry/user/template:v1.0.0 v1.0.0
+```
+
+**Arguments (when not using --build)**:
+
+- `blob_image` - Blob storage container image reference
+- `blob_tag` - Blob image tag
+- `template_image` - Template container image reference
+- `template_tag` - Template image tag
 
 **Key File**: `cyanprint/src/main.rs:56-88`
 
 Output:
 
 ```text
+🔨 Building images for push with tag: v1.0.0
+...
 ✅ Pushed template successfully
 📦 Template ID: 12345
 ```
@@ -74,8 +116,10 @@ Output:
 Publish template group (meta-template with no execution artifacts).
 
 ```bash
-pls push group --config cyan.yaml --token YOUR_TOKEN --message "Group template"
+pls push --config cyan.yaml --token YOUR_TOKEN --message "Group template" group
 ```
+
+> Note: `--build` is not supported for groups since they have no Docker images.
 
 **Key File**: `cyanprint/src/main.rs:89-108`
 
@@ -91,13 +135,16 @@ Output:
 
 Publish plugin Docker image.
 
+**With --build:**
+
 ```bash
-pls push plugin \
-  --config cyan.yaml \
-  --token YOUR_TOKEN \
-  --message "Plugin release" \
-  --image registry/user/plugin:latest \
-  --tag latest
+pls push --config cyan.yaml --token YOUR_TOKEN --message "Plugin release" plugin --build v1.0.0
+```
+
+**With explicit image:**
+
+```bash
+pls push --config cyan.yaml --token YOUR_TOKEN --message "Plugin release" plugin registry/user/plugin:v1.0.0 v1.0.0
 ```
 
 **Key File**: `cyanprint/src/main.rs:110-129`
@@ -106,13 +153,16 @@ pls push plugin \
 
 Publish processor Docker image.
 
+**With --build:**
+
 ```bash
-pls push processor \
-  --config cyan.yaml \
-  --token YOUR_TOKEN \
-  --message "Processor release" \
-  --image registry/user/processor:latest \
-  --tag latest
+pls push --config cyan.yaml --token YOUR_TOKEN --message "Processor release" processor --build v1.0.0
+```
+
+**With explicit image:**
+
+```bash
+pls push --config cyan.yaml --token YOUR_TOKEN --message "Processor release" processor registry/user/processor:v1.0.0 v1.0.0
 ```
 
 **Key File**: `cyanprint/src/main.rs:36-54`
@@ -121,19 +171,22 @@ pls push processor \
 
 Publish resolver Docker image.
 
+**With --build:**
+
 ```bash
-pls push resolver \
-  --config cyan.yaml \
-  --token YOUR_TOKEN \
-  --message "Resolver release" \
-  --image registry/user/resolver:latest \
-  --tag latest
+pls push --config cyan.yaml --token YOUR_TOKEN --message "Resolver release" resolver --build v1.0.0
 ```
 
-**Arguments**:
+**With explicit image:**
 
-- `--image` - Resolver container image
-- `--tag` - Resolver image tag
+```bash
+pls push --config cyan.yaml --token YOUR_TOKEN --message "Resolver release" resolver registry/user/resolver:v1.0.0 v1.0.0
+```
+
+**Arguments (when not using --build)**:
+
+- `image` - Resolver container image reference
+- `tag` - Resolver image tag
 
 **Key File**: `cyanregistry/src/http/client.rs:207-220`
 
