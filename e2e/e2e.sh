@@ -7,7 +7,7 @@ cargo build
 PATH_ADDITION="$(pwd)/target/debug"
 export PATH="${PATH_ADDITION}:$PATH"
 
-cyanprint daemon
+cyanprint daemon start
 
 # build resolvers
 echo "🔍 Publishing resolvers..."

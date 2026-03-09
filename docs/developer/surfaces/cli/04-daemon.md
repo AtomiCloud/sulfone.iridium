@@ -1,26 +1,33 @@
 # daemon Command
 
-**Key File**: `cyanprint/src/main.rs:228-255`, `cyanprint/src/coord.rs`
+**Key File**: `cyanprint/src/main.rs` (`Commands::Daemon` handler), `cyanprint/src/coord.rs`
 
 > **Note**: `pls` is a development alias that runs the CLI via `cargo run` from the current codebase. Use `cyanprint` when invoking the installed binary.
 
 ## Usage
 
 ```bash
-pls daemon [version] [options]
+pls daemon <start|stop> [options]
 ```
 
-## Description
+## Subcommands
+
+| Subcommand | Description                            |
+| ---------- | -------------------------------------- |
+| `start`    | Start the CyanPrint Coordinator daemon |
+| `stop`     | Stop and cleanup the daemon            |
+
+## `daemon start`
 
 Starts the CyanPrint Coordinator service locally in a Docker container. The coordinator handles template execution for `create` and `update` commands.
 
-## Arguments
+### Arguments
 
 | Argument    | Required | Description                             |
 | ----------- | -------- | --------------------------------------- |
 | `[version]` | No       | Coordinator version (default: `latest`) |
 
-## Options
+### Options
 
 | Option       | Short | Default                                               | Description                       |
 | ------------ | ----- | ----------------------------------------------------- | --------------------------------- |
@@ -29,14 +36,14 @@ Starts the CyanPrint Coordinator service locally in a Docker container. The coor
 
 **Environment Variable**: `CYANPRINT_REGISTRY`
 
-**Key File**: `cyanprint/src/commands.rs:74-97`
+**Key File**: `cyanprint/src/commands.rs` (`DaemonCommands::Start`)
 
-## Examples
+### Examples
 
-### Basic Usage (Latest Version)
+#### Basic Usage (Latest Version)
 
 ```bash
-pls daemon
+pls daemon start
 ```
 
 Output:
@@ -45,16 +52,16 @@ Output:
 ✅ Coordinator started on port 9000
 ```
 
-### Specific Version
+#### Specific Version
 
 ```bash
-pls daemon 1.5.0
+pls daemon start 1.5.0
 ```
 
-### Custom Port
+#### Custom Port
 
 ```bash
-pls daemon --port 8080
+pls daemon start --port 8080
 ```
 
 Output:
@@ -63,13 +70,71 @@ Output:
 ✅ Coordinator started on port 8080
 ```
 
-### With Custom Registry
+#### With Custom Registry
 
 ```bash
-pls daemon --registry https://custom-registry.com
+pls daemon start --registry https://custom-registry.com
+```
+
+## `daemon stop`
+
+Stops the CyanPrint Coordinator daemon and performs cleanup. This command:
+
+1. Calls `DELETE /cleanup` on the Boron container to clean up Docker resources
+2. Removes the `cyanprint-coordinator` container
+
+### Options
+
+| Option   | Short | Default | Description                  |
+| -------- | ----- | ------- | ---------------------------- |
+| `--port` | `-p`  | `9000`  | Port where daemon is running |
+
+**Key File**: `cyanprint/src/commands.rs` (`DaemonCommands::Stop`)
+
+### Examples
+
+#### Basic Usage
+
+```bash
+pls daemon stop
+```
+
+Output:
+
+```text
+🧹 Calling cleanup endpoint on coordinator...
+✅ Cleanup completed
+🔍 Looking for coordinator container...
+🗑️ Removing container: abc123...
+✅ Container removed
+✅ Coordinator stopped
+```
+
+#### Custom Port
+
+```bash
+pls daemon stop --port 8080
+```
+
+#### When Not Running
+
+```bash
+pls daemon stop
+```
+
+Output:
+
+```text
+🧹 Calling cleanup endpoint on coordinator...
+⚠️ Cleanup endpoint failed: connection refused
+🔍 Looking for coordinator container...
+✅ No coordinator container found
+✅ Coordinator stopped
 ```
 
 ## Flow
+
+### Start Flow
 
 ```mermaid
 sequenceDiagram
@@ -77,7 +142,7 @@ sequenceDiagram
     participant CLI as cyanprint
     participant Docker as Docker
 
-    U->>CLI: 1. pls daemon
+    U->>CLI: 1. pls daemon start
     CLI->>Docker: 2. Connect to Docker
     CLI->>CLI: 3. Build image name
     CLI->>Docker: 4. Pull/start container
@@ -85,37 +150,61 @@ sequenceDiagram
     CLI-->>U: 6. Success message
 ```
 
-| #   | Step            | What                      | Key File                       |
-| --- | --------------- | ------------------------- | ------------------------------ |
-| 1   | Parse command   | Parse version and options | `commands.rs:74-97`            |
-| 2   | Connect Docker  | Initialize Docker client  | `main.rs:233-234`              |
-| 3   | Build image     | Construct image reference | `main.rs:240-242`              |
-| 4   | Start container | Pull and run in Docker    | `coord.rs:start_coordinator()` |
-| 5   | Verify          | Check container running   | `coord.rs`                     |
-| 6   | Display result  | Show success message      | `main.rs:246`                  |
+| #   | Step            | What                      | Key File                           |
+| --- | --------------- | ------------------------- | ---------------------------------- |
+| 1   | Parse command   | Parse version and options | `commands.rs` (`DaemonCommands`)   |
+| 2   | Connect Docker  | Initialize Docker client  | `main.rs` (`Docker::connect_...`)  |
+| 3   | Build image     | Construct image reference | `main.rs` (image string construct) |
+| 4   | Start container | Pull and run in Docker    | `coord.rs` (`start_coordinator()`) |
+| 5   | Verify          | Check container running   | `coord.rs`                         |
+| 6   | Display result  | Show success message      | `main.rs` (start success message)  |
+
+### Stop Flow
+
+```mermaid
+sequenceDiagram
+    participant U as User
+    participant CLI as cyanprint
+    participant Boron as Boron Container
+    participant Docker as Docker
+
+    U->>CLI: 1. pls daemon stop
+    CLI->>Boron: 2. DELETE /cleanup
+    Boron-->>CLI: 3. Cleanup response
+    CLI->>Docker: 4. Find coordinator container
+    Docker-->>CLI: 5. Container found
+    CLI->>Docker: 6. Remove container (force)
+    Docker-->>CLI: 7. Container removed
+    CLI-->>U: 8. Success message
+```
+
+| #   | Step             | What                     | Key File                            |
+| --- | ---------------- | ------------------------ | ----------------------------------- |
+| 1   | Parse command    | Parse port option        | `commands.rs` (`DaemonCommands`)    |
+| 2   | Call cleanup     | DELETE /cleanup endpoint | `coord.rs` (`stop_coordinator()`)   |
+| 3   | Handle response  | Print cleanup results    | `coord.rs` (cleanup response block) |
+| 4   | Find container   | List containers by name  | `coord.rs` (container listing)      |
+| 5   | Remove container | Force remove coordinator | `coord.rs` (container removal)      |
+| 6   | Confirm removal  | Docker confirms removal  | `coord.rs`                          |
+| 7   | Display result   | Show success message     | `main.rs` (stop success message)    |
 
 ## Docker Image
 
 Default image: `ghcr.io/atomicloud/sulfone.boron/sulfone-boron:<version>`
 
-**Key File**: `cyanprint/src/main.rs:240-242`
+**Key File**: `cyanprint/src/main.rs` (image construction in daemon handler)
 
 ## Coordinator Endpoints
 
-<!--
-  NOTE FOR REVIEWERS: The endpoint paths documented here represent the logical operations
-  exposed by the coordinator. Actual HTTP paths may differ at the implementation level.
-  For accurate endpoint details, refer to cyancoordinator/src/client.rs which defines
-  the exact API contract used by the CLI.
--->
-
 Once started, the coordinator provides:
 
-| Endpoint     | Method | Purpose                  |
-| ------------ | ------ | ------------------------ |
-| `/bootstrap` | POST   | Start template execution |
-| `/clean`     | POST   | Clean up session         |
-| `/warm`      | POST   | Warm executor cache      |
+| Endpoint                      | Method | Purpose                  |
+| ----------------------------- | ------ | ------------------------ |
+| `/executor`                   | POST   | Start template execution |
+| `/executor/{session_id}`      | DELETE | Clean up session         |
+| `/executor/{session_id}/warm` | POST   | Warm executor cache      |
+| `/template/warm`              | POST   | Warm template cache      |
+| `/cleanup`                    | DELETE | Full daemon cleanup      |
 
 **Base URL**: `http://localhost:<port>`
 
@@ -133,7 +222,7 @@ After starting the daemon, use `--coordinator-endpoint` with other commands:
 
 ```bash
 # Terminal 1: Start daemon
-pls daemon --port 9000
+pls daemon start --port 9000
 
 # Terminal 2: Use local coordinator
 pls create template:1 ./project --coordinator-endpoint http://localhost:9000
@@ -150,7 +239,9 @@ Error: Port 9000 already in use
 **Solution**: Use different port or stop existing daemon:
 
 ```bash
-pls daemon --port 9001
+pls daemon stop
+# or
+pls daemon start --port 9001
 ```
 
 ### Docker Not Running

@@ -8,8 +8,8 @@ use cyancoordinator::client::{CyanCoordinatorClient, new_client};
 use cyancoordinator::session::DefaultSessionIdGenerator;
 use cyanregistry::http::client::CyanRegistryClient;
 
-use crate::commands::{Cli, Commands, PushArgs, PushCommands};
-use crate::coord::start_coordinator;
+use crate::commands::{Cli, Commands, DaemonCommands, PushArgs, PushCommands};
+use crate::coord::{start_coordinator, stop_coordinator};
 use crate::run::cyan_run;
 use crate::update::cyan_update;
 use crate::util::parse_ref;
@@ -245,33 +245,38 @@ fn main() -> Result<(), Box<dyn Error + Send>> {
             }
             Ok(())
         }
-        Commands::Daemon {
-            version,
-            port,
-            registry,
-        } => {
+        Commands::Daemon { command } => {
             let docker = Docker::connect_with_local_defaults()
                 .map_err(|e| Box::new(e) as Box<dyn Error + Send>)?;
-            tokio::runtime::Builder::new_multi_thread()
+            let result = tokio::runtime::Builder::new_multi_thread()
                 .enable_all()
                 .build()
                 .unwrap()
                 .block_on(async {
-                    let img = "ghcr.io/atomicloud/sulfone.boron/sulfone-boron".to_string()
-                        + ":"
-                        + version.as_str();
-                    let r = start_coordinator(docker, img, port, registry).await;
-                    match r {
-                        Ok(_) => {
-                            println!("✅ Coordinator started on port {port}");
+                    match command {
+                        DaemonCommands::Start {
+                            version,
+                            port,
+                            registry,
+                        } => {
+                            let img = "ghcr.io/atomicloud/sulfone.boron/sulfone-boron".to_string()
+                                + ":"
+                                + version.as_str();
+                            start_coordinator(docker, img, port, registry)
+                                .await
+                                .map(|_| {
+                                    println!("✅ Coordinator started on port {port}");
+                                })
                         }
-                        Err(e) => {
-                            eprintln!("🚨 Error: {e:#?}");
+                        DaemonCommands::Stop { port } => {
+                            stop_coordinator(docker, port).await.map(|_| {
+                                println!("✅ Coordinator stopped");
+                            })
                         }
                     }
                 });
 
-            Ok(())
+            result
         }
     }
 }
