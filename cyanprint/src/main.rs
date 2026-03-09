@@ -101,6 +101,11 @@ fn run() -> Result<(), Box<dyn Error + Send>> {
                     }
                 };
 
+                if dry_run {
+                    println!("🏃 Dry-run complete - skipping registry push");
+                    return Ok(());
+                }
+
                 let res = registry.push_processor(config, token, message, image_ref, tag_val);
                 match res {
                     Ok(r) => {
@@ -175,6 +180,11 @@ fn run() -> Result<(), Box<dyn Error + Send>> {
                         }
                     };
 
+                if dry_run {
+                    println!("🏃 Dry-run complete - skipping registry push");
+                    return Ok(());
+                }
+
                 let res = registry.push_template(
                     config,
                     token,
@@ -196,15 +206,8 @@ fn run() -> Result<(), Box<dyn Error + Send>> {
                     }
                 }
             }
-            PushCommands::Group { build } => {
+            PushCommands::Group => {
                 // Group subcommand does not support --build (no Docker images)
-                if build.is_some() {
-                    eprintln!("❌ Error: group does not support --build (no Docker images)");
-                    return Err(Box::new(std::io::Error::other(
-                        "group does not support --build (no Docker images)",
-                    )) as Box<dyn Error + Send>);
-                }
-
                 let PushArgs {
                     config,
                     token,
@@ -271,6 +274,11 @@ fn run() -> Result<(), Box<dyn Error + Send>> {
                     }
                 };
 
+                if dry_run {
+                    println!("🏃 Dry-run complete - skipping registry push");
+                    return Ok(());
+                }
+
                 let res = registry.push_plugin(config, token, message, image_ref, tag_val);
                 match res {
                     Ok(r) => {
@@ -329,6 +337,11 @@ fn run() -> Result<(), Box<dyn Error + Send>> {
                         }
                     }
                 };
+
+                if dry_run {
+                    println!("🏃 Dry-run complete - skipping registry push");
+                    return Ok(());
+                }
 
                 let res = registry.push_resolver(config, token, message, image_ref, tag_val);
                 match res {

@@ -189,13 +189,7 @@ pub enum PushCommands {
         template_tag: Option<String>,
     },
     #[command(about = "Push a template group (meta-template that combines other templates)")]
-    Group {
-        #[arg(
-            long,
-            help = "Build with tag before pushing (requires build config in cyan.yaml)"
-        )]
-        build: Option<String>,
-    },
+    Group,
     Plugin {
         #[arg(
             long,

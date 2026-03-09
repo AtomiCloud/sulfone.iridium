@@ -341,7 +341,7 @@ pub fn build_config_mapper(config: &BuildConfig) -> Result<BuildConfig, Box<dyn 
     // Validate registry exists and is not empty
     match &config.registry {
         None => return Err(Box::new(ParsingError::MissingBuildRegistry)),
-        Some(registry) if registry.is_empty() => {
+        Some(registry) if registry.trim().is_empty() => {
             return Err(Box::new(ParsingError::MissingBuildRegistry));
         }
         _ => {}

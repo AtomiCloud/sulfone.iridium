@@ -33,15 +33,15 @@ Supports two modes:
 
 ## Options
 
-| Option       | Short | Default          | Description                                  |
-| ------------ | ----- | ---------------- | -------------------------------------------- |
-| `--config`   | `-c`  | `cyan.yaml`      | Configuration file path                      |
-| `--message`  | `-m`  | `No description` | Publish message/description                  |
-| `--token`    | `-t`  | (required)       | API token for authentication                 |
-| `--platform` |       | (from config)    | Target platforms for build (comma-separated) |
-| `--builder`  |       | (default)        | Buildx builder to use for build              |
-| `--no-cache` |       | false            | Don't use cache during build                 |
-| `--dry-run`  |       | false            | Show build commands without executing        |
+| Option       | Short | Default          | Description                                              |
+| ------------ | ----- | ---------------- | -------------------------------------------------------- |
+| `--config`   | `-c`  | `cyan.yaml`      | Configuration file path                                  |
+| `--message`  | `-m`  | `No description` | Publish message/description                              |
+| `--token`    | `-t`  | (optional)       | API token for authentication (or set CYAN_TOKEN env var) |
+| `--platform` |       | (from config)    | Target platforms for build (comma-separated)             |
+| `--builder`  |       | (default)        | Buildx builder to use for build                          |
+| `--no-cache` |       | false            | Don't use cache during build                             |
+| `--dry-run`  |       | false            | Show build commands without executing                    |
 
 **Environment Variable**: `CYAN_TOKEN`
 
