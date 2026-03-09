@@ -1,6 +1,6 @@
 # daemon Command
 
-**Key File**: `cyanprint/src/main.rs:228-270`, `cyanprint/src/coord.rs`
+**Key File**: `cyanprint/src/main.rs` (`Commands::Daemon` handler), `cyanprint/src/coord.rs`
 
 > **Note**: `pls` is a development alias that runs the CLI via `cargo run` from the current codebase. Use `cyanprint` when invoking the installed binary.
 
@@ -36,7 +36,7 @@ Starts the CyanPrint Coordinator service locally in a Docker container. The coor
 
 **Environment Variable**: `CYANPRINT_REGISTRY`
 
-**Key File**: `cyanprint/src/commands.rs:83-106`
+**Key File**: `cyanprint/src/commands.rs` (`DaemonCommands::Start`)
 
 ### Examples
 
@@ -89,7 +89,7 @@ Stops the CyanPrint Coordinator daemon and performs cleanup. This command:
 | -------- | ----- | ------- | ---------------------------- |
 | `--port` | `-p`  | `9000`  | Port where daemon is running |
 
-**Key File**: `cyanprint/src/commands.rs:108-118`
+**Key File**: `cyanprint/src/commands.rs` (`DaemonCommands::Stop`)
 
 ### Examples
 
@@ -150,14 +150,14 @@ sequenceDiagram
     CLI-->>U: 6. Success message
 ```
 
-| #   | Step            | What                      | Key File                       |
-| --- | --------------- | ------------------------- | ------------------------------ |
-| 1   | Parse command   | Parse version and options | `commands.rs:83-106`           |
-| 2   | Connect Docker  | Initialize Docker client  | `main.rs:229-230`              |
-| 3   | Build image     | Construct image reference | `main.rs:242-244`              |
-| 4   | Start container | Pull and run in Docker    | `coord.rs:start_coordinator()` |
-| 5   | Verify          | Check container running   | `coord.rs`                     |
-| 6   | Display result  | Show success message      | `main.rs:247-248`              |
+| #   | Step            | What                      | Key File                           |
+| --- | --------------- | ------------------------- | ---------------------------------- |
+| 1   | Parse command   | Parse version and options | `commands.rs` (`DaemonCommands`)   |
+| 2   | Connect Docker  | Initialize Docker client  | `main.rs` (`Docker::connect_...`)  |
+| 3   | Build image     | Construct image reference | `main.rs` (image string construct) |
+| 4   | Start container | Pull and run in Docker    | `coord.rs` (`start_coordinator()`) |
+| 5   | Verify          | Check container running   | `coord.rs`                         |
+| 6   | Display result  | Show success message      | `main.rs` (start success message)  |
 
 ### Stop Flow
 
@@ -178,21 +178,21 @@ sequenceDiagram
     CLI-->>U: 8. Success message
 ```
 
-| #   | Step             | What                     | Key File                      |
-| --- | ---------------- | ------------------------ | ----------------------------- |
-| 1   | Parse command    | Parse port option        | `commands.rs:108-118`         |
-| 2   | Call cleanup     | DELETE /cleanup endpoint | `coord.rs:stop_coordinator()` |
-| 3   | Handle response  | Print cleanup results    | `coord.rs:21-33`              |
-| 4   | Find container   | List containers by name  | `coord.rs:41-53`              |
-| 5   | Remove container | Force remove coordinator | `coord.rs:60-73`              |
-| 6   | Confirm removal  | Docker confirms removal  | `coord.rs:73`                 |
-| 7   | Display result   | Show success message     | `main.rs:278-279`             |
+| #   | Step             | What                     | Key File                            |
+| --- | ---------------- | ------------------------ | ----------------------------------- |
+| 1   | Parse command    | Parse port option        | `commands.rs` (`DaemonCommands`)    |
+| 2   | Call cleanup     | DELETE /cleanup endpoint | `coord.rs` (`stop_coordinator()`)   |
+| 3   | Handle response  | Print cleanup results    | `coord.rs` (cleanup response block) |
+| 4   | Find container   | List containers by name  | `coord.rs` (container listing)      |
+| 5   | Remove container | Force remove coordinator | `coord.rs` (container removal)      |
+| 6   | Confirm removal  | Docker confirms removal  | `coord.rs`                          |
+| 7   | Display result   | Show success message     | `main.rs` (stop success message)    |
 
 ## Docker Image
 
 Default image: `ghcr.io/atomicloud/sulfone.boron/sulfone-boron:<version>`
 
-**Key File**: `cyanprint/src/main.rs:242-244`
+**Key File**: `cyanprint/src/main.rs` (image construction in daemon handler)
 
 ## Coordinator Endpoints
 
