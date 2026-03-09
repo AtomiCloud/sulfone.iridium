@@ -13,7 +13,7 @@ use futures_util::stream::StreamExt;
 use futures_util::stream::TryStreamExt;
 
 pub async fn stop_coordinator(docker: Docker, port: u16) -> Result<(), Box<dyn Error + Send>> {
-    let coord = "cyanprint-coordinator";
+    let coord_filter = "^cyanprint-coordinator$";
 
     // 1. Call DELETE /cleanup on the Boron container
     println!("🧹 Calling cleanup endpoint on coordinator...");
@@ -44,7 +44,7 @@ pub async fn stop_coordinator(docker: Docker, port: u16) -> Result<(), Box<dyn E
             all: true,
             filters: {
                 let mut filters = HashMap::new();
-                filters.insert("name".to_string(), vec![coord.to_string()]);
+                filters.insert("name".to_string(), vec![coord_filter.to_string()]);
                 Some(filters)
             },
             ..Default::default()
@@ -83,8 +83,9 @@ pub async fn start_coordinator(
     port: u16,
     registry: Option<String>,
 ) -> Result<(), Box<dyn Error + Send>> {
-    let setup = "cyanprint-coordinator-setup";
-    let coord = "cyanprint-coordinator";
+    let setup_name = "cyanprint-coordinator-setup";
+    let coord_name = "cyanprint-coordinator";
+    let coord_filter = "^cyanprint-coordinator$";
 
     // Check if coordinator is already running
     println!("🔍 Checking if coordinator is already running...");
@@ -93,7 +94,7 @@ pub async fn start_coordinator(
             all: true, // Include both running and stopped containers
             filters: {
                 let mut filters = HashMap::new();
-                filters.insert("name".to_string(), vec![coord.to_string()]);
+                filters.insert("name".to_string(), vec![coord_filter.to_string()]);
                 Some(filters)
             },
             ..Default::default()
@@ -181,7 +182,7 @@ pub async fn start_coordinator(
     let network = docker
         .create_container(
             Some(CreateContainerOptions {
-                name: Some(setup.to_string()),
+                name: Some(setup_name.to_string()),
                 ..Default::default()
             }),
             ContainerCreateBody {
@@ -202,7 +203,7 @@ pub async fn start_coordinator(
         .await
         .map_err(|e| Box::new(e) as Box<dyn Error + Send>)?;
     let mut streams = docker.logs(
-        setup,
+        setup_name,
         Some(LogsOptions {
             follow: true,
             stdout: true,
@@ -214,7 +215,7 @@ pub async fn start_coordinator(
         println!("{msg:#?}");
     }
     docker
-        .remove_container(setup, None::<RemoveContainerOptions>)
+        .remove_container(setup_name, None::<RemoveContainerOptions>)
         .await
         .map_err(|e| Box::new(e) as Box<dyn Error + Send>)?;
     println!("✅ CyanPrint Coordinator Network Started");
@@ -229,7 +230,7 @@ pub async fn start_coordinator(
     let c = docker
         .create_container(
             Some(CreateContainerOptions {
-                name: Some(coord.to_string()),
+                name: Some(coord_name.to_string()),
                 ..Default::default()
             }),
             ContainerCreateBody {

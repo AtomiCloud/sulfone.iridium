@@ -185,7 +185,8 @@ sequenceDiagram
 | 3   | Handle response  | Print cleanup results    | `coord.rs:21-33`              |
 | 4   | Find container   | List containers by name  | `coord.rs:41-53`              |
 | 5   | Remove container | Force remove coordinator | `coord.rs:60-73`              |
-| 6   | Display result   | Show success message     | `main.rs:258-259`             |
+| 6   | Confirm removal  | Docker confirms removal  | `coord.rs:73`                 |
+| 7   | Display result   | Show success message     | `main.rs:278-279`             |
 
 ## Docker Image
 

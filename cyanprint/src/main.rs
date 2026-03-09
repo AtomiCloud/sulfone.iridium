@@ -248,7 +248,7 @@ fn main() -> Result<(), Box<dyn Error + Send>> {
         Commands::Daemon { command } => {
             let docker = Docker::connect_with_local_defaults()
                 .map_err(|e| Box::new(e) as Box<dyn Error + Send>)?;
-            tokio::runtime::Builder::new_multi_thread()
+            let result = tokio::runtime::Builder::new_multi_thread()
                 .enable_all()
                 .build()
                 .unwrap()
@@ -262,31 +262,21 @@ fn main() -> Result<(), Box<dyn Error + Send>> {
                             let img = "ghcr.io/atomicloud/sulfone.boron/sulfone-boron".to_string()
                                 + ":"
                                 + version.as_str();
-                            let r = start_coordinator(docker, img, port, registry).await;
-                            match r {
-                                Ok(_) => {
+                            start_coordinator(docker, img, port, registry)
+                                .await
+                                .map(|_| {
                                     println!("✅ Coordinator started on port {port}");
-                                }
-                                Err(e) => {
-                                    eprintln!("🚨 Error: {e:#?}");
-                                }
-                            }
+                                })
                         }
                         DaemonCommands::Stop { port } => {
-                            let r = stop_coordinator(docker, port).await;
-                            match r {
-                                Ok(_) => {
-                                    println!("✅ Coordinator stopped");
-                                }
-                                Err(e) => {
-                                    eprintln!("🚨 Error: {e:#?}");
-                                }
-                            }
+                            stop_coordinator(docker, port).await.map(|_| {
+                                println!("✅ Coordinator stopped");
+                            })
                         }
                     }
                 });
 
-            Ok(())
+            result
         }
     }
 }
