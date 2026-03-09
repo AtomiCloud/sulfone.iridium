@@ -1,0 +1,41 @@
+username: cyane2e
+name: template-resolver-2
+description: Template1
+project: https://google.com
+source: https://google.com
+email: cyane2e@atomi.cloud
+tags: []
+readme: cyan/README.MD
+processors: ['cyane2e/processor1']
+plugins: ['cyane2e/plugin1']
+templates: []
+resolvers:
+  - resolver: cyane2e/resolver2:1
+    config: {}
+    files:
+      - .gitignore
+  - resolver: cyane2e/resolver1:1
+    config:
+      arrayStrategy: 'concat'
+    files:
+      - c1.json
+  - resolver: cyane2e/resolver1:1
+    config:
+      arrayStrategy: 'replace'
+    files:
+      - c2.json
+  - resolver: cyane2e/resolver1:1
+    config:
+      arrayStrategy: 'distinct'
+    files:
+      - c3.json
+  - resolver: cyane2e/resolver2:1
+    config:
+      arrayStrategy: 'array'
+    files:
+      - c4.json
+  - resolver: cyane2e/resolver1:1
+    config:
+      arrayStrategy: 'distinct'
+    files:
+      - c5.json

@@ -6,7 +6,7 @@ pub mod state;
 mod test;
 
 // Re-export the main types for easier consumption
-pub use layerer::{DefaultVfsLayerer, VfsLayerer};
+pub use layerer::{DefaultVfsLayerer, ResolverAwareLayerer, VfsLayerer};
 pub use operator::CompositionOperator;
 pub use resolver::{DefaultDependencyResolver, DependencyResolver};
 pub use state::CompositionState;

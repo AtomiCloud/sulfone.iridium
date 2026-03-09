@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-set -eou pipefail
+set -euo pipefail
 
 cargo build
 
@@ -8,6 +8,14 @@ PATH_ADDITION="$(pwd)/target/debug"
 export PATH="${PATH_ADDITION}:$PATH"
 
 cyanprint daemon
+
+# build resolvers
+echo "🔍 Publishing resolvers..."
+./e2e/publish-resolver.sh ./e2e/resolver1 resolver1 push
+./e2e/publish-resolver.sh ./e2e/resolver1 resolver1 push
+
+./e2e/publish-resolver.sh ./e2e/resolver2 resolver2 push
+./e2e/publish-resolver.sh ./e2e/resolver2 resolver2 push
 
 # build processors
 echo "🔍 Publishing processors..."
@@ -34,8 +42,10 @@ echo "🔍 Publishing templates..."
 ./e2e/publish-template.sh ./e2e/test-batch-a-v2 test-batch-a push
 ./e2e/publish-template.sh ./e2e/test-batch-b-v1 test-batch-b push
 ./e2e/publish-template.sh ./e2e/test-batch-b-v2 test-batch-b push
+./e2e/publish-template.sh ./e2e/template-resolver-1-v1 template-resolver-1 push
+./e2e/publish-template.sh ./e2e/template-resolver-2-v1 template-resolver-2 push
 
 echo "🔍 Publishing group..."
-./e2e/publish-group.sh ./e2e/template4 template4 push
+# ./e2e/publish-group.sh ./e2e/template4 template4 push
 
 echo "✅ Done"

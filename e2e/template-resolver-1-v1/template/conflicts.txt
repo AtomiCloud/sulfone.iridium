@@ -1,0 +1,8 @@
+c1.json => merge with concat
+c2.json => merge with replace
+c3.json => merge with distinct
+c4.json => different resolver
+c5.json => different resolver config
+c6.json => one without config
+.gitignore => merge
+force_conflict => NO resolver

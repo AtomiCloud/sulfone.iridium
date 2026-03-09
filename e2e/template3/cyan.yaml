@@ -11,3 +11,4 @@ plugins: [cyane2e/plugin1]
 templates:
   - cyane2e/template1
   - cyane2e/template2
+resolvers: []

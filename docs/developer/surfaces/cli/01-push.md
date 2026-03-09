@@ -10,7 +10,7 @@ pls push <type> [options]
 
 ## Description
 
-Publishes CyanPrint artifacts (templates, template groups, plugins, processors) to the registry.
+Publishes CyanPrint artifacts (templates, template groups, plugins, processors, resolvers) to the registry.
 
 ## Subcommands
 
@@ -20,6 +20,7 @@ Publishes CyanPrint artifacts (templates, template groups, plugins, processors) 
 | `group`     | Push template group (no Docker artifacts)   | `None`             |
 | `plugin`    | Push plugin Docker image                    | N/A                |
 | `processor` | Push processor Docker image                 | N/A                |
+| `resolver`  | Push resolver Docker image                  | N/A                |
 
 > See [Properties Field](../../concepts/08-properties-field.md) for how the subcommand determines the `properties` field.
 
@@ -115,6 +116,28 @@ pls push processor \
 ```
 
 **Key File**: `cyanprint/src/main.rs:36-54`
+
+### push resolver
+
+Publish resolver Docker image.
+
+```bash
+pls push resolver \
+  --config cyan.yaml \
+  --token YOUR_TOKEN \
+  --message "Resolver release" \
+  --image registry/user/resolver:latest \
+  --tag latest
+```
+
+**Arguments**:
+
+- `--image` - Resolver container image
+- `--tag` - Resolver image tag
+
+**Key File**: `cyanregistry/src/http/client.rs:207-220`
+
+Resolvers are used during template updates to resolve merge conflicts. See [Resolver](../../concepts/09-resolver.md) for more details.
 
 ## Flow
 

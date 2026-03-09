@@ -3,9 +3,7 @@ use std::rc::Rc;
 use cyancoordinator::client::CyanCoordinatorClient;
 use cyancoordinator::fs::{DiskFileLoader, DiskFileWriter, GitLikeMerger, TarGzUnpacker};
 use cyancoordinator::operations::TemplateOperator;
-use cyancoordinator::operations::composition::{
-    CompositionOperator, DefaultDependencyResolver, DefaultVfsLayerer,
-};
+use cyancoordinator::operations::composition::{CompositionOperator, DefaultDependencyResolver};
 use cyancoordinator::template::{DefaultTemplateExecutor, DefaultTemplateHistory};
 use cyancoordinator::{fs::DefaultVfs, session::SessionIdGenerator};
 use cyanregistry::http::client::CyanRegistryClient;
@@ -40,8 +38,8 @@ impl OperatorFactory {
         );
 
         let dependency_resolver = Box::new(DefaultDependencyResolver::new(registry_client.clone()));
-        let vfs_layerer = Box::new(DefaultVfsLayerer);
 
-        CompositionOperator::new(template_operator, dependency_resolver, vfs_layerer)
+        // Use with_client to enable resolver-aware layering
+        CompositionOperator::with_client(template_operator, dependency_resolver, coord_client)
     }
 }

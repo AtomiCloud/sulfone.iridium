@@ -1,8 +1,8 @@
-FROM alpine:3.21 as base
+FROM alpine:3.21 AS base
 # hadolint ignore=DL3018,DL3019
 RUN apk add tar
 
-FROM base as build
+FROM base AS build
 WORKDIR /src
 COPY . .
 RUN rm -rf cyan && mkdir -p /cyanprint/artifact && tar -czvf /cyanprint/artifact/cyan.tar.gz /src/

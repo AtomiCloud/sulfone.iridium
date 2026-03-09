@@ -9,3 +9,4 @@ readme: cyan/README.MD
 processors: [cyane2e/processor1]
 plugins: []
 templates: []
+resolvers: []
