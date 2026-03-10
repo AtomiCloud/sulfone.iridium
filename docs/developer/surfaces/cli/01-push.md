@@ -67,9 +67,11 @@ build:
     - linux/amd64
   images:
     template:
+      image: my-template
       dockerfile: Dockerfile.template
       context: .
     blob:
+      image: my-blob
       dockerfile: Dockerfile.blob
       context: ./blob
 ```

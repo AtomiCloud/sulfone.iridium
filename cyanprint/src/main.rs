@@ -558,6 +558,9 @@ fn handle_build(
     println!("🔨 Building Docker images with tag: {tag}");
 
     // Change to folder directory before loading config
+    // Note: We use set_current_dir here because this is a CLI tool that runs
+    // a single operation and exits. The alternative (using absolute paths throughout) would be
+    // more complex and error-prone for this use case.
     let folder_path = Path::new(&folder);
     let folder_absolute = folder_path.canonicalize().map_err(|e| {
         Box::new(std::io::Error::other(format!(
@@ -733,6 +736,9 @@ fn build_for_push(
     println!("🔨 Building images for push with tag: {tag}");
 
     // Change to folder directory before loading config
+    // Note: We use set_current_dir here because this is a CLI tool that runs
+    // a single operation and exits. The alternative (using absolute paths throughout) would be
+    // more complex and error-prone for this use case.
     let folder_path = Path::new(folder);
     let folder_absolute = folder_path.canonicalize().map_err(|e| {
         Box::new(std::io::Error::other(format!(

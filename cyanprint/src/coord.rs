@@ -18,7 +18,10 @@ pub async fn stop_coordinator(docker: Docker, port: u16) -> Result<(), Box<dyn E
     // 1. Call DELETE /cleanup on the Boron container
     println!("🧹 Calling cleanup endpoint on coordinator...");
     let client = crate::CyanCoordinatorClient::new(format!("http://localhost:{port}"));
-    match client.cleanup() {
+    // Note: client.cleanup() uses blocking HTTP client, so we wrap it in spawn_blocking
+    // to avoid blocking the tokio runtime
+    let cleanup_result = tokio::task::spawn_blocking(move || client.cleanup()).await;
+    match cleanup_result.unwrap() {
         Ok(res) => {
             println!("✅ Cleanup completed");
             if !res.removed_containers.is_empty() {
