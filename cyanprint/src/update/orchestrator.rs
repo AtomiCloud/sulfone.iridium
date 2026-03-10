@@ -1,4 +1,5 @@
 use std::error::Error;
+use std::fmt;
 use std::path::Path;
 use std::rc::Rc;
 
@@ -6,10 +7,24 @@ use cyancoordinator::client::CyanCoordinatorClient;
 use cyancoordinator::session::SessionIdGenerator;
 use cyancoordinator::state::{DefaultStateManager, StateReader, StateWriter};
 use cyanregistry::http::client::CyanRegistryClient;
+use inquire::Select;
 
 use super::operator_factory::OperatorFactory;
 use super::spec::{TemplateSpec, TemplateSpecManager, sort_specs};
+use crate::git::{GitError, get_modified_files, is_git_dirty};
 use crate::run::batch_process;
+
+/// Error type for user-initiated abort
+#[derive(Debug)]
+pub struct UserAborted;
+
+impl fmt::Display for UserAborted {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Update aborted by user")
+    }
+}
+
+impl Error for UserAborted {}
 
 /// Main orchestrator for the template update process
 pub struct UpdateOrchestrator;
@@ -29,6 +44,77 @@ impl UpdateOrchestrator {
         force: bool,
     ) -> Result<Vec<String>, Box<dyn Error + Send>> {
         let target_dir = Path::new(&path);
+
+        // === GIT DIRTY CHECK STARTS HERE ===
+        if !force {
+            match is_git_dirty(target_dir) {
+                Ok(true) => {
+                    // Git is dirty - prompt user
+                    eprintln!("⚠️  Warning: Working directory has uncommitted changes");
+                    eprintln!();
+
+                    // Show modified files
+                    if let Ok(files) = get_modified_files(target_dir) {
+                        if !files.is_empty() {
+                            eprintln!("Modified files:");
+                            for file in files.iter().take(10) {
+                                eprintln!("  {file}");
+                            }
+                            if files.len() > 10 {
+                                eprintln!("  ... and {} more", files.len() - 10);
+                            }
+                            eprintln!();
+                        }
+                    }
+
+                    // Prompt user
+                    let proceed = Select::new(
+                        "Do you want to proceed with the update?",
+                        vec!["No, abort", "Yes, proceed"],
+                    )
+                    .with_help_message("Uncommitted changes may be overwritten or cause conflicts")
+                    .prompt()
+                    .map_err(|e| {
+                        Box::new(std::io::Error::other(format!("Prompt failed: {e}")))
+                            as Box<dyn Error + Send>
+                    })?;
+
+                    if proceed == "No, abort" {
+                        eprintln!("🚫 Update aborted by user");
+                        return Err(Box::new(UserAborted) as Box<dyn Error + Send>);
+                    }
+
+                    eprintln!("✅ Proceeding with update...");
+                    eprintln!();
+                }
+                Ok(false) => {
+                    // Git is clean, no action needed
+                }
+                Err(GitError::NotAGitRepository) => {
+                    // Not a git repo - warn and continue
+                    eprintln!("ℹ️  Note: Not a git repository, skipping dirty check");
+                    eprintln!();
+                }
+                Err(GitError::GitNotInstalled) => {
+                    // Git not installed - warn and continue
+                    eprintln!("⚠️  Warning: Git not found, skipping dirty check");
+                    eprintln!();
+                }
+                Err(e) => {
+                    // Other git error - warn and continue
+                    eprintln!(
+                        "⚠️  Warning: Could not check git status: {}",
+                        format_git_error(&e)
+                    );
+                    eprintln!();
+                }
+            }
+        } else {
+            // Force mode - skip check but inform user
+            eprintln!("ℹ️  Force mode enabled - skipping git dirty check");
+            eprintln!();
+        }
+        // === GIT DIRTY CHECK ENDS HERE ===
 
         // Create the composition operator (clone coord_client since we also need it for batch_process)
         let mut composition_operator = OperatorFactory::create_composition_operator(
@@ -120,5 +206,41 @@ impl UpdateOrchestrator {
 
         println!("✅ Batch update complete");
         Ok(session_ids)
+    }
+}
+
+/// Format git error for display
+fn format_git_error(err: &GitError) -> String {
+    match err {
+        GitError::NotAGitRepository => "Not a git repository".to_string(),
+        GitError::GitNotInstalled => "Git not installed".to_string(),
+        GitError::CommandFailed(msg) => format!("Git command failed: {msg}"),
+        GitError::IoError(e) => format!("IO error: {e}"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_format_git_error() {
+        assert_eq!(
+            format_git_error(&GitError::NotAGitRepository),
+            "Not a git repository"
+        );
+        assert_eq!(
+            format_git_error(&GitError::GitNotInstalled),
+            "Git not installed"
+        );
+        assert_eq!(
+            format_git_error(&GitError::CommandFailed("test error".to_string())),
+            "Git command failed: test error"
+        );
+        let io_err = std::io::Error::new(std::io::ErrorKind::NotFound, "test");
+        assert_eq!(
+            format_git_error(&GitError::IoError(io_err)),
+            "IO error: test"
+        );
     }
 }

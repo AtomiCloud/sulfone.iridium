@@ -15,6 +15,7 @@ mod version_manager;
 use orchestrator::UpdateOrchestrator;
 
 // Re-export public interface
+pub use orchestrator::UserAborted;
 pub use spec::{TemplateSpec, TemplateSpecManager, sort_specs};
 pub use utils::{SelectionError, parse_template_key};
 pub use version_manager::{TemplateVersionInfo, format_friendly_date, select_version_interactive};

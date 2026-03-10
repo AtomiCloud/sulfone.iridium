@@ -15,6 +15,7 @@ use crate::commands::{Cli, Commands, DaemonCommands, PushArgs, PushCommands};
 use crate::coord::{start_coordinator, stop_coordinator};
 use crate::docker::{BuildOptions, BuildxBuilder};
 use crate::run::cyan_run;
+use crate::update::UserAborted;
 use crate::update::cyan_update;
 use crate::util::parse_ref;
 
@@ -462,6 +463,11 @@ fn run() -> Result<(), Box<dyn Error + Send>> {
                     println!("✅ Cleaned up all sessions");
                 }
                 Err(e) => {
+                    // Check if this is a UserAborted error
+                    if e.is::<UserAborted>() {
+                        // User aborted - no error message needed, already printed in orchestrator
+                        return Ok(());
+                    }
                     eprintln!("🚨 Error during update: {e:#?}");
                 }
             }
