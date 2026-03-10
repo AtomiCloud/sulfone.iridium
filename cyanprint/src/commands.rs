@@ -93,6 +93,12 @@ pub enum Commands {
             default_value_t = false
         )]
         interactive: bool,
+
+        #[arg(
+            long,
+            help = "Force update even if git is dirty (skip confirmation prompt)"
+        )]
+        force: bool,
     },
 
     #[command(alias = "d", about = "Manage the CyanPrint Coordinator daemon")]

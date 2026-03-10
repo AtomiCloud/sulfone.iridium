@@ -18,6 +18,7 @@ impl UpdateOrchestrator {
     /// Update all templates in a project to their latest versions with automatic composition detection
     /// Uses unified batch VFS processing: MAP -> LAYER -> MERGE+WRITE
     /// Returns all session IDs that were created and need to be cleaned up
+    #[allow(unused_variables)]
     pub fn update_templates(
         session_id_generator: Box<dyn SessionIdGenerator>,
         path: String,
@@ -25,6 +26,7 @@ impl UpdateOrchestrator {
         registry_client: Rc<CyanRegistryClient>,
         debug: bool,
         interactive: bool,
+        force: bool,
     ) -> Result<Vec<String>, Box<dyn Error + Send>> {
         let target_dir = Path::new(&path);
 

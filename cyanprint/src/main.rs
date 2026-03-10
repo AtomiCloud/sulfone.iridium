@@ -22,6 +22,7 @@ pub mod commands;
 pub mod coord;
 pub mod docker;
 pub mod errors;
+pub mod git;
 pub mod run;
 pub mod update;
 pub mod util;
@@ -432,6 +433,7 @@ fn run() -> Result<(), Box<dyn Error + Send>> {
             path,
             coordinator_endpoint,
             interactive,
+            force,
         } => {
             let session_id_generator = Box::new(DefaultSessionIdGenerator);
             let coord_client = CyanCoordinatorClient::new(coordinator_endpoint.clone());
@@ -446,6 +448,7 @@ fn run() -> Result<(), Box<dyn Error + Send>> {
                 Rc::clone(&registry_ref),
                 cli.debug,
                 interactive,
+                force,
             );
 
             match r {

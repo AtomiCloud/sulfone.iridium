@@ -28,6 +28,7 @@ pub fn cyan_update(
     registry_client: Rc<CyanRegistryClient>,
     debug: bool,
     interactive: bool,
+    force: bool,
 ) -> Result<Vec<String>, Box<dyn Error + Send>> {
     UpdateOrchestrator::update_templates(
         session_id_generator,
@@ -36,5 +37,6 @@ pub fn cyan_update(
         registry_client,
         debug,
         interactive,
+        force,
     )
 }
