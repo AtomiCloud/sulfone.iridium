@@ -45,6 +45,9 @@ pub enum Commands {
 
         #[arg(long, help = "Show commands without executing")]
         dry_run: bool,
+
+        #[arg(long, default_value = ".", help = "Working directory for the build")]
+        folder: String,
     },
 
     #[command(alias = "p", about = "Publish a CyanPrint artifact")]
@@ -169,6 +172,13 @@ pub struct PushArgs {
 
     #[arg(long, help = "Show build commands without executing")]
     pub dry_run: bool,
+
+    #[arg(
+        long,
+        default_value = ".",
+        help = "Working directory for the build (used with --build)"
+    )]
+    pub folder: String,
 }
 
 #[derive(Debug, Subcommand)]
@@ -317,5 +327,42 @@ mod tests {
     fn test_daemon_requires_subcommand() {
         let result = Cli::try_parse_from(["cyanprint", "daemon"]);
         assert!(result.is_err(), "daemon without subcommand should fail");
+    }
+
+    #[test]
+    fn test_build_command_with_folder() {
+        let cli = Cli::try_parse_from(["cyanprint", "build", "v1", "--folder", "./e2e/plugin2"]);
+        assert!(cli.is_ok());
+        if let Commands::Build {
+            tag,
+            config,
+            platform,
+            builder,
+            no_cache,
+            dry_run,
+            folder,
+        } = cli.unwrap().command
+        {
+            assert_eq!(tag, "v1");
+            assert_eq!(config, "cyan.yaml");
+            assert_eq!(folder, "./e2e/plugin2");
+            assert!(platform.is_none());
+            assert!(builder.is_none());
+            assert!(!no_cache);
+            assert!(!dry_run);
+        } else {
+            panic!("Expected Commands::Build");
+        }
+    }
+
+    #[test]
+    fn test_build_command_default_folder() {
+        let cli = Cli::try_parse_from(["cyanprint", "build", "v1"]);
+        assert!(cli.is_ok());
+        if let Commands::Build { folder, .. } = cli.unwrap().command {
+            assert_eq!(folder, ".");
+        } else {
+            panic!("Expected Commands::Build");
+        }
     }
 }

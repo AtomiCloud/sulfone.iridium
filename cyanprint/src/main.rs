@@ -1,4 +1,5 @@
 use std::error::Error;
+use std::path::Path;
 use std::process::ExitCode;
 use std::rc::Rc;
 
@@ -53,7 +54,8 @@ fn run() -> Result<(), Box<dyn Error + Send>> {
             builder,
             no_cache,
             dry_run,
-        } => handle_build(tag, config, platform, builder, no_cache, dry_run),
+            folder,
+        } => handle_build(tag, config, folder, platform, builder, no_cache, dry_run),
         Commands::Push(push_arg) => match push_arg.commands {
             PushCommands::Processor { build, image, tag } => {
                 let PushArgs {
@@ -64,6 +66,7 @@ fn run() -> Result<(), Box<dyn Error + Send>> {
                     builder,
                     no_cache,
                     dry_run,
+                    folder,
                     ..
                 } = push_arg;
 
@@ -78,6 +81,7 @@ fn run() -> Result<(), Box<dyn Error + Send>> {
 
                     let result = build_for_push(
                         &config,
+                        &folder,
                         &build_tag,
                         &["processor"],
                         platform.as_deref(),
@@ -86,7 +90,7 @@ fn run() -> Result<(), Box<dyn Error + Send>> {
                         dry_run,
                     )?;
 
-                    let image_ref = format!("{}/processor", result.registry);
+                    let image_ref = format!("{}/{}", result.registry, result.image);
                     (image_ref, build_tag)
                 } else {
                     // Push existing mode
@@ -134,6 +138,7 @@ fn run() -> Result<(), Box<dyn Error + Send>> {
                     builder,
                     no_cache,
                     dry_run,
+                    folder,
                     ..
                 } = push_arg;
 
@@ -153,6 +158,7 @@ fn run() -> Result<(), Box<dyn Error + Send>> {
 
                         let result = build_for_push(
                             &config,
+                            &folder,
                             &build_tag,
                             &["template", "blob"],
                             platform.as_deref(),
@@ -161,8 +167,8 @@ fn run() -> Result<(), Box<dyn Error + Send>> {
                             dry_run,
                         )?;
 
-                        let blob_ref = format!("{}/blob", result.registry);
-                        let template_ref = format!("{}/template", result.registry);
+                        let blob_ref = format!("{}/{}", result.registry, result.blob_image);
+                        let template_ref = format!("{}/{}", result.registry, result.image);
                         (blob_ref, build_tag.clone(), template_ref, build_tag)
                     } else {
                         // Push existing mode
@@ -237,6 +243,7 @@ fn run() -> Result<(), Box<dyn Error + Send>> {
                     builder,
                     no_cache,
                     dry_run,
+                    folder,
                     ..
                 } = push_arg;
 
@@ -251,6 +258,7 @@ fn run() -> Result<(), Box<dyn Error + Send>> {
 
                     let result = build_for_push(
                         &config,
+                        &folder,
                         &build_tag,
                         &["plugin"],
                         platform.as_deref(),
@@ -259,7 +267,7 @@ fn run() -> Result<(), Box<dyn Error + Send>> {
                         dry_run,
                     )?;
 
-                    let image_ref = format!("{}/plugin", result.registry);
+                    let image_ref = format!("{}/{}", result.registry, result.image);
                     (image_ref, build_tag)
                 } else {
                     // Push existing mode
@@ -301,6 +309,7 @@ fn run() -> Result<(), Box<dyn Error + Send>> {
                     builder,
                     no_cache,
                     dry_run,
+                    folder,
                     ..
                 } = push_arg;
 
@@ -315,6 +324,7 @@ fn run() -> Result<(), Box<dyn Error + Send>> {
 
                     let result = build_for_push(
                         &config,
+                        &folder,
                         &build_tag,
                         &["resolver"],
                         platform.as_deref(),
@@ -323,7 +333,7 @@ fn run() -> Result<(), Box<dyn Error + Send>> {
                         dry_run,
                     )?;
 
-                    let image_ref = format!("{}/resolver", result.registry);
+                    let image_ref = format!("{}/{}", result.registry, result.image);
                     (image_ref, build_tag)
                 } else {
                     // Push existing mode
@@ -539,12 +549,27 @@ where
 fn handle_build(
     tag: String,
     config: String,
+    folder: String,
     platform: Option<String>,
     builder: Option<String>,
     no_cache: bool,
     dry_run: bool,
 ) -> Result<(), Box<dyn Error + Send>> {
     println!("🔨 Building Docker images with tag: {tag}");
+
+    // Change to folder directory before loading config
+    let folder_path = Path::new(&folder);
+    let folder_absolute = folder_path.canonicalize().map_err(|e| {
+        Box::new(std::io::Error::other(format!(
+            "Failed to resolve folder path: {e}"
+        ))) as Box<dyn Error + Send>
+    })?;
+    std::env::set_current_dir(&folder_absolute).map_err(|e| {
+        Box::new(std::io::Error::other(format!(
+            "Failed to change directory to {}: {e}",
+            folder_absolute.display()
+        ))) as Box<dyn Error + Send>
+    })?;
 
     // Pre-flight checks (skip in dry-run mode)
     if !dry_run {
@@ -563,7 +588,7 @@ fn handle_build(
         println!("  ✓ Docker buildx is available");
     }
 
-    // Load and parse config file
+    // Load and parse config file (now relative to folder)
     println!("📄 Loading configuration from: {config}");
     let build_config = read_build_config(config.clone())?;
 
@@ -623,8 +648,13 @@ fn handle_build(
     }
 
     // Build each image
-    for (image_name, img_config) in images_to_build {
-        println!("\n🔨 Building image: {image_name}");
+    for (image_type, img_config) in images_to_build {
+        let image_name = img_config
+            .image
+            .as_ref()
+            .expect("image field should be validated by mapper");
+        println!("\n🔨 Building image: {image_type}");
+        println!("  Image name: {image_name}");
         println!("  Dockerfile: {}", img_config.dockerfile);
         println!("  Context: {}", img_config.context);
 
@@ -641,11 +671,11 @@ fn handle_build(
 
         match result {
             Ok(_) => {
-                println!("  ✅ Successfully built {image_name}");
+                println!("  ✅ Successfully built {image_type}");
                 success_count += 1;
             }
             Err(e) => {
-                eprintln!("  ❌ Failed to build {image_name}: {e}");
+                eprintln!("  ❌ Failed to build {image_type}: {e}");
                 fail_count += 1;
                 // Continue building other images even if one fails
             }
@@ -672,20 +702,27 @@ fn handle_build(
 struct PushBuildResult {
     /// Registry URL from config
     registry: String,
+    /// Image name for single-image builds (processor, plugin, resolver)
+    image: String,
+    /// Image name for template blob (only for template builds)
+    blob_image: String,
 }
 
 /// Build specific images for push --build mode
 ///
 /// # Arguments
 /// * `config_path` - Path to cyan.yaml
+/// * `folder` - Working directory for the build
 /// * `tag` - Tag to use for built images
-/// * `image_names` - List of image names to build (e.g., ["template", "blob"])
+/// * `image_names` - List of image types to build (e.g., ["template", "blob"])
 /// * `platform` - Optional platform override
 /// * `builder` - Optional builder override
 /// * `no_cache` - Whether to disable cache
 /// * `dry_run` - Whether to show commands without executing
+#[allow(clippy::too_many_arguments)]
 fn build_for_push(
     config_path: &str,
+    folder: &str,
     tag: &str,
     image_names: &[&str],
     platform: Option<&str>,
@@ -694,6 +731,20 @@ fn build_for_push(
     dry_run: bool,
 ) -> Result<PushBuildResult, Box<dyn Error + Send>> {
     println!("🔨 Building images for push with tag: {tag}");
+
+    // Change to folder directory before loading config
+    let folder_path = Path::new(folder);
+    let folder_absolute = folder_path.canonicalize().map_err(|e| {
+        Box::new(std::io::Error::other(format!(
+            "Failed to resolve folder path: {e}"
+        ))) as Box<dyn Error + Send>
+    })?;
+    std::env::set_current_dir(&folder_absolute).map_err(|e| {
+        Box::new(std::io::Error::other(format!(
+            "Failed to change directory to {}: {e}",
+            folder_absolute.display()
+        ))) as Box<dyn Error + Send>
+    })?;
 
     // Pre-flight checks (skip in dry-run mode)
     if !dry_run {
@@ -741,9 +792,15 @@ fn build_for_push(
         println!("🏃 Dry-run mode - showing commands without executing:\n");
     }
 
+    let mut result = PushBuildResult {
+        registry: registry.clone(),
+        image: String::new(),
+        blob_image: String::new(),
+    };
+
     // Build each requested image
-    for image_name in image_names {
-        let img_config = match *image_name {
+    for image_type in image_names {
+        let img_config = match *image_type {
             "template" => images.template.as_ref(),
             "blob" => images.blob.as_ref(),
             "processor" => images.processor.as_ref(),
@@ -756,16 +813,22 @@ fn build_for_push(
             Some(c) => c,
             None => {
                 return Err(Box::new(std::io::Error::other(format!(
-                    "No {image_name} image configuration found in cyan.yaml"
+                    "No {image_type} image configuration found in cyan.yaml"
                 ))) as Box<dyn Error + Send>);
             }
         };
 
-        println!("\n🔨 Building image: {image_name}");
+        let image_name = img_config
+            .image
+            .as_ref()
+            .expect("image field should be validated by mapper");
+
+        println!("\n🔨 Building image: {image_type}");
+        println!("  Image name: {image_name}");
         println!("  Dockerfile: {}", img_config.dockerfile);
         println!("  Context: {}", img_config.context);
 
-        let result = buildx.build(BuildOptions {
+        let build_result = buildx.build(BuildOptions {
             registry,
             image_name,
             tag,
@@ -776,17 +839,38 @@ fn build_for_push(
             dry_run,
         });
 
-        if let Err(e) = result {
-            eprintln!("  ❌ Failed to build {image_name}: {e}");
+        if let Err(e) = build_result {
+            eprintln!("  ❌ Failed to build {image_type}: {e}");
             return Err(e);
         }
 
-        println!("  ✅ Successfully built {image_name}");
+        println!("  ✅ Successfully built {image_type}");
+
+        // Store image names for reference construction
+        match *image_type {
+            "template" => {
+                result.image = img_config
+                    .image
+                    .clone()
+                    .expect("image field should be validated by mapper")
+            }
+            "blob" => {
+                result.blob_image = img_config
+                    .image
+                    .clone()
+                    .expect("image field should be validated by mapper")
+            }
+            "processor" | "plugin" | "resolver" => {
+                result.image = img_config
+                    .image
+                    .clone()
+                    .expect("image field should be validated by mapper")
+            }
+            _ => {}
+        }
     }
 
-    Ok(PushBuildResult {
-        registry: registry.clone(),
-    })
+    Ok(result)
 }
 
 #[cfg(test)]

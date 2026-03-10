@@ -45,6 +45,10 @@ pub struct ImagesConfig {
 /// Individual image build configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ImageConfig {
+    /// Image name (e.g., "my-template")
+    #[serde(default)]
+    pub image: Option<String>,
+
     /// Path to the Dockerfile
     pub dockerfile: String,
 
@@ -62,6 +66,7 @@ mod tests {
 registry: ghcr.io/atomicloud
 images:
   template:
+    image: my-template
     dockerfile: Dockerfile.template
     context: .
 "#;
@@ -86,6 +91,7 @@ platforms:
   - linux/arm64
 images:
   template:
+    image: my-template
     dockerfile: Dockerfile.template
     context: .
 "#;
@@ -105,18 +111,23 @@ platforms:
   - linux/amd64
 images:
   template:
+    image: my-template
     dockerfile: docker/Dockerfile.template
     context: .
   blob:
+    image: my-blob
     dockerfile: docker/Dockerfile.blob
     context: ./blob
   processor:
+    image: my-processor
     dockerfile: docker/Dockerfile.processor
     context: ./processor
   plugin:
+    image: my-plugin
     dockerfile: docker/Dockerfile.plugin
     context: ./plugin
   resolver:
+    image: my-resolver
     dockerfile: docker/Dockerfile.resolver
     context: ./resolver
 "#;
@@ -129,6 +140,7 @@ images:
         assert!(images.resolver.is_some());
 
         let template = images.template.as_ref().unwrap();
+        assert_eq!(template.image, Some("my-template".to_string()));
         assert_eq!(template.dockerfile, "docker/Dockerfile.template");
         assert_eq!(template.context, ".");
     }

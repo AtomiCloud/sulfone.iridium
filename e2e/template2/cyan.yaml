@@ -17,8 +17,10 @@ build:
     - linux/amd64
   images:
     template:
+      image: template2
       dockerfile: cyan/Dockerfile
       context: ./cyan
     blob:
+      image: blob2
       dockerfile: blob.Dockerfile
       context: .

@@ -140,6 +140,7 @@ pub enum ParsingError {
     MissingBuildSection,
     MissingBuildRegistry,
     MissingBuildImages,
+    MissingImageField(String),
 }
 
 impl Error for ParsingError {}
@@ -167,6 +168,9 @@ impl fmt::Display for ParsingError {
             }
             ParsingError::MissingBuildImages => {
                 write!(f, "At least one image must be defined in build.images")
+            }
+            ParsingError::MissingImageField(image_name) => {
+                write!(f, "build.images.{image_name}.image is required")
             }
         }
     }
@@ -332,11 +336,30 @@ pub struct BuildFileConfig {
     pub build: Option<BuildConfig>,
 }
 
+/// Validates that the image field exists and is not empty
+fn validate_image_field(
+    image_config: &crate::cli::models::build_config::ImageConfig,
+    image_name: &str,
+) -> Result<(), Box<dyn Error + Send>> {
+    match &image_config.image {
+        None => Err(
+            Box::new(ParsingError::MissingImageField(image_name.to_string()))
+                as Box<dyn Error + Send>,
+        ),
+        Some(image_value) if image_value.trim().is_empty() => Err(Box::new(
+            ParsingError::MissingImageField(image_name.to_string()),
+        )
+            as Box<dyn Error + Send>),
+        Some(_) => Ok(()),
+    }
+}
+
 /// Validates and returns the BuildConfig from a parsed file
 /// Returns error if:
 /// - No build section exists
 /// - Registry is missing
 /// - No images are defined
+/// - Image field is missing or empty
 pub fn build_config_mapper(config: &BuildConfig) -> Result<BuildConfig, Box<dyn Error + Send>> {
     // Validate registry exists and is not empty
     match &config.registry {
@@ -352,6 +375,23 @@ pub fn build_config_mapper(config: &BuildConfig) -> Result<BuildConfig, Box<dyn 
         .images
         .as_ref()
         .ok_or_else(|| Box::new(ParsingError::MissingBuildImages) as Box<dyn Error + Send>)?;
+
+    // Validate each image has the required 'image' field
+    if let Some(ref img) = images.template {
+        validate_image_field(img, "template")?;
+    }
+    if let Some(ref img) = images.blob {
+        validate_image_field(img, "blob")?;
+    }
+    if let Some(ref img) = images.processor {
+        validate_image_field(img, "processor")?;
+    }
+    if let Some(ref img) = images.plugin {
+        validate_image_field(img, "plugin")?;
+    }
+    if let Some(ref img) = images.resolver {
+        validate_image_field(img, "resolver")?;
+    }
 
     // Validate at least one image is defined
     let has_images = images.template.is_some()
@@ -510,6 +550,7 @@ mod tests {
             platforms: None,
             images: Some(ImagesConfig {
                 template: Some(crate::cli::models::build_config::ImageConfig {
+                    image: Some("my-template".to_string()),
                     dockerfile: "Dockerfile".to_string(),
                     context: ".".to_string(),
                 }),
@@ -556,6 +597,7 @@ mod tests {
             platforms: Some(vec!["linux/amd64".to_string()]),
             images: Some(ImagesConfig {
                 template: Some(ImageConfig {
+                    image: Some("my-template".to_string()),
                     dockerfile: "Dockerfile".to_string(),
                     context: ".".to_string(),
                 }),
@@ -586,6 +628,7 @@ mod tests {
                 r#"build:
   images:
     template:
+      image: my-template
       dockerfile: Dockerfile
       context: .
 "#
@@ -657,5 +700,100 @@ mod tests {
             err_msg, "At least one image must be defined in build.images",
             "Error message should match spec, got: {err_msg}"
         );
+    }
+
+    #[test]
+    fn test_read_build_config_missing_image_field() {
+        // Test that YAML missing image field returns proper error message
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+        let config_path = temp_dir.path().join("cyan.yaml");
+        let mut config_file = std::fs::File::create(&config_path).expect("Failed to create config");
+        // Write YAML with build section but missing image field
+        config_file
+            .write_all(
+                r#"build:
+  registry: ghcr.io/atomicloud
+  images:
+    template:
+      dockerfile: Dockerfile
+      context: .
+"#
+                .as_bytes(),
+            )
+            .expect("Failed to write config");
+
+        let result = read_build_config(config_path.to_string_lossy().to_string());
+        assert!(result.is_err(), "Should fail for missing image field");
+
+        let err = result.unwrap_err();
+        let err_msg = err.to_string();
+        assert_eq!(
+            err_msg, "build.images.template.image is required",
+            "Error message should match spec, got: {err_msg}"
+        );
+    }
+
+    #[test]
+    fn test_read_build_config_empty_image_field() {
+        // Test that YAML with empty image field returns proper error message
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+        let config_path = temp_dir.path().join("cyan.yaml");
+        let mut config_file = std::fs::File::create(&config_path).expect("Failed to create config");
+        // Write YAML with build section but empty image field
+        config_file
+            .write_all(
+                r#"build:
+  registry: ghcr.io/atomicloud
+  images:
+    template:
+      image: ""
+      dockerfile: Dockerfile
+      context: .
+"#
+                .as_bytes(),
+            )
+            .expect("Failed to write config");
+
+        let result = read_build_config(config_path.to_string_lossy().to_string());
+        assert!(result.is_err(), "Should fail for empty image field");
+
+        let err = result.unwrap_err();
+        let err_msg = err.to_string();
+        assert_eq!(
+            err_msg, "build.images.template.image is required",
+            "Error message should match spec, got: {err_msg}"
+        );
+    }
+
+    #[test]
+    fn test_read_build_config_valid_with_image_field() {
+        // Test that valid YAML with image field parses correctly
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+        let config_path = temp_dir.path().join("cyan.yaml");
+        let mut config_file = std::fs::File::create(&config_path).expect("Failed to create config");
+        config_file
+            .write_all(
+                r#"build:
+  registry: ghcr.io/atomicloud
+  images:
+    template:
+      image: my-template
+      dockerfile: Dockerfile
+      context: .
+"#
+                .as_bytes(),
+            )
+            .expect("Failed to write config");
+
+        let result = read_build_config(config_path.to_string_lossy().to_string());
+        assert!(result.is_ok(), "Should succeed with valid config");
+
+        let config = result.unwrap();
+        assert_eq!(config.registry, Some("ghcr.io/atomicloud".to_string()));
+        let images = config.images.unwrap();
+        let template = images.template.unwrap();
+        assert_eq!(template.image, Some("my-template".to_string()));
+        assert_eq!(template.dockerfile, "Dockerfile");
+        assert_eq!(template.context, ".");
     }
 }
