@@ -1,3 +1,23 @@
+## [2.9.0](https://github.com/AtomiCloud/sulfone.iridium/compare/v2.8.0...v2.9.0) (2026-03-09)
+
+
+### 📜 Documentation 📜
+
+* add implementation plans for CU-86ewucdfj v1 ([45fea0c](https://github.com/AtomiCloud/sulfone.iridium/commit/45fea0c9d7d6d982bfea8bb5f074939cb2935d16))
+* add task spec for CU-86ewucdfj ([aa61b47](https://github.com/AtomiCloud/sulfone.iridium/commit/aa61b4788ce70b5fec67b3203d1c2b1d0848f3bb))
+* replace line number references with function names in daemon docs ([5f7f35c](https://github.com/AtomiCloud/sulfone.iridium/commit/5f7f35c73f38ed48a349ee17bf75888e60708d05))
+
+
+### ✨ Features ✨
+
+* **cyanprint:** add daemon stop subcommand with cleanup ([5018e1d](https://github.com/AtomiCloud/sulfone.iridium/commit/5018e1df46552fa6f309d6e588cc12665a23b2c2))
+
+
+### 🐛 Bug Fixes 🐛
+
+* **cyanprint:** address CodeRabbit review feedback ([cb33ebd](https://github.com/AtomiCloud/sulfone.iridium/commit/cb33ebd17d7c0c7abc23dc2f0bf8b073db8557c9))
+* **test:** ignore registry field in test_daemon_start_default_values ([34a0d89](https://github.com/AtomiCloud/sulfone.iridium/commit/34a0d89f4ceaa53860f355830036fcc70f554870))
+
 ## [2.8.0](https://github.com/AtomiCloud/sulfone.iridium/compare/v2.7.0...v2.8.0) (2026-03-09)
 
 
