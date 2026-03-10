@@ -1,3 +1,5 @@
+pub mod mapper;
 pub mod models;
 
-pub mod mapper;
+// Re-export build config types for convenient access
+pub use models::build_config::{BuildConfig, ImageConfig, ImagesConfig};

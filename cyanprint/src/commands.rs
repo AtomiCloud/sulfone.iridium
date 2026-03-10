@@ -26,6 +26,30 @@ pub struct Cli {
 
 #[derive(Subcommand)]
 pub enum Commands {
+    #[command(alias = "b", about = "Build Docker images using buildx")]
+    Build {
+        #[arg(value_name = "TAG")]
+        tag: String,
+
+        #[arg(short, long, default_value = "cyan.yaml")]
+        config: String,
+
+        #[arg(short, long, help = "Target platforms (comma-separated)")]
+        platform: Option<String>,
+
+        #[arg(short, long, help = "Buildx builder to use")]
+        builder: Option<String>,
+
+        #[arg(long, help = "Don't use cache")]
+        no_cache: bool,
+
+        #[arg(long, help = "Show commands without executing")]
+        dry_run: bool,
+
+        #[arg(long, default_value = ".", help = "Working directory for the build")]
+        folder: String,
+    },
+
     #[command(alias = "p", about = "Publish a CyanPrint artifact")]
     Push(PushArgs),
 
@@ -136,36 +160,79 @@ pub struct PushArgs {
 
     #[arg(short, long, value_name = "API_TOKEN", env = "CYAN_TOKEN")]
     pub token: String,
+
+    #[arg(long, help = "Target platforms for build (comma-separated)")]
+    pub platform: Option<String>,
+
+    #[arg(long, help = "Buildx builder to use for build")]
+    pub builder: Option<String>,
+
+    #[arg(long, help = "Don't use cache during build")]
+    pub no_cache: bool,
+
+    #[arg(long, help = "Show build commands without executing")]
+    pub dry_run: bool,
+
+    #[arg(
+        long,
+        default_value = ".",
+        help = "Working directory for the build (used with --build)"
+    )]
+    pub folder: String,
 }
 
 #[derive(Debug, Subcommand)]
 pub enum PushCommands {
     Template {
-        blob_image: String,
+        #[arg(
+            long,
+            help = "Build with tag before pushing (requires build config in cyan.yaml)"
+        )]
+        build: Option<String>,
 
-        blob_tag: String,
+        blob_image: Option<String>,
 
-        template_image: String,
+        blob_tag: Option<String>,
 
-        template_tag: String,
+        template_image: Option<String>,
+
+        template_tag: Option<String>,
     },
     #[command(about = "Push a template group (meta-template that combines other templates)")]
     Group,
     Plugin {
-        image: String,
+        #[arg(
+            long,
+            help = "Build with tag before pushing (requires build config in cyan.yaml)"
+        )]
+        build: Option<String>,
 
-        tag: String,
+        image: Option<String>,
+
+        tag: Option<String>,
     },
     Processor {
-        image: String,
+        #[arg(
+            long,
+            help = "Build with tag before pushing (requires build config in cyan.yaml)"
+        )]
+        build: Option<String>,
 
-        tag: String,
+        image: Option<String>,
+
+        tag: Option<String>,
     },
     #[command(about = "Push a conflict resolver artifact")]
     Resolver {
-        image: String,
+        #[arg(
+            long,
+            help = "Build with tag before pushing (requires build config in cyan.yaml)"
+        )]
+        build: Option<String>,
 
-        tag: String,
+        image: Option<String>,
+
+        tag: Option<String>,
     },
 }
 
@@ -260,5 +327,42 @@ mod tests {
     fn test_daemon_requires_subcommand() {
         let result = Cli::try_parse_from(["cyanprint", "daemon"]);
         assert!(result.is_err(), "daemon without subcommand should fail");
+    }
+
+    #[test]
+    fn test_build_command_with_folder() {
+        let cli = Cli::try_parse_from(["cyanprint", "build", "v1", "--folder", "./e2e/plugin2"]);
+        assert!(cli.is_ok());
+        if let Commands::Build {
+            tag,
+            config,
+            platform,
+            builder,
+            no_cache,
+            dry_run,
+            folder,
+        } = cli.unwrap().command
+        {
+            assert_eq!(tag, "v1");
+            assert_eq!(config, "cyan.yaml");
+            assert_eq!(folder, "./e2e/plugin2");
+            assert!(platform.is_none());
+            assert!(builder.is_none());
+            assert!(!no_cache);
+            assert!(!dry_run);
+        } else {
+            panic!("Expected Commands::Build");
+        }
+    }
+
+    #[test]
+    fn test_build_command_default_folder() {
+        let cli = Cli::try_parse_from(["cyanprint", "build", "v1"]);
+        assert!(cli.is_ok());
+        if let Commands::Build { folder, .. } = cli.unwrap().command {
+            assert_eq!(folder, ".");
+        } else {
+            panic!("Expected Commands::Build");
+        }
     }
 }
