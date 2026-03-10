@@ -10,7 +10,7 @@ pls build <TAG> [options]
 
 ## Description
 
-Builds Docker images using Docker buildx for multi-platform support. Reads build configuration from `cyan.yaml` and builds all defined images with the specified tag.
+Builds and publishes Docker images using Docker buildx for multi-platform support. Reads build configuration from `cyan.yaml` and builds all defined images with the specified tag, then pushes them to the configured registry.
 
 ## Arguments
 

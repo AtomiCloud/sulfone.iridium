@@ -14,7 +14,7 @@ echo "🔍 Publishing resolvers..."
 ./e2e/publish-resolver.sh ./e2e/resolver1 resolver1 push
 
 # resolver2 uses new build format
-tag=$(openssl rand -hex 3)
+tag=$(openssl rand -hex 5)
 cyanprint push resolver --build "$tag" --config ./e2e/resolver2/cyan.yaml
 
 # build processors
@@ -22,7 +22,7 @@ echo "🔍 Publishing processors..."
 ./e2e/publish-processor.sh ./e2e/processor1 processor1 push
 
 # processor2 uses new build format
-tag=$(openssl rand -hex 3)
+tag=$(openssl rand -hex 5)
 cyanprint push processor --build "$tag" --config ./e2e/processor2/cyan.yaml
 
 # build plugins
@@ -30,7 +30,7 @@ echo "🔍 Publishing plugins..."
 ./e2e/publish-plugin.sh ./e2e/plugin1 plugin1 push
 
 # plugin2 uses new build format
-tag=$(openssl rand -hex 3)
+tag=$(openssl rand -hex 5)
 cyanprint push plugin --build "$tag" --config ./e2e/plugin2/cyan.yaml
 
 # build templates
@@ -38,7 +38,7 @@ echo "🔍 Publishing templates..."
 ./e2e/publish-template.sh ./e2e/template1 template1 push
 
 # template2 uses new build format
-tag=$(openssl rand -hex 3)
+tag=$(openssl rand -hex 5)
 cyanprint push template --build "$tag" --config ./e2e/template2/cyan.yaml
 
 ./e2e/publish-template.sh ./e2e/template3 template3 push
