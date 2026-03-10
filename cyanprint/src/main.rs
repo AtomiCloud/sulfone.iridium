@@ -531,7 +531,11 @@ where
     F: FnOnce() -> Vec<String>,
 {
     if let Some(p) = cli_platform {
-        p.split(',').map(|s| s.trim().to_string()).collect()
+        p.split(',')
+            .map(|s| s.trim())
+            .filter(|s| !s.is_empty())
+            .map(|s| s.to_string())
+            .collect()
     } else if let Some(config_platforms) = config_platforms {
         // Treat empty platforms vector same as None - fall back to current platform
         if config_platforms.is_empty() {

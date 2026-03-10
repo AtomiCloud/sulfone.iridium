@@ -1,6 +1,22 @@
 use std::error::Error;
 use std::process::{Command, Output, Stdio};
 
+/// Shell-escape an argument for safe inclusion in command strings
+fn shell_escape(arg: &str) -> String {
+    // Simple shell escaping: wrap in single quotes and escape existing single quotes
+    let mut escaped = String::with_capacity(arg.len() + 2);
+    escaped.push('\'');
+    for c in arg.chars() {
+        if c == '\'' {
+            escaped.push_str("'\\''");
+        } else {
+            escaped.push(c);
+        }
+    }
+    escaped.push('\'');
+    escaped
+}
+
 /// Builder for executing Docker buildx commands
 pub struct BuildxBuilder {
     /// Optional builder name to use
@@ -120,7 +136,8 @@ impl BuildxBuilder {
         args.push(opts.context.to_string());
 
         if opts.dry_run {
-            println!("  docker {}", args.join(" "));
+            let escaped_args: Vec<String> = args.iter().map(|s| shell_escape(s)).collect();
+            println!("  docker {}", escaped_args.join(" "));
             return Ok(());
         }
 
@@ -174,7 +191,8 @@ impl BuildxBuilder {
 
         args.push(opts.context.to_string());
 
-        format!("docker {}", args.join(" "))
+        let escaped_args: Vec<String> = args.iter().map(|s| shell_escape(s)).collect();
+        format!("docker {}", escaped_args.join(" "))
     }
 
     /// Execute docker command and capture output
@@ -228,10 +246,13 @@ mod tests {
             dry_run: false,
         });
 
-        assert!(cmd.contains("buildx build"));
-        assert!(cmd.contains("--push"));
+        // Output is shell-escaped, so check for quoted arguments
+        assert!(cmd.contains("'buildx'"));
+        assert!(cmd.contains("'build'"));
+        assert!(cmd.contains("'--push'"));
         assert!(cmd.contains("ghcr.io/atomicloud/my-template:v1.0.0"));
-        assert!(cmd.contains("--file Dockerfile"));
+        assert!(cmd.contains("--file"));
+        assert!(cmd.contains("'Dockerfile'"));
         assert!(!cmd.contains("--platform"));
         assert!(!cmd.contains("--no-cache"));
     }
@@ -250,7 +271,9 @@ mod tests {
             dry_run: false,
         });
 
-        assert!(cmd.contains("--platform linux/amd64,linux/arm64"));
+        // Platform string is joined with comma and then quoted
+        assert!(cmd.contains("--platform"));
+        assert!(cmd.contains("linux/amd64,linux/arm64"));
     }
 
     #[test]
@@ -284,6 +307,8 @@ mod tests {
             dry_run: false,
         });
 
-        assert!(cmd.contains("--builder multi-arch"));
+        // Builder option and value are quoted separately
+        assert!(cmd.contains("--builder"));
+        assert!(cmd.contains("multi-arch"));
     }
 }

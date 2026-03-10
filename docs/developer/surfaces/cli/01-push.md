@@ -8,7 +8,7 @@
 pls push [OPTIONS] --token <API_TOKEN> <COMMAND> [SUBCOMMAND_OPTIONS] [ARGS]
 ```
 
-> **Important**: Push options (`--config`, `--message`, `--token`, `--platform`, `--builder`, `--no-cache`, `--dry-run`) must come BEFORE the subcommand. Subcommand-specific options (like `--build`) come after the subcommand name.
+> **Important**: Push options (`--config`, `--message`, `--token`, `--platform`, `--builder`, `--no-cache`, `--dry-run`, `--folder`) must come BEFORE the subcommand. Subcommand-specific options (like `--build`) come after the subcommand name.
 
 ## Description
 
@@ -33,15 +33,16 @@ Supports two modes:
 
 ## Options
 
-| Option       | Short | Default          | Description                                              |
-| ------------ | ----- | ---------------- | -------------------------------------------------------- |
-| `--config`   | `-c`  | `cyan.yaml`      | Configuration file path                                  |
-| `--message`  | `-m`  | `No description` | Publish message/description                              |
-| `--token`    | `-t`  | (optional)       | API token for authentication (or set CYAN_TOKEN env var) |
-| `--platform` |       | (from config)    | Target platforms for build (comma-separated)             |
-| `--builder`  |       | (default)        | Buildx builder to use for build                          |
-| `--no-cache` |       | false            | Don't use cache during build                             |
-| `--dry-run`  |       | false            | Show build commands without executing                    |
+| Option       | Short | Default          | Description                                                  |
+| ------------ | ----- | ---------------- | ------------------------------------------------------------ |
+| `--config`   | `-c`  | `cyan.yaml`      | Configuration file path                                      |
+| `--folder`   |       | `.`              | Working directory for the build (default: current directory) |
+| `--message`  | `-m`  | `No description` | Publish message/description                                  |
+| `--token`    | `-t`  | (optional)       | API token for authentication (or set CYAN_TOKEN env var)     |
+| `--platform` |       | (from config)    | Target platforms for build (comma-separated)                 |
+| `--builder`  |       | (default)        | Buildx builder to use for build                              |
+| `--no-cache` |       | false            | Don't use cache during build                                 |
+| `--dry-run`  |       | false            | Show build commands without executing                        |
 
 **Environment Variable**: `CYAN_TOKEN`
 
@@ -51,12 +52,13 @@ Supports two modes:
 
 When using `--build <tag>`, the following options control the build process:
 
-| Option       | Description                                                 |
-| ------------ | ----------------------------------------------------------- |
-| `--platform` | Override target platforms (e.g., `linux/amd64,linux/arm64`) |
-| `--builder`  | Use a specific buildx builder                               |
-| `--no-cache` | Disable Docker build cache                                  |
-| `--dry-run`  | Print build commands without executing                      |
+| Option       | Description                                                  |
+| ------------ | ------------------------------------------------------------ |
+| `--folder`   | Working directory for the build (default: current directory) |
+| `--platform` | Override target platforms (e.g., `linux/amd64,linux/arm64`)  |
+| `--builder`  | Use a specific buildx builder                                |
+| `--no-cache` | Disable Docker build cache                                   |
+| `--dry-run`  | Print build commands without executing                       |
 
 These options require a valid `build` section in `cyan.yaml`:
 

@@ -18,10 +18,10 @@ use crate::domain::config::template_config::{
 pub fn processor_reference_mapper(s: String) -> Option<CyanProcessorRef> {
     let mut parts = s.splitn(2, '/');
     let username = parts.next()?.to_string();
-    let rest = parts.next();
+    let rest = parts.next()?;
 
     // Split the rest by ':'
-    let mut parts = rest?.splitn(2, ':');
+    let mut parts = rest.splitn(2, ':');
     let name = parts.next()?.to_string();
     let version_str = parts.next();
 
@@ -137,7 +137,7 @@ pub enum ParsingError {
     FailedParsingProcessorReference(String),
     FailedParsingTemplateReference(String),
     FailedParsingResolverReference(String),
-    MissingBuildSection,
+    MissingBuildSection(Option<String>),
     MissingBuildRegistry,
     MissingBuildImages,
     MissingImageField(String),
@@ -160,8 +160,11 @@ impl fmt::Display for ParsingError {
             ParsingError::FailedParsingResolverReference(s) => {
                 write!(f, "Incorrect Resolver Reference: {s}")
             }
-            ParsingError::MissingBuildSection => {
-                write!(f, "No build configuration found in cyan.yaml")
+            ParsingError::MissingBuildSection(Some(path)) => {
+                write!(f, "No build configuration found in {path}")
+            }
+            ParsingError::MissingBuildSection(None) => {
+                write!(f, "No build configuration found")
             }
             ParsingError::MissingBuildRegistry => {
                 write!(f, "build.registry is required")
@@ -410,12 +413,13 @@ pub fn build_config_mapper(config: &BuildConfig) -> Result<BuildConfig, Box<dyn 
 /// Reads and parses a build configuration from a YAML file
 /// Returns specific error messages for missing build section, missing registry, or no images
 pub fn read_build_config(config_path: String) -> Result<BuildConfig, Box<dyn Error + Send>> {
-    let file_config: BuildFileConfig = read_yaml(config_path)?;
+    let file_config: BuildFileConfig = read_yaml(config_path.clone())?;
 
     // Check if build section exists
-    let build_config = file_config
-        .build
-        .ok_or_else(|| Box::new(ParsingError::MissingBuildSection) as Box<dyn Error + Send>)?;
+    let build_config = file_config.build.ok_or_else(|| {
+        Box::new(ParsingError::MissingBuildSection(Some(config_path.clone())))
+            as Box<dyn Error + Send>
+    })?;
 
     build_config_mapper(&build_config)
 }
@@ -535,10 +539,7 @@ mod tests {
 
         let err = result.unwrap_err();
         let err_msg = err.to_string();
-        assert_eq!(
-            err_msg, "No build configuration found in cyan.yaml",
-            "Error message should match spec"
-        );
+        assert!(err_msg.contains("No build configuration found in"));
     }
 
     #[test]

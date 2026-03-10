@@ -10,7 +10,7 @@ pls build <TAG> [options]
 
 ## Description
 
-Builds and publishes Docker images using Docker buildx for multi-platform support. Reads build configuration from `cyan.yaml` and builds all defined images with the specified tag, then pushes them to the configured registry.
+Builds and publishes Docker images using Docker buildx for multi-platform support. Reads build configuration from `cyan.yaml`, builds all defined images with the specified tag, and pushes them to the configured registry. This command builds and pushes images in one step—use `build` when you need to build images, or `push --build` to build and push in a single operation.
 
 ## Arguments
 
@@ -20,13 +20,14 @@ Builds and publishes Docker images using Docker buildx for multi-platform suppor
 
 ## Options
 
-| Option       | Short | Default     | Description                        |
-| ------------ | ----- | ----------- | ---------------------------------- |
-| `--config`   | `-c`  | `cyan.yaml` | Configuration file path            |
-| `--platform` | `-p`  | (config)    | Target platforms (comma-separated) |
-| `--builder`  | `-b`  | (default)   | Buildx builder to use              |
-| `--no-cache` |       | `false`     | Don't use cache                    |
-| `--dry-run`  |       | `false`     | Show commands without executing    |
+| Option       | Short | Default     | Description                                                  |
+| ------------ | ----- | ----------- | ------------------------------------------------------------ |
+| `--config`   | `-c`  | `cyan.yaml` | Configuration file path                                      |
+| `--folder`   |       | `.`         | Working directory for the build (default: current directory) |
+| `--platform` | `-p`  | (config)    | Target platforms (comma-separated)                           |
+| `--builder`  | `-b`  | (default)   | Buildx builder to use                                        |
+| `--no-cache` |       | `false`     | Don't use cache                                              |
+| `--dry-run`  |       | `false`     | Show commands without executing                              |
 
 **Key File**: `cyanprint/src/commands.rs:28-46`
 
@@ -63,18 +64,23 @@ build:
     - linux/arm64
   images:
     template:
+      image: my-template
       dockerfile: docker/Dockerfile.template
       context: .
     blob:
+      image: my-blob
       dockerfile: docker/Dockerfile.blob
       context: ./blob
     processor:
+      image: my-processor
       dockerfile: docker/Dockerfile.processor
       context: ./processor
     plugin:
+      image: my-plugin
       dockerfile: docker/Dockerfile.plugin
       context: ./plugin
     resolver:
+      image: my-resolver
       dockerfile: docker/Dockerfile.resolver
       context: ./resolver
 ```
@@ -87,6 +93,7 @@ build:
 | `platforms`                | No       | List of target platforms                            |
 | `images`                   | Yes      | Image configurations (at least one required)        |
 | `images.<type>`            | No       | One of: template, blob, processor, plugin, resolver |
+| `images.<type>.image`      | Yes      | Image name for the registry                         |
 | `images.<type>.dockerfile` | Yes      | Path to Dockerfile                                  |
 | `images.<type>.context`    | Yes      | Build context directory                             |
 
@@ -115,6 +122,7 @@ Output:
 📦 Found 5 image(s) to build
 
 🔨 Building image: template
+  Image name: my-template
   Dockerfile: docker/Dockerfile.template
   Context: .
   ✅ Successfully built template
@@ -145,9 +153,10 @@ Output:
 🏃 Dry-run mode - showing commands without executing:
 
 🔨 Building image: template
+  Image name: my-template
   Dockerfile: docker/Dockerfile.template
   Context: .
-  docker buildx build --push --platform linux/amd64 --file docker/Dockerfile.template --tag ghcr.io/atomicloud/template:v1.0.0 .
+  docker 'buildx' 'build' '--push' '--platform' 'linux/amd64' '--file' 'docker/Dockerfile.template' '--tag' 'ghcr.io/atomicloud/my-template:v1.0.0' '.'
 ...
 ```
 
@@ -208,7 +217,7 @@ sequenceDiagram
 | -------------------- | -------------------------------------------------------- |
 | Docker not running   | "Docker daemon is not running. Please start Docker."     |
 | buildx not available | "Docker buildx is not available. Please install buildx." |
-| No build section     | "No build configuration found in cyan.yaml"              |
+| No build section     | "No build configuration found in {config_path}"          |
 | Missing registry     | "build.registry is required"                             |
 | No images defined    | "At least one image must be defined in build.images"     |
 | Build failure        | Shows full buildx output with error details              |

@@ -21,8 +21,8 @@ pub async fn stop_coordinator(docker: Docker, port: u16) -> Result<(), Box<dyn E
     // Note: client.cleanup() uses blocking HTTP client, so we wrap it in spawn_blocking
     // to avoid blocking the tokio runtime
     let cleanup_result = tokio::task::spawn_blocking(move || client.cleanup()).await;
-    match cleanup_result.unwrap() {
-        Ok(res) => {
+    match cleanup_result {
+        Ok(Ok(res)) => {
             println!("✅ Cleanup completed");
             if !res.removed_containers.is_empty() {
                 println!("   Removed containers: {:?}", res.removed_containers);
@@ -34,9 +34,13 @@ pub async fn stop_coordinator(docker: Docker, port: u16) -> Result<(), Box<dyn E
                 println!("   Removed volumes: {:?}", res.removed_volumes);
             }
         }
-        Err(e) => {
+        Ok(Err(e)) => {
             eprintln!("⚠️ Cleanup endpoint failed: {e}");
             // Continue to container removal anyway
+        }
+        Err(e) => {
+            // Propagate the JoinError instead of panicking
+            return Err(Box::new(e) as Box<dyn Error + Send>);
         }
     }
 
