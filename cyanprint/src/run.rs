@@ -138,6 +138,12 @@ pub fn batch_process(
 
     operator.write_to_disk(target_dir, &merged_vfs)?;
 
+    // Clean up files that were deleted during merge
+    let deleted = operator.cleanup_deleted_files(target_dir, &local_vfs, &merged_vfs)?;
+    if !deleted.is_empty() {
+        println!("🗑️ Removed {} file(s) no longer in template", deleted.len());
+    }
+
     // Save metadata for upgraded templates only
     if !upgraded_specs.is_empty() {
         println!(

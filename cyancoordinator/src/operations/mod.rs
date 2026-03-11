@@ -127,6 +127,14 @@ impl TemplateOperations for TemplateOperator {
         // Write the merged VFS to disk
         self.vfs.write_to_disk(target_dir, &merged_vfs)?;
 
+        // Clean up files that were deleted during merge
+        let deleted = self
+            .vfs
+            .cleanup_deleted_files(target_dir, &local_vfs, &merged_vfs)?;
+        if !deleted.is_empty() {
+            println!("🗑️ Removed {} file(s) no longer in template", deleted.len());
+        }
+
         // Save template metadata
         self.template_history.save_template_metadata(
             target_dir,
@@ -194,6 +202,14 @@ impl TemplateOperations for TemplateOperator {
 
         // Write the merged VFS to disk
         self.vfs.write_to_disk(target_dir, &merged_vfs)?;
+
+        // Clean up files that were deleted during merge
+        let deleted = self
+            .vfs
+            .cleanup_deleted_files(target_dir, &local_vfs, &merged_vfs)?;
+        if !deleted.is_empty() {
+            println!("🗑️ Removed {} file(s) no longer in template", deleted.len());
+        }
 
         // Save updated template metadata
         self.template_history.save_template_metadata(
@@ -268,6 +284,14 @@ impl TemplateOperations for TemplateOperator {
 
         // Write the merged VFS to disk
         self.vfs.write_to_disk(target_dir, &merged_vfs)?;
+
+        // Clean up files that were deleted during merge
+        let deleted = self
+            .vfs
+            .cleanup_deleted_files(target_dir, &local_vfs, &merged_vfs)?;
+        if !deleted.is_empty() {
+            println!("🗑️ Removed {} file(s) no longer in template", deleted.len());
+        }
 
         // Save updated template metadata
         self.template_history.save_template_metadata(

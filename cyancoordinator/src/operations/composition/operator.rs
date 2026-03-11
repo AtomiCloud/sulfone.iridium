@@ -290,4 +290,16 @@ impl CompositionOperator {
     ) -> Result<(), Box<dyn Error + Send>> {
         self.template_operator.vfs.write_to_disk(target_dir, vfs)
     }
+
+    /// Delete files that were present before merge but absent after merge.
+    pub fn cleanup_deleted_files(
+        &self,
+        target_dir: &Path,
+        local_vfs: &VirtualFileSystem,
+        merged_vfs: &VirtualFileSystem,
+    ) -> Result<Vec<std::path::PathBuf>, Box<dyn Error + Send>> {
+        self.template_operator
+            .vfs
+            .cleanup_deleted_files(target_dir, local_vfs, merged_vfs)
+    }
 }
