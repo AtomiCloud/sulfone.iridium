@@ -135,6 +135,7 @@ impl Vfs for DefaultVfs {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
     use tempfile::tempdir;
 
     #[test]
@@ -197,5 +198,71 @@ mod tests {
 
         assert!(deleted.is_empty());
         assert!(target.join("file.txt").exists());
+    }
+
+    #[test]
+    fn test_cleanup_before_write_handles_file_to_directory_transition() {
+        let dir = tempdir().unwrap();
+        let target = dir.path();
+
+        fs::write(target.join("path"), b"old file").unwrap();
+
+        let mut local_vfs = VirtualFileSystem::new();
+        local_vfs.add_file(PathBuf::from("path"), b"old file".to_vec());
+
+        let mut merged_vfs = VirtualFileSystem::new();
+        merged_vfs.add_file(PathBuf::from("path/child.txt"), b"new child".to_vec());
+
+        let vfs = DefaultVfs::new(
+            Box::new(TarGzUnpacker),
+            Box::new(DiskFileLoader),
+            Box::new(GitLikeMerger::new(false, 50)),
+            Box::new(DiskFileWriter),
+        );
+
+        let deleted = vfs
+            .cleanup_deleted_files(target, &local_vfs, &merged_vfs)
+            .unwrap();
+        assert_eq!(deleted, vec![PathBuf::from("path")]);
+
+        vfs.write_to_disk(target, &merged_vfs).unwrap();
+
+        assert!(!target.join("path").is_file());
+        assert_eq!(
+            fs::read(target.join("path/child.txt")).unwrap(),
+            b"new child".to_vec()
+        );
+    }
+
+    #[test]
+    fn test_cleanup_before_write_handles_directory_to_file_transition() {
+        let dir = tempdir().unwrap();
+        let target = dir.path();
+
+        fs::create_dir_all(target.join("path")).unwrap();
+        fs::write(target.join("path/child.txt"), b"old child").unwrap();
+
+        let mut local_vfs = VirtualFileSystem::new();
+        local_vfs.add_file(PathBuf::from("path/child.txt"), b"old child".to_vec());
+
+        let mut merged_vfs = VirtualFileSystem::new();
+        merged_vfs.add_file(PathBuf::from("path"), b"new file".to_vec());
+
+        let vfs = DefaultVfs::new(
+            Box::new(TarGzUnpacker),
+            Box::new(DiskFileLoader),
+            Box::new(GitLikeMerger::new(false, 50)),
+            Box::new(DiskFileWriter),
+        );
+
+        let deleted = vfs
+            .cleanup_deleted_files(target, &local_vfs, &merged_vfs)
+            .unwrap();
+        assert_eq!(deleted, vec![PathBuf::from("path/child.txt")]);
+
+        vfs.write_to_disk(target, &merged_vfs).unwrap();
+
+        assert!(!target.join("path").is_dir());
+        assert_eq!(fs::read(target.join("path")).unwrap(), b"new file".to_vec());
     }
 }
