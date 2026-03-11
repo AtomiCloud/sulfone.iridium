@@ -11,11 +11,11 @@ use cyancoordinator::session::DefaultSessionIdGenerator;
 use cyanregistry::cli::mapper::read_build_config;
 use cyanregistry::http::client::CyanRegistryClient;
 
-use crate::commands::{Cli, Commands, DaemonCommands, PushArgs, PushCommands};
+use crate::commands::{Cli, Commands, DaemonCommands, PushArgs, PushCommands, TryCommands};
 use crate::coord::{start_coordinator, stop_coordinator};
 use crate::docker::{BuildOptions, BuildOutput, BuildxBuilder};
 use crate::run::cyan_run;
-use crate::try_cmd::execute_try_command;
+use crate::try_cmd::{execute_try_command, execute_try_group_command};
 use crate::update::UserAborted;
 use crate::update::cyan_update;
 use crate::util::parse_ref;
@@ -509,27 +509,45 @@ fn run() -> Result<(), Box<dyn Error + Send>> {
 
             result
         }
-        Commands::Try {
-            template_path,
-            output_path,
-            dev,
-            keep_containers,
-            disable_daemon_autostart,
-            coordinator_endpoint,
-        } => {
-            let registry_ref = Rc::new(registry);
-            let _ = execute_try_command(
+        Commands::Try { command } => match command {
+            TryCommands::Template {
                 template_path,
                 output_path,
                 dev,
                 keep_containers,
                 disable_daemon_autostart,
-                cli.registry.clone(),
                 coordinator_endpoint,
-                registry_ref,
-            )?;
-            Ok(())
-        }
+            } => {
+                let registry_ref = Rc::new(registry);
+                let _ = execute_try_command(
+                    template_path,
+                    output_path,
+                    dev,
+                    keep_containers,
+                    disable_daemon_autostart,
+                    cli.registry.clone(),
+                    coordinator_endpoint,
+                    registry_ref,
+                )?;
+                Ok(())
+            }
+            TryCommands::Group {
+                template_path,
+                output_path,
+                disable_daemon_autostart,
+                coordinator_endpoint,
+            } => {
+                let registry_ref = Rc::new(registry);
+                execute_try_group_command(
+                    template_path,
+                    output_path,
+                    disable_daemon_autostart,
+                    coordinator_endpoint,
+                    registry_ref,
+                )?;
+                Ok(())
+            }
+        },
     }
 }
 

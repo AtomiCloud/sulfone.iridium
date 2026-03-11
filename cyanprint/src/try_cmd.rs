@@ -28,6 +28,13 @@ use cyanregistry::http::models::template_res::{
     TemplateVersionResolverRes,
 };
 
+use cyancoordinator::fs::{
+    DefaultVfs, DiskFileLoader, DiskFileWriter, GitLikeMerger, TarGzUnpacker,
+};
+use cyancoordinator::operations::TemplateOperator;
+use cyancoordinator::operations::composition::{CompositionOperator, DefaultDependencyResolver};
+use cyancoordinator::template::DefaultTemplateExecutor;
+
 use crate::coord::start_coordinator;
 use crate::docker::buildx::{BuildOptions, BuildOutput, BuildxBuilder};
 use crate::port::find_available_port;
@@ -1125,6 +1132,149 @@ fn cleanup(
     } else {
         println!("  Keeping containers and images (--keep-containers specified)");
     }
+
+    Ok(())
+}
+
+/// Execute try group command — for group templates (no build, dependencies from registry)
+pub fn execute_try_group_command(
+    template_path: String,
+    output_path: String,
+    disable_daemon_autostart: bool,
+    coordinator_endpoint: String,
+    registry_client: Rc<CyanRegistryClient>,
+) -> Result<(), Box<dyn Error + Send>> {
+    println!("🔗 Starting cyanprint try group...");
+    println!("  Template path: {template_path}");
+    println!("  Output path: {output_path}");
+
+    // Step 1: Pre-flight validation (Docker + cyan.yaml)
+    println!("🔍 Running pre-flight checks...");
+    BuildxBuilder::check_docker().map_err(|e| {
+        Box::new(std::io::Error::other(format!("Docker check failed: {e}")))
+            as Box<dyn Error + Send>
+    })?;
+    println!("  ✓ Docker daemon is running");
+
+    let template_path_abs = Path::new(&template_path)
+        .canonicalize()
+        .map_err(|e| Box::new(e) as Box<dyn Error + Send>)?;
+    let cyan_yaml_path = template_path_abs.join("cyan.yaml");
+    if !cyan_yaml_path.exists() {
+        return Err(Box::new(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            format!("cyan.yaml not found at: {}", cyan_yaml_path.display()),
+        )) as Box<dyn Error + Send>);
+    }
+    println!("  ✓ cyan.yaml found");
+
+    // Step 2: Parse config
+    let config_file =
+        fs::read_to_string(&cyan_yaml_path).map_err(|e| Box::new(e) as Box<dyn Error + Send>)?;
+    let template_config: CyanTemplateFileConfig =
+        serde_yaml::from_str(&config_file).map_err(|e| Box::new(e) as Box<dyn Error + Send>)?;
+
+    // Validate this is a group (has dependencies, should not have build section)
+    if template_config.templates.is_empty() {
+        return Err(Box::new(std::io::Error::other(
+            "Not a group template: no template dependencies declared in cyan.yaml. Use 'try template' instead.",
+        )) as Box<dyn Error + Send>);
+    }
+    println!(
+        "  ✓ Group template with {} dependencies",
+        template_config.templates.len()
+    );
+
+    // Step 3: Ensure daemon is running
+    let docker =
+        Docker::connect_with_local_defaults().map_err(|e| Box::new(e) as Box<dyn Error + Send>)?;
+    ensure_daemon_running(&docker, disable_daemon_autostart, &coordinator_endpoint)?;
+
+    // Step 4: Generate IDs
+    let id_gen = DefaultSessionIdGenerator;
+    let local_template_id = format!("local-{}", id_gen.generate());
+    println!("  Local template ID: {local_template_id}");
+
+    // Step 5: Resolve and pin dependencies from registry
+    println!("📦 Resolving and pinning dependencies...");
+    let pinned_deps = resolve_and_pin_dependencies(&registry_client, &template_config)?;
+    println!(
+        "  ✓ Pinned {} dependencies ({} processors, {} plugins, {} templates, {} resolvers)",
+        pinned_deps.total_count(),
+        pinned_deps.processors.len(),
+        pinned_deps.plugins.len(),
+        pinned_deps.templates.len(),
+        pinned_deps.resolvers.len()
+    );
+
+    // Step 6: Build synthetic template (no properties — group has no images)
+    let synthetic_template = build_synthetic_template(
+        &local_template_id,
+        &template_config,
+        &pinned_deps,
+        true, // dev_mode=true so properties=None (group has no images)
+        None, // no build result
+    )?;
+
+    // Step 7: Set up composition operator (same as run.rs)
+    let coord_client = CyanCoordinatorClient::new(coordinator_endpoint.clone());
+
+    let unpacker = Box::new(TarGzUnpacker);
+    let loader = Box::new(DiskFileLoader);
+    let merger = Box::new(GitLikeMerger::new(false, 50));
+    let writer = Box::new(DiskFileWriter);
+
+    let template_executor = Box::new(DefaultTemplateExecutor::new(coord_client.endpoint.clone()));
+    let vfs = Box::new(DefaultVfs::new(unpacker, loader, merger, writer));
+    let session_id_generator: Box<dyn SessionIdGenerator> = Box::new(DefaultSessionIdGenerator);
+    let template_history = Box::new(cyancoordinator::template::DefaultTemplateHistory::new());
+
+    let template_operator = TemplateOperator::new(
+        session_id_generator,
+        template_executor,
+        template_history,
+        vfs,
+        registry_client.clone(),
+    );
+
+    let dependency_resolver = Box::new(DefaultDependencyResolver::new(registry_client));
+
+    let mut composition_operator = CompositionOperator::with_client(
+        template_operator,
+        dependency_resolver,
+        coord_client.clone(),
+    );
+
+    // Step 8: Execute composition (resolves deps, warms each, runs Q&A, builds, layers)
+    println!("🚀 Executing group composition...");
+    let empty_answers: HashMap<String, Answer> = HashMap::new();
+    let empty_states: HashMap<String, String> = HashMap::new();
+
+    let (vfs_output, _final_state, session_ids) = composition_operator.execute_template(
+        &synthetic_template,
+        &empty_answers,
+        &empty_states,
+    )?;
+
+    // Step 9: Write output to disk
+    println!("📝 Writing output to {output_path}...");
+    fs::create_dir_all(&output_path).map_err(|e| Box::new(e) as Box<dyn Error + Send>)?;
+
+    let output_dir = Path::new(&output_path);
+    composition_operator
+        .get_vfs()
+        .write_to_disk(output_dir, &vfs_output)?;
+
+    // Step 10: Cleanup sessions
+    println!("🧹 Cleaning up {} session(s)...", session_ids.len());
+    for sid in &session_ids {
+        if let Err(e) = coord_client.clean(sid.clone()) {
+            eprintln!("  ⚠️ Failed to cleanup session {sid}: {e}");
+        }
+    }
+
+    println!("✅ Try group completed successfully");
+    println!("  Output written to: {output_path}");
 
     Ok(())
 }
