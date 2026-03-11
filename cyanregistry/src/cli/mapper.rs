@@ -143,6 +143,7 @@ pub enum ParsingError {
     MissingBuildImages,
     MissingImageField(String),
     MissingDevSection(Option<String>),
+    EmptyDevField(String),
 }
 
 impl Error for ParsingError {}
@@ -182,6 +183,9 @@ impl fmt::Display for ParsingError {
             }
             ParsingError::MissingDevSection(None) => {
                 write!(f, "No dev configuration found")
+            }
+            ParsingError::EmptyDevField(field) => {
+                write!(f, "dev.{field} must not be empty")
             }
         }
     }
@@ -867,6 +871,19 @@ pub fn read_dev_config(config_path: String) -> Result<DevConfig, Box<dyn Error +
     let dev_config = file_config.dev.ok_or_else(|| {
         Box::new(ParsingError::MissingDevSection(Some(config_path))) as Box<dyn Error + Send>
     })?;
+
+    if dev_config.template_url.trim().is_empty() {
+        return Err(
+            Box::new(ParsingError::EmptyDevField("template_url".to_string()))
+                as Box<dyn Error + Send>,
+        );
+    }
+
+    if dev_config.blob_path.trim().is_empty() {
+        return Err(
+            Box::new(ParsingError::EmptyDevField("blob_path".to_string())) as Box<dyn Error + Send>,
+        );
+    }
 
     Ok(dev_config)
 }

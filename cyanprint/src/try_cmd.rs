@@ -223,7 +223,7 @@ pub fn execute_try_command(
             local_template_id: local_template_id.clone(),
             source: "path".to_string(),
             image_ref: None,
-            path: Some(dev_config.blob_path),
+            path: Some(blob_full_path.to_string_lossy().to_string()),
             template: synthetic_template.clone(),
             merger_id: merger_id.clone(),
         }
@@ -467,7 +467,7 @@ fn ensure_daemon_running(
     }
 
     println!("🚀 Starting coordinator daemon...");
-    let img = "ghcr.io/atomicloud/sulfone.boron:sulfone-boron".to_string();
+    let img = "ghcr.io/atomicloud/sulfone.boron/sulfone-boron:latest".to_string();
     runtime.block_on(async { start_coordinator(docker.clone(), img, 9000, None).await })?;
 
     // Health check after starting
@@ -544,8 +544,8 @@ fn resolve_and_pin_dependencies(
 
     for proc_ref in &config.processors {
         match parse_ref(proc_ref.clone()) {
-            Ok((username, name, _version)) => {
-                let proc = registry.get_processor(username, name, None)?;
+            Ok((username, name, version)) => {
+                let proc = registry.get_processor(username, name, version)?;
                 processors.push(ProcessorVersionPrincipalRes {
                     id: proc.principal.id,
                     version: proc.principal.version,
@@ -563,8 +563,8 @@ fn resolve_and_pin_dependencies(
 
     for plugin_ref in &config.plugins {
         match parse_ref(plugin_ref.clone()) {
-            Ok((username, name, _version)) => {
-                let plugin = registry.get_plugin(username, name, None)?;
+            Ok((username, name, version)) => {
+                let plugin = registry.get_plugin(username, name, version)?;
                 plugins.push(PluginVersionPrincipalRes {
                     id: plugin.principal.id,
                     version: plugin.principal.version,
@@ -582,8 +582,8 @@ fn resolve_and_pin_dependencies(
 
     for tmpl_ref in &config.templates {
         match parse_ref(tmpl_ref.clone()) {
-            Ok((username, name, _version)) => {
-                let tmpl = registry.get_template(username, name, None)?;
+            Ok((username, name, version)) => {
+                let tmpl = registry.get_template(username, name, version)?;
                 templates.push(tmpl.principal.clone());
             }
             Err(e) => {
@@ -1093,19 +1093,19 @@ fn cleanup(
         .build()
         .unwrap();
 
-    // Cleanup session with Boron
-    runtime.block_on(async {
-        if let Err(e) = coord_client.try_cleanup(session_id) {
-            eprintln!("  ⚠️ Failed to cleanup session: {e}");
-        } else {
-            println!("  ✓ Session cleaned up with Boron");
-        }
-
-        Ok(())
-    })?;
-
-    // Stop and remove template container
+    // Stop and remove template container and cleanup session
     if !keep_containers {
+        // Cleanup session with Boron
+        runtime.block_on(async {
+            if let Err(e) = coord_client.try_cleanup(session_id) {
+                eprintln!("  ⚠️ Failed to cleanup session: {e}");
+            } else {
+                println!("  ✓ Session cleaned up with Boron");
+            }
+
+            Ok::<(), Box<dyn Error + Send>>(())
+        })?;
+
         if let Some(container_name) = template_container_name {
             println!("  Removing template container: {container_name}...");
             if let Err(e) = runtime.block_on(async {
