@@ -1,3 +1,10 @@
+## [2.11.0](https://github.com/AtomiCloud/sulfone.iridium/compare/v2.10.0...v2.11.0) (2026-03-11)
+
+
+### 🧪 Tests 🧪
+
+* **e2e:** add processor to template-resolver-1-v1 for endpoint testing ([cdbda48](https://github.com/AtomiCloud/sulfone.iridium/commit/cdbda48c24241542649c735f0a7519637280aecb))
+
 ## [2.10.0](https://github.com/AtomiCloud/sulfone.iridium/compare/v2.9.0...v2.10.0) (2026-03-10)
 
 
