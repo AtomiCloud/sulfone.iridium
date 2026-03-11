@@ -1,3 +1,32 @@
+## [2.10.0](https://github.com/AtomiCloud/sulfone.iridium/compare/v2.9.0...v2.10.0) (2026-03-10)
+
+
+### 📜 Documentation 📜
+
+* add implementation plans for CU-86ewvp51g v1 ([6f84ef2](https://github.com/AtomiCloud/sulfone.iridium/commit/6f84ef2aae3c63a541f2fcfcea2992217a3b6348))
+* add task spec for CU-86ewvp51g [Ir] Build + Push Commands ([718adc5](https://github.com/AtomiCloud/sulfone.iridium/commit/718adc5e78a18f3d28b1dd58abfe4b58d0d5c4e7))
+* **cyanprint:** add v2 implementation plans [CU-86ewvp51g] ([164d1a8](https://github.com/AtomiCloud/sulfone.iridium/commit/164d1a8e37732e9ad784ab7c7c5ae5913e7d9f9b))
+
+
+### ✨ Features ✨
+
+* **cyanprint:** add --build option to push subcommands [CU-86ewvp51g] ([e7dd273](https://github.com/AtomiCloud/sulfone.iridium/commit/e7dd273999d84474fb3bec83c35fd799d6ac80e6))
+* **cyanprint:** add build command with buildx [CU-86ewvp51g] ([c7e2780](https://github.com/AtomiCloud/sulfone.iridium/commit/c7e27801db8d88c996fd23b505fdc3fdda27ec04))
+* **cyanprint:** add image field and --folder option [CU-86ewvp51g] ([8aa4ff5](https://github.com/AtomiCloud/sulfone.iridium/commit/8aa4ff53520ff11d7cec86e859ff13874e860e20))
+
+
+### 🐛 Bug Fixes 🐛
+
+* address coderabbit local review findings ([48573cb](https://github.com/AtomiCloud/sulfone.iridium/commit/48573cbe9535ad3bc64bf196f37066522a24688c))
+* **cyanprint:** address CodeRabbit review feedback [CU-86ewvp51g] ([92457bf](https://github.com/AtomiCloud/sulfone.iridium/commit/92457bf670034544adb4a360256c3c5fbf7acab6))
+* **cyanprint:** address CodeRabbit review feedback [CU-86ewvp51g] ([9225922](https://github.com/AtomiCloud/sulfone.iridium/commit/922592225d7eb3a70cf28de7cd5b228fb57d5973))
+* **cyanprint:** address CodeRabbit review feedback ([2037103](https://github.com/AtomiCloud/sulfone.iridium/commit/2037103957326c06119e79ad3961c25d07ad77fe))
+
+
+### 🧪 Tests 🧪
+
+* **e2e:** update e2e fixtures to use new build format [CU-86ewvp51g] ([bcb1426](https://github.com/AtomiCloud/sulfone.iridium/commit/bcb1426264a3f5adff62c98ab6ec709fa34b7e68))
+
 ## [2.9.0](https://github.com/AtomiCloud/sulfone.iridium/compare/v2.8.0...v2.9.0) (2026-03-09)
 
 
