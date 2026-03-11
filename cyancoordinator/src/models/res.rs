@@ -20,6 +20,22 @@ pub struct CleanupRes {
     pub removed_volumes: Vec<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TrySetupRes {
+    pub session_id: String,
+    #[serde(rename = "blobVolume")]
+    pub blob_volume: DockerVolumeReference,
+    #[serde(rename = "sessionVolume")]
+    pub session_volume: DockerVolumeReference,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DockerVolumeReference {
+    pub cyan_id: String,
+    pub session_id: String,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

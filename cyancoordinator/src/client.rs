@@ -9,7 +9,7 @@ use cyanregistry::http::models::template_res::TemplateVersionRes;
 use crate::conflict_file_resolver::ResolverInput;
 use crate::conflict_file_resolver::ResolverOutput;
 use crate::errors::{GenericError, ProblemDetails};
-use crate::models::req::StartExecutorReq;
+use crate::models::req::{StartExecutorReq, TrySetupReq};
 use crate::models::res::{CleanupRes, ExecutorWarmRes, StandardRes};
 use crate::state::{DefaultStateManager, StateManager};
 
@@ -194,6 +194,64 @@ impl CyanCoordinatorClient {
         http_client
             .post(endpoint)
             .json(input)
+            .send()
+            .map_err(|x| Box::new(x) as Box<dyn Error + Send>)
+            .and_then(|x| {
+                if x.status().is_success() {
+                    x.json().map_err(|e| Box::new(e) as Box<dyn Error + Send>)
+                } else {
+                    let r: Result<ProblemDetails, Box<dyn Error + Send>> =
+                        x.json().map_err(|e| Box::new(e) as Box<dyn Error + Send>);
+                    match r {
+                        Ok(ok) => {
+                            Err(Box::new(GenericError::ProblemDetails(ok)) as Box<dyn Error + Send>)
+                        }
+                        Err(err) => Err(err),
+                    }
+                }
+            })
+    }
+
+    /// Setup a try executor session
+    ///
+    /// Calls POST /executor/try to create a new try session
+    pub fn try_setup(
+        &self,
+        req: &TrySetupReq,
+    ) -> Result<crate::models::res::TrySetupRes, Box<dyn Error + Send>> {
+        let host = (self.endpoint).to_string().to_owned();
+        let endpoint = host + "/executor/try";
+        let http_client = new_client()?;
+        http_client
+            .post(endpoint)
+            .json(req)
+            .send()
+            .map_err(|x| Box::new(x) as Box<dyn Error + Send>)
+            .and_then(|x| {
+                if x.status().is_success() {
+                    x.json().map_err(|e| Box::new(e) as Box<dyn Error + Send>)
+                } else {
+                    let r: Result<ProblemDetails, Box<dyn Error + Send>> =
+                        x.json().map_err(|e| Box::new(e) as Box<dyn Error + Send>);
+                    match r {
+                        Ok(ok) => {
+                            Err(Box::new(GenericError::ProblemDetails(ok)) as Box<dyn Error + Send>)
+                        }
+                        Err(err) => Err(err),
+                    }
+                }
+            })
+    }
+
+    /// Cleanup a try executor session
+    ///
+    /// Calls DELETE /executor/{session_id} to clean up a try session
+    pub fn try_cleanup(&self, session_id: &str) -> Result<StandardRes, Box<dyn Error + Send>> {
+        let host = (self.endpoint).to_string().to_owned();
+        let endpoint = host + "/executor/" + session_id;
+        let http_client = new_client()?;
+        http_client
+            .delete(endpoint)
             .send()
             .map_err(|x| Box::new(x) as Box<dyn Error + Send>)
             .and_then(|x| {

@@ -125,14 +125,24 @@ TrySetupRes {
 }
 ```
 
-**DO NOT create `TryExecuteReq`** — the execution step reuses the existing `StartExecutorReq` which Boron's POST `/executor/:sessionId` already expects.
+**Execution contract clarification:**
+
+- `TrySetupReq` is **bootstrap/setup only**. POST `/executor/try` allocates the try session and backing volumes; it is not the request that carries end-user execution answers.
+- `StartExecutorReq` remains the **bootstrap request** for the coordinator-owned executor startup call. It prepares the executor/session wiring and does **not** carry Q&A-derived execution payload.
+- The **follow-up try-flow execution request** is the session-scoped POST `/executor/{session_id}` call, which carries the execution payload (`BuildReq` / `cyan`) derived from the Q&A loop.
+- **Do not create a separate `TryExecuteReq`**. Reuse the existing execution payload shape already accepted by the session-scoped execution endpoint.
 
 **Add to `cyancoordinator/src/client.rs`:**
 
 - `try_setup(&self, req: &TrySetupReq) -> Result<TrySetupRes>` — POST `/executor/try`
 - `try_cleanup(&self, session_id: &str) -> Result<()>` — DELETE `/executor/{session_id}`
 
-The execution call (POST `/executor/{session_id}`) already exists as `bootstrap()` using `StartExecutorReq`.
+Endpoint ownership must stay explicit in the implementation:
+
+- POST `/executor/try` — try-session setup
+- POST `/executor` — bootstrap with `StartExecutorReq`
+- POST `/executor/{session_id}` — execute the try run with the Q&A-derived payload and stream tar.gz output
+- DELETE `/executor/{session_id}` — cleanup
 
 ### 7. Dependency Pinning
 
@@ -197,6 +207,8 @@ Adapt the existing Q&A mechanism from the `create` command flow, but with a **di
 
 Collect answers as `HashMap<String, Answer>` and deterministic states as `HashMap<String, String>`, same as `create`.
 
+These Q&A results must be preserved in memory through the remainder of the try flow. They are the source of truth for the execution payload sent later to the session-scoped try execution endpoint; they are not discarded after validation and they are not moved into `TrySetupReq` or `StartExecutorReq`.
+
 ### 10. Execution Flow (Main Orchestration)
 
 Implement `execute_try_command()` in `try_cmd.rs`:
@@ -213,11 +225,23 @@ Implement `execute_try_command()` in `try_cmd.rs`:
 8. **Call Boron POST `/executor/try`** with `TrySetupReq`:
    - Normal: `source="image"`, `image_ref` from build output
    - Dev: `source="path"`, `path` from dev config `blob_path`
+   - This call is setup-only: it allocates the try session and backing volumes and must happen before execution payload submission
 9. **Start template container** (normal mode only, via bollard on allocated port)
 10. **Run Q&A loop** (direct to template container or external template_url)
-11. **Call Boron POST `/executor/{session_id}`** with `StartExecutorReq` (starts processors/plugins, runs merge pipeline, streams tar.gz output)
-12. **Unpack tar.gz** to output directory
-13. **Cleanup**:
+11. **Call Boron POST `/executor`** with `StartExecutorReq`
+
+- This is the bootstrap-only coordinator/executor startup step
+- It establishes session wiring using the synthetic template, session ID, write volume reference, and merger metadata
+- It does not carry the Q&A-derived execution payload
+
+12. **Call Boron POST `/executor/{session_id}`** with the try execution payload derived from the Q&A loop
+
+- Send the `cyan` payload built from the collected answers/states
+- This is the request that runs the merge pipeline and streams tar.gz output
+- Preserve Q&A/state data from step 10 until this request is built and sent
+
+13. **Unpack tar.gz** to output directory
+14. **Cleanup**:
     - Call Boron DELETE `/executor/{session_id}` (cleans session volume)
     - Unless `--keep-containers`: stop/remove template container via bollard
     - Best-effort: warn on cleanup failure, don't abort
