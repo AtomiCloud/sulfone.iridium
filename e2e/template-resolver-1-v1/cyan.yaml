@@ -30,17 +30,19 @@ resolvers:
     files:
       - c3.json
   - resolver: cyane2e/resolver1:1
-    config:
-      arrayStrategy: 'array'
+    config: {}
     files:
       - c4.json
   - resolver: cyane2e/resolver1:1
-    config:
-      arrayStrategy: 'array'
+    config: {}
     files:
       - c5.json
   - resolver: cyane2e/resolver1:1
-    config:
-      arrayStrategy: 'array'
+    config: {}
     files:
       - c6.json
+  - resolver: cyane2e/resolver1:1
+    config:
+      arrayStrategy: 'distinct'
+    files:
+      - package.json
