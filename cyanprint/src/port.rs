@@ -38,12 +38,14 @@ mod tests {
     }
 
     #[test]
-    fn test_is_port_available_with_unlikely_port() {
-        // Pick a port that's unlikely to be in use
-        let port = 35712; // Random high port
-        let available = is_port_available(port);
-        // Should be true (unless something else is using it)
-        assert!(available);
+    fn test_is_port_available_detects_used_port() {
+        // Bind to an ephemeral port and verify it's detected as unavailable
+        let listener = TcpListener::bind(("0.0.0.0", 0)).expect("Failed to bind ephemeral port");
+        let port = listener.local_addr().unwrap().port();
+        assert!(
+            !is_port_available(port),
+            "Port {port} should be detected as unavailable while listener is alive"
+        );
     }
 
     #[test]

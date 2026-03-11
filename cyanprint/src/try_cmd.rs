@@ -158,30 +158,32 @@ pub fn execute_try_command(
             uuid::Uuid::new_v4()
         );
 
-        let mut blob_ref = None;
         let mut template_ref = None;
 
-        // Build blob image if specified
-        if let Some(ref blob) = images.blob {
-            println!("  Building blob image...");
-            let blob_name = blob.image.as_ref().ok_or_else(|| {
-                Box::new(std::io::Error::other(
-                    "blob image name not specified in build config",
-                )) as Box<dyn Error + Send>
-            })?;
-            let dockerfile_path = template_path_abs.join(&blob.dockerfile);
-            let context_path = template_path_abs.join(&blob.context);
-            build_image(
-                &BuildxBuilder::new(),
-                registry,
-                blob_name,
-                &tag,
-                dockerfile_path.to_string_lossy().as_ref(),
-                context_path.to_string_lossy().as_ref(),
-                &[],
-            )?;
-            blob_ref = Some(format!("{registry}/{blob_name}:{tag}"));
-        }
+        // Build blob image (required in normal mode)
+        let blob = images.blob.as_ref().ok_or_else(|| {
+            Box::new(std::io::Error::other(
+                "blob image not configured in cyan.yaml build section (required in normal mode)",
+            )) as Box<dyn Error + Send>
+        })?;
+        println!("  Building blob image...");
+        let blob_name = blob.image.as_ref().ok_or_else(|| {
+            Box::new(std::io::Error::other(
+                "blob image name not specified in build config",
+            )) as Box<dyn Error + Send>
+        })?;
+        let dockerfile_path = template_path_abs.join(&blob.dockerfile);
+        let context_path = template_path_abs.join(&blob.context);
+        build_image(
+            &BuildxBuilder::new(),
+            registry,
+            blob_name,
+            &tag,
+            dockerfile_path.to_string_lossy().as_ref(),
+            context_path.to_string_lossy().as_ref(),
+            &[],
+        )?;
+        let blob_ref = Some(format!("{registry}/{blob_name}:{tag}"));
 
         // Build template image if specified
         if let Some(ref tmpl) = images.template {
@@ -614,18 +616,32 @@ fn resolve_and_pin_dependencies(
     // Pin resolvers - resolve first-layer resolvers with get_resolver()
     for resolver_ref in &config.resolvers {
         let parsed = cyanregistry::cli::mapper::resolver_reference_parse(&resolver_ref.resolver);
-        if let Some(Ok((username, name, version))) = parsed {
-            let resolver = registry.get_resolver(username, name, version)?;
-            resolvers.push(TemplateVersionResolverRes {
-                id: resolver.principal.id,
-                version: resolver.principal.version,
-                created_at: resolver.principal.created_at,
-                description: Some(resolver.principal.description),
-                docker_reference: resolver.principal.docker_reference,
-                docker_tag: resolver.principal.docker_tag,
-                config: resolver_ref.config.clone(),
-                files: resolver_ref.files.clone(),
-            });
+        match parsed {
+            Some(Ok((username, name, version))) => {
+                let resolver = registry.get_resolver(username, name, version)?;
+                resolvers.push(TemplateVersionResolverRes {
+                    id: resolver.principal.id,
+                    version: resolver.principal.version,
+                    created_at: resolver.principal.created_at,
+                    description: Some(resolver.principal.description),
+                    docker_reference: resolver.principal.docker_reference,
+                    docker_tag: resolver.principal.docker_tag,
+                    config: resolver_ref.config.clone(),
+                    files: resolver_ref.files.clone(),
+                });
+            }
+            Some(Err(e)) => {
+                eprintln!(
+                    "  Warning: Failed to parse resolver reference '{}': {e}",
+                    resolver_ref.resolver
+                );
+            }
+            None => {
+                eprintln!(
+                    "  Warning: Could not parse resolver reference '{}'",
+                    resolver_ref.resolver
+                );
+            }
         }
     }
 
@@ -1050,16 +1066,11 @@ fn execute_and_stream_output(
         ))) as Box<dyn Error + Send>);
     }
 
-    let bytes = response
-        .bytes()
-        .map_err(|e| Box::new(e) as Box<dyn Error + Send>)
-        .map(|b| b.to_vec())?;
-
-    // Unpack tar.gz to output directory
+    // Unpack tar.gz to output directory (stream directly from response)
     println!("  Unpacking output to {output_path}...");
     fs::create_dir_all(output_path).map_err(|e| Box::new(e) as Box<dyn Error + Send>)?;
 
-    let tar = flate2::read::GzDecoder::new(&bytes[..]);
+    let tar = flate2::read::GzDecoder::new(response);
     let mut archive = tar::Archive::new(tar);
     archive
         .unpack(output_path)
