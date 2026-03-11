@@ -7,7 +7,7 @@ cargo build
 PATH_ADDITION="$(pwd)/target/debug"
 export PATH="${PATH_ADDITION}:$PATH"
 
-cyanprint daemon start
+# cyanprint daemon start
 
 # build resolvers
 echo "🔍 Publishing resolvers..."
@@ -15,7 +15,7 @@ echo "🔍 Publishing resolvers..."
 
 # resolver2 uses new build format
 tag=$(openssl rand -hex 5)
-cyanprint push resolver --build "$tag" --config ./e2e/resolver2/cyan.yaml
+cyanprint push --folder ./e2e/resolver2 resolver --build "$tag"
 
 # build processors
 echo "🔍 Publishing processors..."
@@ -23,7 +23,7 @@ echo "🔍 Publishing processors..."
 
 # processor2 uses new build format
 tag=$(openssl rand -hex 5)
-cyanprint push processor --build "$tag" --config ./e2e/processor2/cyan.yaml
+cyanprint push --folder ./e2e/processor2 processor --build "$tag"
 
 # build plugins
 echo "🔍 Publishing plugins..."
@@ -31,7 +31,7 @@ echo "🔍 Publishing plugins..."
 
 # plugin2 uses new build format
 tag=$(openssl rand -hex 5)
-cyanprint push plugin --build "$tag" --config ./e2e/plugin2/cyan.yaml
+cyanprint push --folder ./e2e/plugin2 plugin --build "$tag"
 
 # build templates
 echo "🔍 Publishing templates..."
@@ -39,7 +39,7 @@ echo "🔍 Publishing templates..."
 
 # template2 uses new build format
 tag=$(openssl rand -hex 5)
-cyanprint push template --build "$tag" --config ./e2e/template2/cyan.yaml
+cyanprint push --folder ./e2e/template2 template --build "$tag"
 
 ./e2e/publish-template.sh ./e2e/template3 template3 push
 ./e2e/publish-template.sh ./e2e/test-batch-a-v1 test-batch-a push
@@ -50,6 +50,6 @@ cyanprint push template --build "$tag" --config ./e2e/template2/cyan.yaml
 ./e2e/publish-template.sh ./e2e/template-resolver-2-v1 template-resolver-2 push
 
 echo "🔍 Publishing group..."
-# ./e2e/publish-group.sh ./e2e/template4 template4 push
+./e2e/publish-group.sh ./e2e/template4 template4 push
 
 echo "✅ Done"
