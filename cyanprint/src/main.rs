@@ -13,7 +13,7 @@ use cyanregistry::http::client::CyanRegistryClient;
 
 use crate::commands::{Cli, Commands, DaemonCommands, PushArgs, PushCommands};
 use crate::coord::{start_coordinator, stop_coordinator};
-use crate::docker::{BuildOptions, BuildxBuilder};
+use crate::docker::{BuildOptions, BuildOutput, BuildxBuilder};
 use crate::run::cyan_run;
 use crate::try_cmd::execute_try_command;
 use crate::update::UserAborted;
@@ -24,8 +24,8 @@ pub mod commands;
 pub mod coord;
 pub mod docker;
 pub mod errors;
-pub mod port;
 pub mod git;
+pub mod port;
 pub mod run;
 pub mod try_cmd;
 pub mod update;
@@ -658,6 +658,7 @@ fn handle_build(
             platforms: &platforms,
             no_cache,
             dry_run,
+            output: BuildOutput::Push,
         });
 
         match result {
@@ -831,6 +832,7 @@ fn build_for_push(
             platforms: &platforms,
             no_cache,
             dry_run,
+            output: BuildOutput::Push,
         });
 
         if let Err(e) = build_result {

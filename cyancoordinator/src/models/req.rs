@@ -38,6 +38,7 @@ pub struct DockerImageReference {
 
 /// Request for setting up a try executor session
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct TrySetupReq {
     pub session_id: String,
     pub local_template_id: String,

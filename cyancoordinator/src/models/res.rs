@@ -21,16 +21,14 @@ pub struct CleanupRes {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct TrySetupRes {
     pub session_id: String,
-    #[serde(rename = "blobVolume")]
     pub blob_volume: DockerVolumeReference,
-    #[serde(rename = "sessionVolume")]
     pub session_volume: DockerVolumeReference,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct DockerVolumeReference {
     pub cyan_id: String,
     pub session_id: String,

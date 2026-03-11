@@ -872,14 +872,18 @@ pub fn read_dev_config(config_path: String) -> Result<DevConfig, Box<dyn Error +
         Box::new(ParsingError::MissingDevSection(Some(config_path))) as Box<dyn Error + Send>
     })?;
 
-    if dev_config.template_url.trim().is_empty() {
+    let mut dev_config = dev_config;
+    dev_config.template_url = dev_config.template_url.trim().to_string();
+    dev_config.blob_path = dev_config.blob_path.trim().to_string();
+
+    if dev_config.template_url.is_empty() {
         return Err(
             Box::new(ParsingError::EmptyDevField("template_url".to_string()))
                 as Box<dyn Error + Send>,
         );
     }
 
-    if dev_config.blob_path.trim().is_empty() {
+    if dev_config.blob_path.is_empty() {
         return Err(
             Box::new(ParsingError::EmptyDevField("blob_path".to_string())) as Box<dyn Error + Send>,
         );

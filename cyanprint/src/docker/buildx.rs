@@ -23,6 +23,15 @@ pub struct BuildxBuilder {
     builder: Option<String>,
 }
 
+/// Build output mode
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum BuildOutput {
+    /// Push to registry (--push)
+    Push,
+    /// Load into local Docker (--load)
+    Load,
+}
+
 /// Build options for a Docker image
 #[derive(Debug, Clone)]
 pub struct BuildOptions<'a> {
@@ -42,6 +51,8 @@ pub struct BuildOptions<'a> {
     pub no_cache: bool,
     /// If true, print command without executing
     pub dry_run: bool,
+    /// Output mode: push to registry or load locally
+    pub output: BuildOutput,
 }
 
 impl BuildxBuilder {
@@ -96,7 +107,7 @@ impl BuildxBuilder {
         Ok(())
     }
 
-    /// Build and push a Docker image using buildx
+    /// Build a Docker image using buildx
     pub fn build(&self, opts: BuildOptions) -> Result<(), Box<dyn Error + Send>> {
         let full_tag = format!("{}/{}:{}", opts.registry, opts.image_name, opts.tag);
 
@@ -104,7 +115,10 @@ impl BuildxBuilder {
         let mut args: Vec<String> = vec![
             "buildx".to_string(),
             "build".to_string(),
-            "--push".to_string(),
+            match opts.output {
+                BuildOutput::Push => "--push".to_string(),
+                BuildOutput::Load => "--load".to_string(),
+            },
         ];
 
         // Add builder if specified
@@ -167,7 +181,10 @@ impl BuildxBuilder {
         let mut args: Vec<String> = vec![
             "buildx".to_string(),
             "build".to_string(),
-            "--push".to_string(),
+            match opts.output {
+                BuildOutput::Push => "--push".to_string(),
+                BuildOutput::Load => "--load".to_string(),
+            },
         ];
 
         if let Some(ref builder) = self.builder {
@@ -244,6 +261,7 @@ mod tests {
             platforms: &[],
             no_cache: false,
             dry_run: false,
+            output: BuildOutput::Push,
         });
 
         // Output is shell-escaped, so check for quoted arguments
@@ -258,6 +276,25 @@ mod tests {
     }
 
     #[test]
+    fn test_dry_run_with_load() {
+        let builder = BuildxBuilder::new();
+        let cmd = builder.dry_run(BuildOptions {
+            registry: "ghcr.io/atomicloud",
+            image_name: "my-template",
+            tag: "v1.0.0",
+            dockerfile: "Dockerfile",
+            context: ".",
+            platforms: &[],
+            no_cache: false,
+            dry_run: false,
+            output: BuildOutput::Load,
+        });
+
+        assert!(cmd.contains("'--load'"));
+        assert!(!cmd.contains("--push"));
+    }
+
+    #[test]
     fn test_dry_run_with_platforms() {
         let builder = BuildxBuilder::new();
         let cmd = builder.dry_run(BuildOptions {
@@ -269,6 +306,7 @@ mod tests {
             platforms: &["linux/amd64".to_string(), "linux/arm64".to_string()],
             no_cache: false,
             dry_run: false,
+            output: BuildOutput::Push,
         });
 
         // Platform string is joined with comma and then quoted
@@ -288,6 +326,7 @@ mod tests {
             platforms: &[],
             no_cache: true,
             dry_run: false,
+            output: BuildOutput::Push,
         });
 
         assert!(cmd.contains("--no-cache"));
@@ -305,6 +344,7 @@ mod tests {
             platforms: &[],
             no_cache: false,
             dry_run: false,
+            output: BuildOutput::Push,
         });
 
         // Builder option and value are quoted separately

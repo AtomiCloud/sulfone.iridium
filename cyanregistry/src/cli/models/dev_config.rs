@@ -7,7 +7,7 @@ pub struct DevConfig {
     /// URL of the external template server
     pub template_url: String,
 
-    /// Path to the blob directory (relative to template_path)
+    /// Path to the blob directory (relative to template_path, or absolute)
     pub blob_path: String,
 }
 

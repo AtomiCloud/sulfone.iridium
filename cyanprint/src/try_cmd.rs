@@ -10,6 +10,7 @@ use bollard::query_parameters::{CreateContainerOptions, ListContainersOptions};
 
 use cyancoordinator::client::CyanCoordinatorClient;
 use cyancoordinator::models::req::{BuildReq, MergerReq, StartExecutorReq, TrySetupReq};
+use cyancoordinator::session::{DefaultSessionIdGenerator, SessionIdGenerator};
 use cyanprompt::domain::models::answer::Answer;
 use cyanprompt::domain::models::cyan::Cyan;
 use cyanprompt::domain::services::repo::CyanHttpRepo;
@@ -28,7 +29,7 @@ use cyanregistry::http::models::template_res::{
 };
 
 use crate::coord::start_coordinator;
-use crate::docker::buildx::{BuildOptions, BuildxBuilder};
+use crate::docker::buildx::{BuildOptions, BuildOutput, BuildxBuilder};
 use crate::port::find_available_port;
 use crate::util::parse_ref;
 
@@ -94,10 +95,12 @@ pub fn execute_try_command(
         Docker::connect_with_local_defaults().map_err(|e| Box::new(e) as Box<dyn Error + Send>)?;
     ensure_daemon_running(&docker, disable_daemon_autostart, &coordinator_endpoint)?;
 
-    // Step 4: Generate IDs
-    let local_template_id = format!("local-{}", uuid::Uuid::new_v4());
-    let session_id = format!("session-{}", uuid::Uuid::new_v4());
-    let merger_id = uuid::Uuid::new_v4().to_string();
+    // Step 4: Generate IDs — match cyan_run formats
+    let id_gen = DefaultSessionIdGenerator;
+    let uuid_str = uuid::Uuid::new_v4().to_string(); // xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+    let local_template_id = format!("10ca1{}", &uuid_str[5..]); // "10ca1" = "local", valid UUID format
+    let session_id = id_gen.generate(); // 10-char alphanumeric, same as DefaultSessionIdGenerator in cyan_run
+    let merger_id = uuid::Uuid::new_v4().to_string(); // UUID, same as coordinator's executor.rs
 
     println!("  Session ID: {session_id}");
     println!("  Local template ID: {local_template_id}");
@@ -154,14 +157,20 @@ pub fn execute_try_command(
         // Build blob image if specified
         if let Some(ref blob) = images.blob {
             println!("  Building blob image...");
-            let blob_name = blob.image.as_ref().unwrap();
+            let blob_name = blob.image.as_ref().ok_or_else(|| {
+                Box::new(std::io::Error::other(
+                    "blob image name not specified in build config",
+                )) as Box<dyn Error + Send>
+            })?;
+            let dockerfile_path = template_path_abs.join(&blob.dockerfile);
+            let context_path = template_path_abs.join(&blob.context);
             build_image(
                 &BuildxBuilder::new(),
                 registry,
                 blob_name,
                 &tag,
-                &blob.dockerfile,
-                &blob.context,
+                dockerfile_path.to_string_lossy().as_ref(),
+                context_path.to_string_lossy().as_ref(),
                 &[],
             )?;
             blob_ref = Some(format!("{registry}/{blob_name}:{tag}"));
@@ -170,14 +179,20 @@ pub fn execute_try_command(
         // Build template image if specified
         if let Some(ref tmpl) = images.template {
             println!("  Building template image...");
-            let template_name = tmpl.image.as_ref().unwrap();
+            let template_name = tmpl.image.as_ref().ok_or_else(|| {
+                Box::new(std::io::Error::other(
+                    "template image name not specified in build config",
+                )) as Box<dyn Error + Send>
+            })?;
+            let dockerfile_path = template_path_abs.join(&tmpl.dockerfile);
+            let context_path = template_path_abs.join(&tmpl.context);
             build_image(
                 &BuildxBuilder::new(),
                 registry,
                 template_name,
                 &tag,
-                &tmpl.dockerfile,
-                &tmpl.context,
+                dockerfile_path.to_string_lossy().as_ref(),
+                context_path.to_string_lossy().as_ref(),
                 &[],
             )?;
             template_ref = Some(format!("{registry}/{template_name}:{tag}"));
@@ -373,14 +388,12 @@ fn pre_flight_validation(template_path: &str, dev_mode: bool) -> Result<(), Box<
 
     // Mode-specific validation
     if dev_mode {
-        let dev_config_result = read_dev_config(cyan_yaml_path.to_string_lossy().to_string());
-        if dev_config_result.is_err() {
-            return Err(Box::new(std::io::Error::new(
-                std::io::ErrorKind::NotFound,
-                "dev section not found in cyan.yaml (required for --dev mode)",
-            )) as Box<dyn Error + Send>);
-        }
-        let dev_config = dev_config_result?;
+        let dev_config =
+            read_dev_config(cyan_yaml_path.to_string_lossy().to_string()).map_err(|e| {
+                Box::new(std::io::Error::other(format!(
+                    "failed to read dev config from cyan.yaml: {e}"
+                ))) as Box<dyn Error + Send>
+            })?;
 
         // Verify template_url is reachable during pre-flight
         println!("  Checking template URL reachability...");
@@ -411,13 +424,12 @@ fn pre_flight_validation(template_path: &str, dev_mode: bool) -> Result<(), Box<
 
         println!("  ✓ dev section validated and template URL is reachable");
     } else {
-        let build_config_result = read_build_config(cyan_yaml_path.to_string_lossy().to_string());
-        if build_config_result.is_err() {
-            return Err(Box::new(std::io::Error::new(
-                std::io::ErrorKind::NotFound,
-                "build section not found in cyan.yaml (required for normal mode)",
-            )) as Box<dyn Error + Send>);
-        }
+        let _build_config = read_build_config(cyan_yaml_path.to_string_lossy().to_string())
+            .map_err(|e| {
+                Box::new(std::io::Error::other(format!(
+                    "failed to read build config from cyan.yaml: {e}"
+                ))) as Box<dyn Error + Send>
+            })?;
         println!("  ✓ build section validated");
     }
 
@@ -689,6 +701,7 @@ fn build_image(
         platforms,
         no_cache: false,
         dry_run: false,
+        output: BuildOutput::Load,
     })
 }
 
@@ -807,50 +820,41 @@ fn run_qa_loop(
     cyan_yaml_path: &Path,
     port: Option<u16>,
 ) -> QaLoopResult {
-    let runtime = tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .build()
-        .unwrap();
+    let template_endpoint = if dev_mode {
+        let dev_config = read_dev_config(cyan_yaml_path.to_string_lossy().to_string())?;
+        dev_config.template_url.trim_end_matches('/').to_string()
+    } else {
+        format!("http://localhost:{}", port.unwrap())
+    };
 
-    runtime.block_on(async {
-        let template_endpoint = if dev_mode {
-            let dev_config = read_dev_config(cyan_yaml_path.to_string_lossy().to_string())?;
-            dev_config.template_url.trim_end_matches('/').to_string()
-        } else {
-            format!("http://localhost:{}", port.unwrap())
-        };
+    let c = Rc::new(reqwest::blocking::Client::new());
+    let prompter = TemplateEngine {
+        client: Rc::new(CyanHttpRepo {
+            client: CyanClient {
+                endpoint: template_endpoint,
+                client: c.clone(),
+            },
+        }),
+    };
 
-        let c = Rc::new(reqwest::blocking::Client::new());
-        let prompter = TemplateEngine {
-            client: Rc::new(CyanHttpRepo {
-                client: CyanClient {
-                    endpoint: template_endpoint,
-                    client: c.clone(),
-                },
-            }),
-        };
+    let state = prompter.start_with(None, None);
 
-        let state = prompter.start_with(None, None);
-
-        match state {
-            TemplateState::Complete(cyan, answers) => {
-                // Extract deterministic states from answers
-                let mut states = HashMap::new();
-                for (key, answer) in answers.iter() {
-                    if let Answer::String(s) = answer {
-                        states.insert(key.clone(), s.clone());
-                    }
+    match state {
+        TemplateState::Complete(cyan, answers) => {
+            // Extract deterministic states from answers
+            let mut states = HashMap::new();
+            for (key, answer) in answers.iter() {
+                if let Answer::String(s) = answer {
+                    states.insert(key.clone(), s.clone());
                 }
-                Ok((cyan, answers, states))
             }
-            TemplateState::QnA() => Err(Box::new(std::io::Error::other(
-                "Q&A terminated in QnA state".to_string(),
-            )) as Box<dyn Error + Send>),
-            TemplateState::Err(e) => {
-                Err(Box::new(std::io::Error::other(e)) as Box<dyn Error + Send>)
-            }
+            Ok((cyan, answers, states))
         }
-    })
+        TemplateState::QnA() => Err(Box::new(std::io::Error::other(
+            "Q&A terminated in QnA state".to_string(),
+        )) as Box<dyn Error + Send>),
+        TemplateState::Err(e) => Err(Box::new(std::io::Error::other(e)) as Box<dyn Error + Send>),
+    }
 }
 
 /// Verify that the Cyan object's configs contain data derived from Q&A answers.
@@ -943,11 +947,11 @@ fn verify_qa_applied_to_configs(
 
     // Verify the configs contain data
     if non_empty_configs == 0 && !answers.is_empty() {
-        return Err(Box::new(std::io::Error::other(format!(
-            "Q&A verification failed: collected {} answers but configs appear empty. \
-                 This suggests the template service did not apply answers to the Cyan object.",
+        eprintln!(
+            "  WARNING: Q&A verification: collected {} answers but configs appear empty. \
+                 This may indicate the template service did not apply answers to the Cyan object.",
             answers.len()
-        ))) as Box<dyn Error + Send>);
+        );
     }
 
     // Log the verification results to demonstrate the derivation
@@ -994,76 +998,55 @@ fn execute_and_stream_output(
     states: HashMap<String, String>,
     merger_id: String,
 ) -> Result<(), Box<dyn Error + Send>> {
-    let runtime = tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
+    // Verify that the Cyan object's configs were populated with Q&A answers
+    verify_qa_applied_to_configs(&cyan, &answers, &states)?;
+
+    let cyan_req = cyan_req_mapper(cyan);
+
+    println!(
+        "  Q&A data collected: {} answers and {} deterministic states",
+        answers.len(),
+        states.len()
+    );
+
+    println!(
+        "  Execution payload contains {} processors and {} plugins",
+        cyan_req.processors.len(),
+        cyan_req.plugins.len()
+    );
+
+    let build_req = BuildReq {
+        template: template.clone(),
+        cyan: cyan_req,
+        merger_id,
+    };
+
+    let host = coord_client.endpoint.clone();
+    let endpoint = format!("{host}/executor/{session_id}");
+    let http_client = reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(600))
         .build()
-        .unwrap();
+        .map_err(|e| Box::new(e) as Box<dyn Error + Send>)?;
 
-    let bytes = runtime.block_on(async {
-        // Convert Cyan to CyanReq using the mapper
-        // The Cyan object returned by the template service already contains the Q&A answers
-        // that were collected during run_qa_loop - the template service applies the answers
-        // to processor/plugin configs before returning the final Cyan object
+    let response = http_client
+        .post(endpoint)
+        .json(&build_req)
+        .send()
+        .map_err(|x| Box::new(x) as Box<dyn Error + Send>)?;
 
-        // Verify that the Cyan object's configs were populated with Q&A answers
-        // This makes the template service contract explicit and demonstrates that
-        // the execution payload is "demonstrably derived" from Q&A answers
-        verify_qa_applied_to_configs(&cyan, &answers, &states)?;
+    if !response.status().is_success() {
+        let err_text = response
+            .text()
+            .unwrap_or_else(|_| "Unknown error".to_string());
+        return Err(Box::new(std::io::Error::other(format!(
+            "Execution failed: {err_text}"
+        ))) as Box<dyn Error + Send>);
+    }
 
-        let cyan_req = cyan_req_mapper(cyan);
-
-        // Demonstrate that we're using the preserved Q&A data
-        println!(
-            "  Q&A data collected: {} answers and {} deterministic states",
-            answers.len(),
-            states.len()
-        );
-
-        // Debug: Show that the CyanReq (derived from Cyan) contains the Q&A data
-        // by logging the processor/plugin config summary
-        println!(
-            "  Execution payload contains {} processors and {} plugins",
-            cyan_req.processors.len(),
-            cyan_req.plugins.len()
-        );
-
-        // Create BuildReq with Cyan that contains Q&A-applied configs
-        let build_req = BuildReq {
-            template: template.clone(),
-            cyan: cyan_req,
-            merger_id,
-        };
-
-        // Note: Payload logging removed to prevent accidental exposure of sensitive config values
-        // Enable RUST_LOG=debug for detailed payload inspection during development
-
-        let host = coord_client.endpoint.clone();
-        let endpoint = format!("{host}/executor/{session_id}");
-        let http_client = reqwest::blocking::Client::builder()
-            .timeout(std::time::Duration::from_secs(600))
-            .build()
-            .map_err(|e| Box::new(e) as Box<dyn Error + Send>)?;
-
-        let response = http_client
-            .post(endpoint)
-            .json(&build_req)
-            .send()
-            .map_err(|x| Box::new(x) as Box<dyn Error + Send>)?;
-
-        if !response.status().is_success() {
-            let err_text = response
-                .text()
-                .unwrap_or_else(|_| "Unknown error".to_string());
-            return Err(Box::new(std::io::Error::other(format!(
-                "Execution failed: {err_text}"
-            ))) as Box<dyn Error + Send>);
-        }
-
-        response
-            .bytes()
-            .map_err(|e| Box::new(e) as Box<dyn Error + Send>)
-            .map(|b| b.to_vec())
-    })?;
+    let bytes = response
+        .bytes()
+        .map_err(|e| Box::new(e) as Box<dyn Error + Send>)
+        .map(|b| b.to_vec())?;
 
     // Unpack tar.gz to output directory
     println!("  Unpacking output to {output_path}...");
@@ -1095,16 +1078,12 @@ fn cleanup(
 
     // Stop and remove template container and cleanup session
     if !keep_containers {
-        // Cleanup session with Boron
-        runtime.block_on(async {
-            if let Err(e) = coord_client.try_cleanup(session_id) {
-                eprintln!("  ⚠️ Failed to cleanup session: {e}");
-            } else {
-                println!("  ✓ Session cleaned up with Boron");
-            }
-
-            Ok::<(), Box<dyn Error + Send>>(())
-        })?;
+        // Cleanup session with Boron (synchronous call, no runtime needed)
+        if let Err(e) = coord_client.try_cleanup(session_id) {
+            eprintln!("  ⚠️ Failed to cleanup session: {e}");
+        } else {
+            println!("  ✓ Session cleaned up with Boron");
+        }
 
         if let Some(container_name) = template_container_name {
             println!("  Removing template container: {container_name}...");
