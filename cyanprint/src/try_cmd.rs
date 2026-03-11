@@ -131,8 +131,16 @@ pub fn execute_try_command(
     let build_result = if !dev_mode {
         println!("🔨 Building template images...");
         let build_config = read_build_config(cyan_yaml_path.to_string_lossy().to_string())?;
-        let registry = build_config.registry.as_ref().unwrap();
-        let images = build_config.images.as_ref().unwrap();
+        let registry = build_config.registry.as_ref().ok_or_else(|| {
+            Box::new(std::io::Error::other(
+                "registry not configured in cyan.yaml build section",
+            )) as Box<dyn Error + Send>
+        })?;
+        let images = build_config.images.as_ref().ok_or_else(|| {
+            Box::new(std::io::Error::other(
+                "images not configured in cyan.yaml build section",
+            )) as Box<dyn Error + Send>
+        })?;
 
         let tag = format!(
             "{}-try-{}",
@@ -419,7 +427,7 @@ fn pre_flight_validation(template_path: &str, dev_mode: bool) -> Result<(), Box<
 fn ensure_daemon_running(
     docker: &Docker,
     disable_autostart: bool,
-    _coordinator_endpoint: &str,
+    coordinator_endpoint: &str,
 ) -> Result<(), Box<dyn Error + Send>> {
     let coord_filter = "^cyanprint-coordinator$";
 
@@ -449,7 +457,7 @@ fn ensure_daemon_running(
     if coordinator_already_running {
         println!("  ✓ Coordinator daemon is already running");
         // Perform health check even if already running
-        return health_check_daemon();
+        return health_check_daemon(coordinator_endpoint);
     }
 
     if disable_autostart {
@@ -463,24 +471,23 @@ fn ensure_daemon_running(
     runtime.block_on(async { start_coordinator(docker.clone(), img, 9000, None).await })?;
 
     // Health check after starting
-    health_check_daemon()?;
+    health_check_daemon(coordinator_endpoint)?;
 
     println!("  ✓ Coordinator daemon started and ready");
     Ok(())
 }
 
-fn health_check_daemon() -> Result<(), Box<dyn Error + Send>> {
+fn health_check_daemon(coordinator_endpoint: &str) -> Result<(), Box<dyn Error + Send>> {
     let http_client = reqwest::blocking::Client::builder()
         .timeout(std::time::Duration::from_secs(1))
         .build()
         .map_err(|e| Box::new(e) as Box<dyn Error + Send>)?;
 
-    // Daemon always runs on localhost:9000 per spec (plan-1.md line 86)
-    let health_url = "http://localhost:9000/";
+    let health_url = format!("{}/", coordinator_endpoint.trim_end_matches('/'));
 
     println!("  Checking daemon health...");
     for attempt in 1..=60 {
-        let resp = http_client.get(health_url).send();
+        let resp = http_client.get(&health_url).send();
         match resp {
             Ok(r) if r.status().is_success() => {
                 println!("  ✓ Daemon is healthy");
@@ -507,7 +514,9 @@ fn health_check_daemon() -> Result<(), Box<dyn Error + Send>> {
         std::thread::sleep(std::time::Duration::from_secs(1));
     }
 
-    Ok(())
+    Err(Box::new(std::io::Error::other(
+        "Daemon health check failed after 60 attempts",
+    )) as Box<dyn Error + Send>)
 }
 
 #[derive(Debug, Clone, Default)]
@@ -534,37 +543,52 @@ fn resolve_and_pin_dependencies(
     let mut resolvers = Vec::new();
 
     for proc_ref in &config.processors {
-        if let Ok((username, name, _version)) = parse_ref(proc_ref.clone()) {
-            let proc = registry.get_processor(username, name, None)?;
-            processors.push(ProcessorVersionPrincipalRes {
-                id: proc.principal.id,
-                version: proc.principal.version,
-                created_at: proc.principal.created_at,
-                description: proc.principal.description,
-                docker_reference: proc.principal.docker_reference,
-                docker_tag: proc.principal.docker_tag,
-            });
+        match parse_ref(proc_ref.clone()) {
+            Ok((username, name, _version)) => {
+                let proc = registry.get_processor(username, name, None)?;
+                processors.push(ProcessorVersionPrincipalRes {
+                    id: proc.principal.id,
+                    version: proc.principal.version,
+                    created_at: proc.principal.created_at,
+                    description: proc.principal.description,
+                    docker_reference: proc.principal.docker_reference,
+                    docker_tag: proc.principal.docker_tag,
+                });
+            }
+            Err(e) => {
+                eprintln!("  Warning: Failed to parse processor reference '{proc_ref}': {e}");
+            }
         }
     }
 
     for plugin_ref in &config.plugins {
-        if let Ok((username, name, _version)) = parse_ref(plugin_ref.clone()) {
-            let plugin = registry.get_plugin(username, name, None)?;
-            plugins.push(PluginVersionPrincipalRes {
-                id: plugin.principal.id,
-                version: plugin.principal.version,
-                created_at: plugin.principal.created_at,
-                description: plugin.principal.description,
-                docker_reference: plugin.principal.docker_reference,
-                docker_tag: plugin.principal.docker_tag,
-            });
+        match parse_ref(plugin_ref.clone()) {
+            Ok((username, name, _version)) => {
+                let plugin = registry.get_plugin(username, name, None)?;
+                plugins.push(PluginVersionPrincipalRes {
+                    id: plugin.principal.id,
+                    version: plugin.principal.version,
+                    created_at: plugin.principal.created_at,
+                    description: plugin.principal.description,
+                    docker_reference: plugin.principal.docker_reference,
+                    docker_tag: plugin.principal.docker_tag,
+                });
+            }
+            Err(e) => {
+                eprintln!("  Warning: Failed to parse plugin reference '{plugin_ref}': {e}");
+            }
         }
     }
 
     for tmpl_ref in &config.templates {
-        if let Ok((username, name, _version)) = parse_ref(tmpl_ref.clone()) {
-            let tmpl = registry.get_template(username, name, None)?;
-            templates.push(tmpl.principal.clone());
+        match parse_ref(tmpl_ref.clone()) {
+            Ok((username, name, _version)) => {
+                let tmpl = registry.get_template(username, name, None)?;
+                templates.push(tmpl.principal.clone());
+            }
+            Err(e) => {
+                eprintln!("  Warning: Failed to parse template reference '{tmpl_ref}': {e}");
+            }
         }
     }
 
@@ -1010,14 +1034,8 @@ fn execute_and_stream_output(
             merger_id,
         };
 
-        // Debug log to demonstrate the execution payload is derived from Q&A answers
-        // The serialized BuildReq will show the final config values (with answers applied)
-        if let Ok(payload_json) = serde_json::to_string_pretty(&build_req) {
-            println!(
-                "  Execution payload (first 500 chars): {}",
-                payload_json.chars().take(500).collect::<String>()
-            );
-        }
+        // Note: Payload logging removed to prevent accidental exposure of sensitive config values
+        // Enable RUST_LOG=debug for detailed payload inspection during development
 
         let host = coord_client.endpoint.clone();
         let endpoint = format!("{host}/executor/{session_id}");
