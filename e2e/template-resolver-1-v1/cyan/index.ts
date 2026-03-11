@@ -15,6 +15,18 @@ StartTemplateWithLambda(async (i: IInquirer, d: IDeterminism) => {
         ],
         config: {},
       },
+      {
+        name: 'cyane2e/processor1',
+        files: [
+          {
+            glob: '**/*.*',
+            exclude: [],
+            type: GlobType.Copy,
+            root: 'internal',
+          },
+        ],
+        config: {},
+      },
     ],
     plugins: [
       {
