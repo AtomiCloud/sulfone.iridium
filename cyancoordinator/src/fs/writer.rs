@@ -63,13 +63,21 @@ impl FileWriter for DiskFileWriter {
         for dir in dirs_to_check {
             let mut current = dir.as_path();
             while current.starts_with(target_dir) && current != target_dir {
-                if current.is_dir()
-                    && std::fs::read_dir(current).map_or(true, |mut d| d.next().is_none())
-                {
-                    let _ = std::fs::remove_dir(current);
-                } else {
+                if !current.is_dir() {
                     break;
                 }
+
+                let is_empty = std::fs::read_dir(current)
+                    .map_err(|e| Box::new(e) as Box<dyn Error + Send>)?
+                    .next()
+                    .is_none();
+
+                if !is_empty {
+                    break;
+                }
+
+                std::fs::remove_dir(current).map_err(|e| Box::new(e) as Box<dyn Error + Send>)?;
+
                 current = match current.parent() {
                     Some(p) => p,
                     None => break,
