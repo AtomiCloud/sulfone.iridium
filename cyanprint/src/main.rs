@@ -15,6 +15,7 @@ use crate::commands::{Cli, Commands, DaemonCommands, PushArgs, PushCommands};
 use crate::coord::{start_coordinator, stop_coordinator};
 use crate::docker::{BuildOptions, BuildxBuilder};
 use crate::run::cyan_run;
+use crate::update::UserAborted;
 use crate::update::cyan_update;
 use crate::util::parse_ref;
 
@@ -22,6 +23,7 @@ pub mod commands;
 pub mod coord;
 pub mod docker;
 pub mod errors;
+pub mod git;
 pub mod run;
 pub mod update;
 pub mod util;
@@ -432,6 +434,7 @@ fn run() -> Result<(), Box<dyn Error + Send>> {
             path,
             coordinator_endpoint,
             interactive,
+            force,
         } => {
             let session_id_generator = Box::new(DefaultSessionIdGenerator);
             let coord_client = CyanCoordinatorClient::new(coordinator_endpoint.clone());
@@ -446,6 +449,7 @@ fn run() -> Result<(), Box<dyn Error + Send>> {
                 Rc::clone(&registry_ref),
                 cli.debug,
                 interactive,
+                force,
             );
 
             match r {
@@ -459,6 +463,11 @@ fn run() -> Result<(), Box<dyn Error + Send>> {
                     println!("✅ Cleaned up all sessions");
                 }
                 Err(e) => {
+                    // Check if this is a UserAborted error
+                    if e.is::<UserAborted>() {
+                        // User aborted - no error message needed, already printed in orchestrator
+                        return Ok(());
+                    }
                     eprintln!("🚨 Error during update: {e:#?}");
                 }
             }
