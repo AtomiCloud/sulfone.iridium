@@ -34,4 +34,10 @@ pub trait FileWriter {
         target_dir: &Path,
         vfs: &VirtualFileSystem,
     ) -> Result<(), Box<dyn Error + Send>>;
+
+    fn cleanup(
+        &self,
+        target_dir: &Path,
+        files_to_delete: &[PathBuf],
+    ) -> Result<(), Box<dyn Error + Send>>;
 }

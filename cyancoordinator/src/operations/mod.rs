@@ -124,6 +124,14 @@ impl TemplateOperations for TemplateOperator {
         // Merge with base=empty, local=target folder, incoming=VFS
         let merged_vfs = self.vfs.merge(&base_vfs, &local_vfs, &incoming_vfs)?;
 
+        // Clean up files that were deleted during merge
+        let deleted = self
+            .vfs
+            .cleanup_deleted_files(target_dir, &local_vfs, &merged_vfs)?;
+        if !deleted.is_empty() {
+            println!("🗑️ Removed {} file(s) no longer in template", deleted.len());
+        }
+
         // Write the merged VFS to disk
         self.vfs.write_to_disk(target_dir, &merged_vfs)?;
 
@@ -191,6 +199,14 @@ impl TemplateOperations for TemplateOperator {
 
         // Perform 3-way merge with base=prev template, local=target folder, incoming=current template
         let merged_vfs = self.vfs.merge(&base_vfs, &local_vfs, &incoming_vfs)?;
+
+        // Clean up files that were deleted during merge
+        let deleted = self
+            .vfs
+            .cleanup_deleted_files(target_dir, &local_vfs, &merged_vfs)?;
+        if !deleted.is_empty() {
+            println!("🗑️ Removed {} file(s) no longer in template", deleted.len());
+        }
 
         // Write the merged VFS to disk
         self.vfs.write_to_disk(target_dir, &merged_vfs)?;
@@ -265,6 +281,14 @@ impl TemplateOperations for TemplateOperator {
 
         // Perform 3-way merge with base=prev template, local=target folder, incoming=current template
         let merged_vfs = self.vfs.merge(&base_vfs, &local_vfs, &incoming_vfs)?;
+
+        // Clean up files that were deleted during merge
+        let deleted = self
+            .vfs
+            .cleanup_deleted_files(target_dir, &local_vfs, &merged_vfs)?;
+        if !deleted.is_empty() {
+            println!("🗑️ Removed {} file(s) no longer in template", deleted.len());
+        }
 
         // Write the merged VFS to disk
         self.vfs.write_to_disk(target_dir, &merged_vfs)?;
