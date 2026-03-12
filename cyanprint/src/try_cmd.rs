@@ -538,9 +538,7 @@ fn health_check_daemon(coordinator_endpoint: &str) -> Result<(), Box<dyn Error +
         std::thread::sleep(std::time::Duration::from_secs(1));
     }
 
-    Err(Box::new(std::io::Error::other(
-        "Daemon health check failed after 60 attempts",
-    )) as Box<dyn Error + Send>)
+    unreachable!("Loop should have returned by attempt 60")
 }
 
 #[derive(Debug, Clone, Default)]
@@ -837,7 +835,7 @@ pub(crate) fn health_check_template_container(
         std::thread::sleep(std::time::Duration::from_secs(interval_secs));
     }
 
-    Ok(())
+    unreachable!("Loop should have returned by max_attempts")
 }
 
 fn run_qa_loop(
