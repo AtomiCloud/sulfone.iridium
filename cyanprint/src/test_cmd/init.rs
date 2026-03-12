@@ -1,42 +1,1447 @@
-//! Test initialization.
+//! Test initialization with Q&A tree walking and snapshot generation.
 //!
-//! This module will handle test initialization and snapshot generation.
-//! Implemented in Plan 3.
+//! This module implements `cyanprint test init <path>` which:
+//! - Walks the Q&A tree of a template using DFS
+//! - Explores all answer combinations (capped by max_combinations)
+//! - Runs each combination through template execution
+//! - Writes `test.cyan.yaml` + initial snapshots
 
+use std::collections::HashMap;
 use std::error::Error;
+use std::fs;
+use std::path::{Path, PathBuf};
+use std::rc::Rc;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::time::Duration;
+
+use bollard::Docker;
+use reqwest::blocking::Client;
+
+use cyancoordinator::client::CyanCoordinatorClient;
+use cyancoordinator::models::req::{DockerImageReference, TrySetupReq};
+use cyancoordinator::models::res::TrySetupRes;
+use cyanprompt::domain::models::answer::Answer;
+use cyanprompt::domain::models::cyan::Cyan;
+use cyanprompt::domain::models::question::{Question, QuestionTrait};
+use cyanprompt::domain::models::template::{input::TemplateAnswerInput, output::TemplateOutput};
+use cyanprompt::domain::services::repo::{CyanHttpRepo, CyanRepo};
+use cyanprompt::http::client::CyanClient;
+use cyanprompt::http::mapper::cyan_req_mapper;
+use cyanregistry::cli::mapper::read_build_config;
+use cyanregistry::cli::models::template_config::CyanTemplateFileConfig;
+use cyanregistry::http::client::CyanRegistryClient;
+use cyanregistry::http::models::template_res::TemplateVersionRes;
+use flate2::read::GzDecoder;
+use tokio::runtime::Builder;
+
+use crate::docker::buildx::BuildxBuilder;
+use crate::port::find_available_port;
+use crate::test_cmd::config::{AnswerStateEntry, ExpectedOutput, TestCase, TestConfig};
+use crate::try_cmd::{ensure_daemon_running, pre_flight_validation, split_image_ref};
+
+/// Exploration state for Q&A tree walking.
+///
+/// Contains the current state while traversing the Q&A tree:
+/// - `answers`: Collected answers keyed by question ID
+/// - `deterministic_state`: Server-maintained state that affects template behavior
+/// - `path_labels`: Labels for each question answered, used for test name generation
+#[derive(Debug, Clone)]
+struct ExplorationState {
+    answers: HashMap<String, Answer>,
+    deterministic_state: HashMap<String, String>,
+    path_labels: Vec<String>,
+}
+
+impl ExplorationState {
+    fn new() -> Self {
+        Self {
+            answers: HashMap::new(),
+            deterministic_state: HashMap::new(),
+            path_labels: Vec::new(),
+        }
+    }
+
+    fn add_answer(&mut self, question_id: String, answer: Answer, label: String) {
+        self.answers.insert(question_id, answer);
+        self.path_labels.push(label);
+    }
+
+    fn update_deterministic_state(&mut self, state: HashMap<String, String>) {
+        self.deterministic_state = state;
+    }
+}
+
+/// Generated test case result from Q&A tree exploration.
+///
+/// Contains all data needed to write a test case to test.cyan.yaml:
+/// - `name`: Generated test name
+/// - `answer_state`: Answers for each question
+/// - `deterministic_state`: Final deterministic state
+/// - `output_dir`: Path to generated output (for copying to fixtures)
+#[derive(Debug, Clone)]
+struct GeneratedTestCase {
+    name: String,
+    answer_state: HashMap<String, AnswerStateEntry>,
+    deterministic_state: HashMap<String, String>,
+    output_dir: PathBuf,
+}
 
 /// Initialize test configuration and generate snapshots.
 ///
+/// This function performs Q&A tree walking to generate test cases:
+///
+/// # Algorithm
+///
+/// 1. Warm up template (build images, start container)
+/// 2. Start DFS from initial state (empty answers, empty deterministic_state)
+/// 3. For each QnA response:
+///    - Determine answer branches based on question type
+///    - For non-branching types (Text, Password, Date): use seed answer
+///    - For branching types (Select, Confirm, Checkbox): fork for each option
+///    - Update deterministic_state from server response
+///    - Check combination cap before forking new branches
+/// 4. When Final state is reached:
+///    - Increment combination counter
+///    - Record answer_state and deterministic_state
+///    - Run template execution
+///    - Copy output to fixtures/expected/{test_name}/
+/// 5. Write test.cyan.yaml with all generated test cases
+/// 6. Cleanup tmp output directory, stop container, remove images
+///
+/// # Branching Logic
+///
+/// | Question       | Answers explored                                   |
+/// | -------------- | -------------------------------------------------- |
+/// | Text           | Single: seed value (default "dummy")              |
+/// | Password       | Single: seed value (default "password123")        |
+/// | Date           | Single: seed value (default "2024-01-01")         |
+/// | Select         | One per option in q.options                        |
+/// | Confirm        | Two: true, false                                   |
+/// | Checkbox       | Subset: empty + each individual + all combinations |
+///
+/// # Name Generation
+///
+/// Test names are generated by joining path_labels with "-" and sanitizing:
+/// - Replace non-alphanumeric characters with "-"
+/// - Collapse consecutive dashes
+/// - Lowercase
+/// - Truncate to 80 chars
+/// - Append counter suffix if collision
+///
 /// # Arguments
 ///
-/// * `_path` - Path to template directory
-/// * `_max_combinations` - Maximum number of test combinations to generate
-/// * `_text_seed` - Seed for text question generation
-/// * `_password_seed` - Seed for password question generation
-/// * `_date_seed` - Seed for date question generation
-/// * `_output` - Output directory for test results
-/// * `_config` - Template configuration file
-/// * `_coordinator_endpoint` - Coordinator endpoint
-/// * `_disable_daemon_autostart` - Skip automatic daemon start
+/// * `path` - Path to template directory
+/// * `max_combinations` - Maximum number of test combinations to generate (None = unlimited)
+/// * `text_seed` - Seed for text question generation (default: "dummy")
+/// * `password_seed` - Seed for password question generation (default: "password123")
+/// * `date_seed` - Seed for date question generation (default: "2024-01-01")
+/// * `output` - Output directory for test results (default: ".cyan_output")
+/// * `config` - Template configuration file (default: "cyan.yaml")
+/// * `coordinator_endpoint` - Coordinator endpoint
+/// * `disable_daemon_autostart` - Skip automatic daemon start
 ///
 /// # Returns
 ///
 /// Returns `Ok(())` when initialization is complete.
 ///
-/// # Note
+/// # Errors
 ///
-/// This function is a placeholder for Plan 3 implementation.
+/// Returns an error if:
+/// - Template configuration cannot be read
+/// - Warm-up fails
+/// - Q&A tree walking fails
+/// - Template execution fails
+/// - File operations fail
 #[allow(clippy::too_many_arguments)]
 pub fn run_init(
-    _path: &str,
-    _max_combinations: Option<usize>,
-    _text_seed: Option<&str>,
-    _password_seed: Option<&str>,
-    _date_seed: Option<&str>,
-    _output: &str,
-    _config: &str,
-    _coordinator_endpoint: &str,
-    _disable_daemon_autostart: bool,
+    path: &str,
+    max_combinations: Option<usize>,
+    text_seed: Option<&str>,
+    password_seed: Option<&str>,
+    date_seed: Option<&str>,
+    output: &str,
+    config: &str,
+    coordinator_endpoint: &str,
+    disable_daemon_autostart: bool,
 ) -> Result<(), Box<dyn Error + Send>> {
-    todo!("Test initialization not yet implemented, coming in Plan 3")
+    println!("Initializing test configuration for template at: {path}");
+    println!(
+        "Max combinations: {}",
+        max_combinations.map_or("unlimited".to_string(), |n| n.to_string())
+    );
+
+    // Warm up template
+    println!("\nWarming up template...");
+    let warmup = template_warmup(path, config, coordinator_endpoint, disable_daemon_autostart)?;
+    println!("Template warmed up successfully");
+
+    // Run the main work - cleanup will happen regardless of success/failure
+    // All fallible operations are inside run_init_inner so cleanup always runs
+    let result = run_init_inner(
+        &warmup,
+        path,
+        output,
+        coordinator_endpoint,
+        max_combinations,
+        text_seed,
+        password_seed,
+        date_seed,
+    );
+
+    // Cleanup warm-up resources (always runs, even on error)
+    println!("\nCleaning up template resources...");
+    let _ = cleanup_warmup(&warmup); // Ignore cleanup errors to preserve original error
+
+    // Cleanup tmp output directory (always runs, even on error)
+    let output_path = PathBuf::from(output);
+    if output_path.exists() {
+        println!("Removing tmp output directory: {output}");
+        let _ = fs::remove_dir_all(&output_path); // Ignore cleanup errors to preserve original error
+    }
+
+    // Return the original result (or error) from the main work
+    result
+}
+
+/// Inner function that performs the main init work.
+/// This allows cleanup to run in the outer function regardless of success/failure.
+#[allow(clippy::too_many_arguments)]
+fn run_init_inner(
+    warmup: &InitWarmup,
+    path: &str,
+    output: &str,
+    coordinator_endpoint: &str,
+    max_combinations: Option<usize>,
+    text_seed: Option<&str>,
+    password_seed: Option<&str>,
+    date_seed: Option<&str>,
+) -> Result<(), Box<dyn Error + Send>> {
+    // Create output directory
+    fs::create_dir_all(output).map_err(|e| {
+        Box::new(std::io::Error::other(format!(
+            "Failed to create output directory {output}: {e}"
+        ))) as Box<dyn Error + Send>
+    })?;
+
+    // Create fixtures directory
+    let fixtures_dir = PathBuf::from(path).join("fixtures").join("expected");
+    fs::create_dir_all(&fixtures_dir).map_err(|e| {
+        Box::new(std::io::Error::other(format!(
+            "Failed to create fixtures directory {}: {e}",
+            fixtures_dir.display()
+        ))) as Box<dyn Error + Send>
+    })?;
+
+    // Check for existing test.cyan.yaml and fixtures
+    let test_config_path = PathBuf::from(path).join("test.cyan.yaml");
+    if test_config_path.exists() {
+        println!("\nWarning: test.cyan.yaml already exists");
+        println!("It will be overwritten. Press Ctrl+C to cancel, or wait to continue...");
+        std::thread::sleep(Duration::from_secs(2));
+    }
+
+    if fixtures_dir.exists()
+        && fixtures_dir
+            .read_dir()
+            .map_err(|e| Box::new(e) as Box<dyn Error + Send>)?
+            .next()
+            .is_some()
+    {
+        println!("\nWarning: fixtures/expected/ already contains files");
+        println!(
+            "Existing fixtures will be overwritten. Press Ctrl+C to cancel, or wait to continue..."
+        );
+        std::thread::sleep(Duration::from_secs(2));
+    }
+
+    // Run Q&A tree walker
+    println!("\nWalking Q&A tree to generate test cases...");
+    let generated_tests = walk_qa_tree(
+        warmup,
+        output,
+        coordinator_endpoint,
+        max_combinations.unwrap_or(usize::MAX),
+        text_seed.unwrap_or("dummy"),
+        password_seed.unwrap_or("password123"),
+        date_seed.unwrap_or("2024-01-01"),
+    )?;
+
+    println!("\nGenerated {} test case(s)", generated_tests.len());
+
+    // Write test.cyan.yaml
+    println!("\nWriting test.cyan.yaml...");
+    write_test_config(&test_config_path, &generated_tests, path)?;
+    println!("test.cyan.yaml written successfully");
+
+    println!("\nInitialization complete!");
+    println!("  Test cases: {}", generated_tests.len());
+    println!("  Configuration: {}", test_config_path.display());
+    println!("  Fixtures: {}", fixtures_dir.display());
+
+    Ok(())
+}
+
+/// Walk the Q&A tree using DFS to generate test cases.
+///
+/// # Algorithm
+///
+/// The DFS algorithm explores all answer combinations in the Q&A tree:
+///
+/// 1. Start with initial empty state
+/// 2. Send current answers to template server via prompt_template
+/// 3. On QnA response:
+///    - Determine answer branches based on question type
+///    - For each branch:
+///      - Clone current state
+///      - Add answer to state
+///      - Generate path label from answer
+///      - Check combination cap (skip if at max)
+///      - Recurse with new state
+/// 4. On Final response:
+///    - Generate test name from path labels
+///    - Record test case
+///    - Execute template to generate output
+///
+/// # Combination Cap Behavior
+///
+/// The cap is enforced BEFORE forking new branches:
+/// - Counter is incremented when a Final state is reached
+/// - New branches are only created if counter < max_combinations
+/// - In-progress DFS paths are completed even after cap is reached
+/// - This ensures we always get at least max_combinations complete tests
+///
+/// # Arguments
+///
+/// * `warmup` - Template warm-up context with container port
+/// * `output_dir` - Output directory for test results
+/// * `coordinator_endpoint` - Coordinator endpoint
+/// * `max_combinations` - Maximum combinations to generate
+/// * `text_seed` - Seed value for text questions
+/// * `password_seed` - Seed value for password questions
+/// * `date_seed` - Seed value for date questions
+///
+/// # Returns
+///
+/// Returns a vector of generated test cases.
+fn walk_qa_tree(
+    warmup: &InitWarmup,
+    output_dir: &str,
+    coordinator_endpoint: &str,
+    max_combinations: usize,
+    text_seed: &str,
+    password_seed: &str,
+    date_seed: &str,
+) -> Result<Vec<GeneratedTestCase>, Box<dyn Error + Send>> {
+    let port = warmup.port.ok_or_else(|| {
+        Box::new(std::io::Error::other("Template port not available")) as Box<dyn Error + Send>
+    })?;
+
+    let template_endpoint = format!("http://localhost:{port}");
+    let http_client = Rc::new(
+        Client::builder()
+            .timeout(Duration::from_secs(600))
+            .build()
+            .map_err(|e| Box::new(e) as Box<dyn Error + Send>)?,
+    );
+
+    let repo = CyanHttpRepo {
+        client: CyanClient {
+            endpoint: template_endpoint,
+            client: http_client,
+        },
+    };
+
+    let combination_counter = AtomicUsize::new(0);
+    let mut generated_tests = Vec::new();
+    let mut used_names = HashMap::new();
+
+    // Start DFS from initial state
+    let initial_state = ExplorationState::new();
+    dfs_explore(
+        &repo,
+        initial_state,
+        &mut generated_tests,
+        &mut used_names,
+        &combination_counter,
+        max_combinations,
+        text_seed,
+        password_seed,
+        date_seed,
+        warmup,
+        output_dir,
+        coordinator_endpoint,
+    )?;
+
+    Ok(generated_tests)
+}
+
+/// DFS exploration of Q&A tree.
+///
+/// Recursively explores all answer combinations starting from the given state.
+///
+/// # Arguments
+///
+/// * `repo` - Template repository for Q&A
+/// * `state` - Current exploration state
+/// * `generated_tests` - Accumulator for generated test cases
+/// * `used_names` - Tracker for name collision detection
+/// * `combination_counter` - Shared counter for combination cap
+/// * `max_combinations` - Maximum combinations to generate
+/// * `text_seed` - Seed value for text questions
+/// * `password_seed` - Seed value for password questions
+/// * `date_seed` - Seed value for date questions
+/// * `warmup` - Template warm-up context
+/// * `output_dir` - Output directory for test results
+/// * `coordinator_endpoint` - Coordinator endpoint
+#[allow(clippy::too_many_arguments)]
+fn dfs_explore(
+    repo: &CyanHttpRepo,
+    state: ExplorationState,
+    generated_tests: &mut Vec<GeneratedTestCase>,
+    used_names: &mut HashMap<String, usize>,
+    combination_counter: &AtomicUsize,
+    max_combinations: usize,
+    text_seed: &str,
+    password_seed: &str,
+    date_seed: &str,
+    warmup: &InitWarmup,
+    output_dir: &str,
+    coordinator_endpoint: &str,
+) -> Result<(), Box<dyn Error + Send>> {
+    // Check if we've reached the combination cap
+    if combination_counter.load(Ordering::Relaxed) >= max_combinations {
+        return Ok(());
+    }
+
+    // Send current state to template server
+    let input = TemplateAnswerInput {
+        answers: state.answers.clone(),
+        deterministic_state: state.deterministic_state.clone(),
+    };
+
+    let output = repo.prompt_template(input)?;
+
+    match output {
+        TemplateOutput::Final(_final_output) => {
+            // Q&A complete - generate test case
+            let combination_id = combination_counter.fetch_add(1, Ordering::Relaxed);
+
+            if combination_id >= max_combinations {
+                // Another thread beat us to the cap
+                return Ok(());
+            }
+
+            println!("  [{}] Final state reached", combination_id + 1);
+
+            // Generate test name from path labels
+            let name = generate_test_name(&state.path_labels, combination_id, used_names);
+
+            // Execute template and generate output
+            let test_output_dir = execute_template_for_test(
+                &state.answers,
+                &state.deterministic_state,
+                &name,
+                warmup,
+                output_dir,
+                coordinator_endpoint,
+            )?;
+
+            // Convert answers to AnswerStateEntry format
+            let mut answer_state = HashMap::new();
+            for (question_id, answer) in &state.answers {
+                let entry = match answer {
+                    Answer::String(s) => AnswerStateEntry::String(s.clone()),
+                    Answer::StringArray(arr) => AnswerStateEntry::StringArray(arr.clone()),
+                    Answer::Bool(b) => AnswerStateEntry::Bool(*b),
+                };
+                answer_state.insert(question_id.clone(), entry);
+            }
+
+            generated_tests.push(GeneratedTestCase {
+                name: name.clone(),
+                answer_state,
+                deterministic_state: state.deterministic_state.clone(),
+                output_dir: test_output_dir,
+            });
+
+            println!("  Generated test case: {name}");
+        }
+        TemplateOutput::QnA(qna) => {
+            // Update deterministic state from server response
+            let mut updated_state = state.clone();
+            updated_state.update_deterministic_state(qna.deterministic_state);
+
+            // Get answer branches based on question type
+            let branches = get_answer_branches(&qna.question, text_seed, password_seed, date_seed);
+
+            // For each branch, clone state and recurse
+            for (answer, label) in branches {
+                // Check combination cap before forking
+                if combination_counter.load(Ordering::Relaxed) >= max_combinations {
+                    break;
+                }
+
+                let mut branch_state = updated_state.clone();
+                let question_id = qna.question.id();
+                branch_state.add_answer(question_id, answer, label);
+
+                dfs_explore(
+                    repo,
+                    branch_state,
+                    generated_tests,
+                    used_names,
+                    combination_counter,
+                    max_combinations,
+                    text_seed,
+                    password_seed,
+                    date_seed,
+                    warmup,
+                    output_dir,
+                    coordinator_endpoint,
+                )?;
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/// Get answer branches for a question.
+///
+/// Returns a list of (answer, label) pairs for exploring the Q&A tree.
+///
+/// # Branching Strategy
+///
+/// | Question Type | Branches                          |
+/// | ------------- | --------------------------------- |
+/// | Text          | Single: seed value                |
+/// | Password      | Single: seed value                |
+/// | Date          | Single: seed value                |
+/// | Select        | One per option                    |
+/// | Confirm       | true ("yes"), false ("no")        |
+/// | Checkbox      | empty, each individual, all       |
+///
+/// # Arguments
+///
+/// * `question` - The question to get branches for
+/// * `text_seed` - Seed value for text questions
+/// * `password_seed` - Seed value for password questions
+/// * `date_seed` - Seed value for date questions
+///
+/// # Returns
+///
+/// Returns a vector of (answer, label) pairs.
+fn get_answer_branches(
+    question: &Question,
+    text_seed: &str,
+    password_seed: &str,
+    date_seed: &str,
+) -> Vec<(Answer, String)> {
+    match question {
+        Question::Text(_q) => {
+            vec![(Answer::String(text_seed.to_string()), text_seed.to_string())]
+        }
+        Question::Password(_q) => {
+            vec![(
+                Answer::String(password_seed.to_string()),
+                password_seed.to_string(),
+            )]
+        }
+        Question::Date(_q) => {
+            vec![(Answer::String(date_seed.to_string()), date_seed.to_string())]
+        }
+        Question::Select(q) => q
+            .options
+            .iter()
+            .map(|opt| (Answer::String(opt.clone()), opt.clone()))
+            .collect(),
+        Question::Confirm(_q) => {
+            vec![
+                (Answer::Bool(true), "yes".to_string()),
+                (Answer::Bool(false), "no".to_string()),
+            ]
+        }
+        Question::Checkbox(q) => {
+            // Per spec: "Checkbox with 0 options → skip (no branching)"
+            if q.options.is_empty() {
+                return Vec::new();
+            }
+
+            let mut branches = Vec::new();
+
+            // Empty selection
+            branches.push((Answer::StringArray(Vec::new()), "none".to_string()));
+
+            // Each individual option
+            for opt in &q.options {
+                branches.push((Answer::StringArray(vec![opt.clone()]), opt.clone()));
+            }
+
+            // All options
+            branches.push((Answer::StringArray(q.options.clone()), "all".to_string()));
+
+            branches
+        }
+    }
+}
+
+/// Generate a test name from path labels.
+///
+/// # Sanitization Rules
+///
+/// 1. Replace non-alphanumeric characters (except dash) with dash
+/// 2. Collapse consecutive dashes
+/// 3. Lowercase
+/// 4. Truncate to 80 chars
+/// 5. Append counter suffix if collision detected
+///
+/// # Examples
+///
+/// - `["yes", "option1"]` → `"yes-option1"`
+/// - `["my project", "v1.0"]` → `"my-project-v1-0"`
+/// - `["a", "b", "c"]` (collision) → `"a-b-c-1"`
+///
+/// # Arguments
+///
+/// * `path_labels` - Labels from the Q&A path
+/// * `combination_id` - Unique combination identifier
+/// * `used_names` - Tracker for name collisions
+///
+/// # Returns
+///
+/// Returns a unique, sanitized test name (always ≤ 80 chars).
+fn generate_test_name(
+    path_labels: &[String],
+    combination_id: usize,
+    used_names: &mut HashMap<String, usize>,
+) -> String {
+    let base_name = if path_labels.is_empty() {
+        format!("test{combination_id}")
+    } else {
+        path_labels.join("-")
+    };
+
+    // Sanitize: replace non-alphanumeric with dash
+    let sanitized = base_name
+        .chars()
+        .map(|c| if c.is_alphanumeric() { c } else { '-' })
+        .collect::<String>();
+
+    // Collapse consecutive dashes
+    let collapsed = sanitized
+        .split('-')
+        .filter(|s| !s.is_empty())
+        .collect::<Vec<_>>()
+        .join("-")
+        .to_lowercase();
+
+    // Get current collision count for this name
+    let count = used_names.entry(collapsed.clone()).or_insert(0);
+
+    // Calculate max length for the base name to stay within 80 chars after adding suffix
+    // Suffix format: "-{count}" (e.g., "-1", "-10", "-100")
+    let suffix_len = if *count > 0 {
+        count.to_string().len() + 1
+    } else {
+        0
+    };
+    let max_base_len = 80 - suffix_len;
+
+    // Truncate base name to leave room for suffix
+    let base_truncated = if collapsed.len() > max_base_len {
+        truncated_with_ellipsis(&collapsed, max_base_len)
+    } else {
+        collapsed
+    };
+
+    // Build final name with suffix if needed
+    let final_name = if *count > 0 {
+        let name_with_suffix = format!("{base_truncated}-{count}");
+        *count += 1;
+        name_with_suffix
+    } else {
+        *count += 1;
+        base_truncated
+    };
+
+    // Final safety check: ensure we never exceed 80 chars
+    if final_name.len() > 80 {
+        truncated_with_ellipsis(&final_name, 80)
+    } else {
+        final_name
+    }
+}
+
+/// Truncate string with ellipsis while preserving length.
+///
+/// Returns a string of at most `max_len` characters.
+/// If truncation is needed, replaces last 3 chars with "...".
+fn truncated_with_ellipsis(s: &str, max_len: usize) -> String {
+    if max_len <= 3 {
+        return "...".to_string();
+    }
+    if s.len() <= max_len {
+        return s.to_string();
+    }
+    format!("{}...", &s[..max_len - 3])
+}
+
+/// Execute template for a single test case.
+///
+/// Runs the full template execution pipeline:
+/// 1. Generate session_id and merger_id
+/// 2. Call try_setup to initialize coordinator session
+/// 3. Run Q&A loop to get final cyan object
+/// 4. Call bootstrap to initialize executor
+/// 5. Execute template and stream output
+/// 6. Unpack tar.gz to output directory
+/// 7. Cleanup session
+///
+/// # Arguments
+///
+/// * `answers` - Answer state for Q&A
+/// * `deterministic_state` - Deterministic state for Q&A
+/// * `test_name` - Name of the test case
+/// * `warmup` - Template warm-up context
+/// * `output_dir` - Output directory for results
+/// * `coordinator_endpoint` - Coordinator endpoint
+///
+/// # Returns
+///
+/// Returns the path to the generated output directory.
+fn execute_template_for_test(
+    answers: &HashMap<String, Answer>,
+    deterministic_state: &HashMap<String, String>,
+    test_name: &str,
+    warmup: &InitWarmup,
+    output_dir: &str,
+    coordinator_endpoint: &str,
+) -> Result<PathBuf, Box<dyn Error + Send>> {
+    let session_id = uuid::Uuid::new_v4().to_string();
+    let merger_id = uuid::Uuid::new_v4().to_string();
+
+    // Setup coordinator session
+    println!("    [{test_name}] Setting up coordinator session...");
+    let coord_client = CyanCoordinatorClient::new(coordinator_endpoint.to_string());
+
+    let image_ref = warmup.template_image_ref.as_ref().ok_or_else(|| {
+        Box::new(std::io::Error::other("Template image reference required"))
+            as Box<dyn Error + Send>
+    })?;
+
+    let (reference, tag) = split_image_ref(image_ref);
+
+    let try_setup_req = TrySetupReq {
+        session_id: session_id.clone(),
+        local_template_id: warmup.local_template_id.clone(),
+        source: "image".to_string(),
+        image_ref: Some(DockerImageReference { reference, tag }),
+        path: None,
+        template: warmup.template.clone(),
+        merger_id: merger_id.clone(),
+    };
+
+    let _try_setup_res: TrySetupRes = coord_client.try_setup(&try_setup_req)?;
+
+    // Run Q&A loop
+    println!("    [{test_name}] Running Q&A loop...");
+    let port = warmup.port.ok_or_else(|| {
+        Box::new(std::io::Error::other("Template port not available")) as Box<dyn Error + Send>
+    })?;
+
+    let template_endpoint = format!("http://localhost:{port}");
+    let (cyan, _final_answers, _final_states) = run_qa_loop_with_answers(
+        &template_endpoint,
+        answers.clone(),
+        deterministic_state.clone(),
+    )?;
+
+    // Bootstrap executor
+    println!("    [{test_name}] Bootstrapping executor...");
+    let start_executor_req = cyancoordinator::models::req::StartExecutorReq {
+        session_id: session_id.clone(),
+        template: warmup.template.clone(),
+        write_vol_reference: cyancoordinator::models::req::DockerVolumeReferenceReq {
+            cyan_id: _try_setup_res.session_volume.cyan_id,
+            session_id: _try_setup_res.session_volume.session_id,
+        },
+        merger: cyancoordinator::models::req::MergerReq {
+            merger_id: merger_id.clone(),
+        },
+    };
+
+    coord_client.bootstrap(&start_executor_req)?;
+
+    // Execute template
+    println!("    [{test_name}] Executing template...");
+    let test_output_dir = PathBuf::from(output_dir).join(test_name);
+    fs::create_dir_all(&test_output_dir).map_err(|e| {
+        Box::new(std::io::Error::other(format!(
+            "Failed to create test output directory {}: {e}",
+            test_output_dir.display()
+        ))) as Box<dyn Error + Send>
+    })?;
+
+    let cyan_req = cyan_req_mapper(cyan);
+
+    let build_req = cyancoordinator::models::req::BuildReq {
+        template: warmup.template.clone(),
+        cyan: cyan_req,
+        merger_id: merger_id.clone(),
+    };
+
+    let http_client = Client::builder()
+        .timeout(Duration::from_secs(600))
+        .build()
+        .map_err(|e| Box::new(e) as Box<dyn Error + Send>)?;
+
+    let execute_url = format!("{coordinator_endpoint}/executor/{session_id}");
+    let response = http_client
+        .post(&execute_url)
+        .json(&build_req)
+        .send()
+        .map_err(|e| Box::new(e) as Box<dyn Error + Send>)?;
+
+    if !response.status().is_success() {
+        let err_text = response
+            .text()
+            .unwrap_or_else(|_| "Unknown error".to_string());
+        return Err(Box::new(std::io::Error::other(format!(
+            "Template execution failed: {err_text}"
+        ))) as Box<dyn Error + Send>);
+    }
+
+    // Unpack output
+    println!("    [{test_name}] Unpacking output...");
+    let tar = GzDecoder::new(response);
+    let mut archive = tar::Archive::new(tar);
+    archive
+        .unpack(&test_output_dir)
+        .map_err(|e| Box::new(e) as Box<dyn Error + Send>)?;
+
+    // Cleanup session
+    println!("    [{test_name}] Cleaning up session...");
+    let _ = coord_client.try_cleanup(&session_id);
+
+    Ok(test_output_dir)
+}
+
+/// Run Q&A loop with pre-supplied answers.
+///
+/// Non-interactive Q&A loop that uses pre-supplied answers instead of prompting.
+///
+/// # Arguments
+///
+/// * `template_endpoint` - Template server endpoint
+/// * `answers` - Pre-supplied answers keyed by question ID
+/// * `deterministic_state` - Initial deterministic state
+///
+/// # Returns
+///
+/// Returns (cyan, final_answers, final_deterministic_state).
+#[allow(clippy::type_complexity)]
+fn run_qa_loop_with_answers(
+    template_endpoint: &str,
+    mut answers: HashMap<String, Answer>,
+    mut deterministic_state: HashMap<String, String>,
+) -> Result<(Cyan, HashMap<String, Answer>, HashMap<String, String>), Box<dyn Error + Send>> {
+    let http_client = Rc::new(
+        Client::builder()
+            .timeout(Duration::from_secs(600))
+            .build()
+            .map_err(|e| Box::new(e) as Box<dyn Error + Send>)?,
+    );
+
+    let repo = CyanHttpRepo {
+        client: CyanClient {
+            endpoint: template_endpoint.to_string(),
+            client: http_client,
+        },
+    };
+
+    loop {
+        let input = TemplateAnswerInput {
+            answers: answers.clone(),
+            deterministic_state: deterministic_state.clone(),
+        };
+
+        let output = repo.prompt_template(input)?;
+
+        match output {
+            TemplateOutput::Final(final_output) => {
+                return Ok((final_output.cyan, answers, deterministic_state));
+            }
+            TemplateOutput::QnA(qna) => {
+                let question_id = qna.question.id();
+
+                if let Some(answer) = answers.get(&question_id) {
+                    answers.insert(question_id, answer.clone());
+
+                    // Update deterministic state
+                    for (key, value) in &qna.deterministic_state {
+                        deterministic_state.insert(key.clone(), value.clone());
+                    }
+                } else {
+                    return Err(Box::new(std::io::Error::other(format!(
+                        "Missing answer for question '{question_id}'"
+                    ))) as Box<dyn Error + Send>);
+                }
+            }
+        }
+    }
+}
+
+/// Write test configuration to test.cyan.yaml.
+///
+/// # Arguments
+///
+/// * `config_path` - Path to write test.cyan.yaml
+/// * `generated_tests` - Generated test cases
+/// * `template_path` - Template directory path (for relative fixture paths)
+fn write_test_config(
+    config_path: &Path,
+    generated_tests: &[GeneratedTestCase],
+    template_path: &str,
+) -> Result<(), Box<dyn Error + Send>> {
+    let template_path_buf = PathBuf::from(template_path);
+
+    let test_cases: Vec<TestCase> = generated_tests
+        .iter()
+        .map(|gt| {
+            // Copy output to fixtures/expected/{test_name}/
+            let fixture_path = template_path_buf
+                .join("fixtures")
+                .join("expected")
+                .join(&gt.name);
+
+            // Copy files from output_dir to fixture_path
+            if fixture_path.exists() {
+                fs::remove_dir_all(&fixture_path).map_err(|e| {
+                    Box::new(std::io::Error::other(format!(
+                        "Failed to remove fixture directory {}: {e}",
+                        fixture_path.display()
+                    ))) as Box<dyn Error + Send>
+                })?;
+            }
+
+            fs::create_dir_all(&fixture_path).map_err(|e| {
+                Box::new(std::io::Error::other(format!(
+                    "Failed to create fixture directory {}: {e}",
+                    fixture_path.display()
+                ))) as Box<dyn Error + Send>
+            })?;
+
+            copy_recursive(&gt.output_dir, &fixture_path)?;
+
+            // Calculate relative path from template_path to fixture_path
+            let relative_path = PathBuf::from("fixtures")
+                .join("expected")
+                .join(&gt.name)
+                .to_string_lossy()
+                .to_string();
+
+            Ok(TestCase {
+                name: gt.name.clone(),
+                expected: ExpectedOutput::Snapshot {
+                    path: relative_path,
+                },
+                answer_state: gt.answer_state.clone(),
+                deterministic_state: gt.deterministic_state.clone(),
+                validate: Vec::new(),
+                input: None,
+                globs: None,
+                config: None,
+                resolver_input: None,
+                resolver_expected: None,
+            })
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+
+    let config = TestConfig { tests: test_cases };
+
+    let yaml_str = serde_yaml::to_string(&config).map_err(|e| {
+        Box::new(std::io::Error::other(format!(
+            "Failed to serialize YAML: {e}"
+        ))) as Box<dyn Error + Send>
+    })?;
+
+    fs::write(config_path, yaml_str).map_err(|e| {
+        Box::new(std::io::Error::other(format!(
+            "Failed to write test.cyan.yaml: {e}"
+        ))) as Box<dyn Error + Send>
+    })?;
+
+    Ok(())
+}
+
+/// Copy directory recursively.
+fn copy_recursive(from: &Path, to: &Path) -> Result<(), Box<dyn Error + Send>> {
+    if !from.exists() {
+        return Ok(());
+    }
+
+    for entry in fs::read_dir(from).map_err(|e| Box::new(e) as Box<dyn Error + Send>)? {
+        let entry = entry.map_err(|e| Box::new(e) as Box<dyn Error + Send>)?;
+        let from_path = entry.path();
+        let to_path = to.join(entry.file_name());
+
+        if from_path.is_dir() {
+            fs::create_dir_all(&to_path).map_err(|e| Box::new(e) as Box<dyn Error + Send>)?;
+            copy_recursive(&from_path, &to_path)?;
+        } else {
+            fs::copy(&from_path, &to_path).map_err(|e| Box::new(e) as Box<dyn Error + Send>)?;
+        }
+    }
+
+    Ok(())
+}
+
+/// Template warm-up context for init.
+struct InitWarmup {
+    template: TemplateVersionRes,
+    local_template_id: String,
+    container_name: Option<String>,
+    template_image_ref: Option<String>,
+    blob_image_ref: Option<String>,
+    port: Option<u16>,
+    docker: Option<Docker>,
+}
+
+/// Warm up template for init.
+///
+/// Similar to template warmup in template.rs but simpler.
+fn template_warmup(
+    template_path: &str,
+    config_path: &str,
+    coordinator_endpoint: &str,
+    disable_daemon_autostart: bool,
+) -> Result<InitWarmup, Box<dyn Error + Send>> {
+    let full_config_path = PathBuf::from(template_path).join(config_path);
+    let content = fs::read_to_string(full_config_path).map_err(|e| {
+        Box::new(std::io::Error::other(format!(
+            "Failed to read config file: {e}"
+        ))) as Box<dyn Error + Send>
+    })?;
+
+    let template_config: CyanTemplateFileConfig = serde_yaml::from_str(&content).map_err(|e| {
+        Box::new(std::io::Error::other(format!(
+            "Failed to parse config file: {e}"
+        ))) as Box<dyn Error + Send>
+    })?;
+
+    // Pre-flight validation
+    println!("Running pre-flight validation...");
+    pre_flight_validation(template_path, false)?;
+
+    // Ensure daemon is running
+    if !disable_daemon_autostart {
+        println!("Ensuring daemon is running...");
+        let docker = Docker::connect_with_local_defaults()
+            .map_err(|e| Box::new(e) as Box<dyn Error + Send>)?;
+        ensure_daemon_running(&docker, disable_daemon_autostart, coordinator_endpoint)?;
+    }
+
+    // Resolve and pin dependencies
+    println!("Resolving and pinning dependencies...");
+    let registry_client = CyanRegistryClient {
+        endpoint: "https://api.zinc.sulfone.raichu.cluster.atomi.cloud".to_string(),
+        version: "1.0".to_string(),
+        client: Rc::new(
+            Client::builder()
+                .timeout(Duration::from_secs(600))
+                .build()
+                .map_err(|e| Box::new(e) as Box<dyn Error + Send>)?,
+        ),
+    };
+
+    let pinned = crate::try_cmd::resolve_and_pin_dependencies(&registry_client, &template_config)?;
+
+    // Build images
+    println!("Building template and blob images...");
+    let build_config_path = PathBuf::from(template_path).join(config_path);
+    let build_config = read_build_config(build_config_path.to_string_lossy().to_string())?;
+
+    let registry = build_config.registry.as_ref().ok_or_else(|| {
+        Box::new(std::io::Error::other("No registry configured in cyan.yaml"))
+            as Box<dyn Error + Send>
+    })?;
+
+    let images = build_config.images.as_ref().ok_or_else(|| {
+        Box::new(std::io::Error::other("No images configured in cyan.yaml"))
+            as Box<dyn Error + Send>
+    })?;
+
+    let (blob_docker_ref, template_docker_ref) =
+        build_template_images(registry, images, template_path)?;
+
+    println!("Images built successfully");
+
+    // Create synthetic template
+    println!("Creating synthetic template object...");
+    let local_template_id = uuid::Uuid::new_v4().to_string();
+    let build_result = Some((
+        Some(blob_docker_ref.clone()),
+        Some(template_docker_ref.clone()),
+    ));
+
+    let template = crate::try_cmd::build_synthetic_template(
+        &local_template_id,
+        &template_config,
+        &pinned,
+        false,
+        build_result.as_ref(),
+    )?;
+
+    println!("Synthetic template created");
+
+    // Find available port and start template container
+    println!("Starting template container...");
+    let port = find_available_port(5600, 5900).ok_or_else(|| {
+        Box::new(std::io::Error::other(
+            "No available port in range 5600-5900",
+        )) as Box<dyn Error + Send>
+    })?;
+
+    let docker =
+        Docker::connect_with_local_defaults().map_err(|e| Box::new(e) as Box<dyn Error + Send>)?;
+
+    let container_name = Some(format!("cyanprint-init-template-{local_template_id}"));
+    let image_ref = template_docker_ref;
+
+    crate::try_cmd::start_template_container(
+        &docker,
+        &container_name.clone().unwrap(),
+        &image_ref,
+        port,
+        coordinator_endpoint,
+    )?;
+
+    println!("Template container started on port {port}");
+
+    // Health check
+    println!("Health checking template container...");
+    crate::try_cmd::health_check_template_container(port, 30, 2)?;
+
+    Ok(InitWarmup {
+        template,
+        local_template_id,
+        container_name,
+        template_image_ref: Some(image_ref),
+        blob_image_ref: Some(blob_docker_ref),
+        port: Some(port),
+        docker: Some(docker),
+    })
+}
+
+/// Build template and blob images.
+fn build_template_images(
+    registry: &str,
+    images: &cyanregistry::cli::models::build_config::ImagesConfig,
+    template_path: &str,
+) -> Result<(String, String), Box<dyn Error + Send>> {
+    let template_path_abs = PathBuf::from(template_path);
+
+    // Build blob image
+    let blob_config = images.blob.as_ref().ok_or_else(|| {
+        Box::new(std::io::Error::other("No blob image configured")) as Box<dyn Error + Send>
+    })?;
+
+    let blob_name = blob_config.image.as_ref().ok_or_else(|| {
+        Box::new(std::io::Error::other(
+            "blob image name not specified in build config",
+        )) as Box<dyn Error + Send>
+    })?;
+
+    println!("  Building blob image...");
+    let blob_dockerfile_path = template_path_abs.join(&blob_config.dockerfile);
+    let blob_context_path = template_path_abs.join(&blob_config.context);
+
+    crate::try_cmd::build_image(
+        &BuildxBuilder::new(),
+        registry,
+        blob_name,
+        "latest",
+        blob_dockerfile_path.to_string_lossy().as_ref(),
+        blob_context_path.to_string_lossy().as_ref(),
+        &[],
+    )?;
+
+    let blob_ref = format!("{registry}/{blob_name}:latest");
+
+    // Build template image
+    let template_config = images.template.as_ref().ok_or_else(|| {
+        Box::new(std::io::Error::other("No template image configured")) as Box<dyn Error + Send>
+    })?;
+
+    let template_name = template_config.image.as_ref().ok_or_else(|| {
+        Box::new(std::io::Error::other(
+            "template image name not specified in build config",
+        )) as Box<dyn Error + Send>
+    })?;
+
+    println!("  Building template image...");
+    let template_dockerfile_path = template_path_abs.join(&template_config.dockerfile);
+    let template_context_path = template_path_abs.join(&template_config.context);
+
+    crate::try_cmd::build_image(
+        &BuildxBuilder::new(),
+        registry,
+        template_name,
+        "latest",
+        template_dockerfile_path.to_string_lossy().as_ref(),
+        template_context_path.to_string_lossy().as_ref(),
+        &[],
+    )?;
+
+    let template_ref = format!("{registry}/{template_name}:latest");
+
+    Ok((blob_ref, template_ref))
+}
+
+/// Cleanup warm-up resources.
+fn cleanup_warmup(warmup: &InitWarmup) -> Result<(), Box<dyn Error + Send>> {
+    let docker = warmup.docker.as_ref().ok_or_else(|| {
+        Box::new(std::io::Error::other("Docker client not available")) as Box<dyn Error + Send>
+    })?;
+
+    let runtime = Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .map_err(|e| Box::new(e) as Box<dyn Error + Send>)?;
+
+    // Stop and remove container
+    if let Some(ref container_name) = warmup.container_name {
+        println!("  Removing container: {container_name}");
+        runtime.block_on(async {
+            let _ = docker.stop_container(container_name, None).await;
+
+            docker
+                .remove_container(container_name, None)
+                .await
+                .map_err(|e| Box::new(e) as Box<dyn Error + Send>)
+        })?;
+    }
+
+    // Remove images
+    if let Some(ref image_ref) = warmup.template_image_ref {
+        println!("  Removing template image: {image_ref}");
+        runtime.block_on(async {
+            docker
+                .remove_image(
+                    image_ref,
+                    None::<bollard::query_parameters::RemoveImageOptions>,
+                    None::<bollard::auth::DockerCredentials>,
+                )
+                .await
+                .map(|_| ())
+                .map_err(|e| Box::new(e) as Box<dyn Error + Send>)
+        })?;
+    }
+
+    if let Some(ref blob_ref) = warmup.blob_image_ref {
+        println!("  Removing blob image: {blob_ref}");
+        runtime.block_on(async {
+            docker
+                .remove_image(
+                    blob_ref,
+                    None::<bollard::query_parameters::RemoveImageOptions>,
+                    None::<bollard::auth::DockerCredentials>,
+                )
+                .await
+                .map(|_| ())
+                .map_err(|e| Box::new(e) as Box<dyn Error + Send>)
+        })?;
+    }
+
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_truncated_with_ellipsis() {
+        assert_eq!(truncated_with_ellipsis("hello", 10), "hello");
+        assert_eq!(truncated_with_ellipsis("hello world", 8), "hello...");
+        assert_eq!(truncated_with_ellipsis("hello", 3), "...");
+        assert_eq!(truncated_with_ellipsis("a", 5), "a");
+    }
+
+    #[test]
+    fn test_generate_test_name() {
+        let mut used_names = HashMap::new();
+
+        // Basic name
+        let name = generate_test_name(
+            &["yes".to_string(), "option1".to_string()],
+            0,
+            &mut used_names,
+        );
+        assert_eq!(name, "yes-option1");
+
+        // Sanitization
+        let name = generate_test_name(
+            &["my project".to_string(), "v1.0".to_string()],
+            1,
+            &mut used_names,
+        );
+        assert_eq!(name, "my-project-v1-0");
+
+        // Collision handling
+        let name1 = generate_test_name(&["test".to_string()], 2, &mut used_names);
+        let name2 = generate_test_name(&["test".to_string()], 3, &mut used_names);
+        assert_eq!(name1, "test");
+        assert_eq!(name2, "test-1");
+    }
+
+    #[test]
+    fn test_generate_test_name_empty_labels() {
+        let mut used_names = HashMap::new();
+        let name = generate_test_name(&[], 0, &mut used_names);
+        assert_eq!(name, "test0");
+    }
+
+    #[test]
+    fn test_generate_test_name_truncation() {
+        let mut used_names = HashMap::new();
+        let long_labels: Vec<String> = (0..10).map(|i| format!("verylonglabel{}", i)).collect();
+        let name = generate_test_name(&long_labels, 0, &mut used_names);
+        // Final name must never exceed 80 chars (including suffix)
+        assert!(name.len() <= 80);
+    }
+
+    #[test]
+    fn test_generate_test_name_truncation_with_collision() {
+        let mut used_names = HashMap::new();
+        // Create a name that's long enough to need truncation when collision occurs
+        let long_labels: Vec<String> = (0..10).map(|i| format!("verylonglabel{}", i)).collect();
+
+        // First name
+        let name1 = generate_test_name(&long_labels, 0, &mut used_names);
+        assert!(name1.len() <= 80);
+
+        // Collision - should add suffix but still stay within 80 chars
+        let name2 = generate_test_name(&long_labels, 1, &mut used_names);
+        assert!(name2.len() <= 80);
+        assert!(name2.ends_with("-1"));
+
+        // Another collision
+        let name3 = generate_test_name(&long_labels, 2, &mut used_names);
+        assert!(name3.len() <= 80);
+        assert!(name3.ends_with("-2"));
+    }
+
+    #[test]
+    fn test_get_answer_branches_text() {
+        use cyanprompt::domain::models::question::{Question, TextQuestion};
+
+        let q = TextQuestion {
+            message: "Enter text".to_string(),
+            default: None,
+            desc: None,
+            initial: None,
+            id: "q1".to_string(),
+        };
+
+        let branches = get_answer_branches(&Question::Text(q), "seed", "pass", "2024-01-01");
+        assert_eq!(branches.len(), 1);
+        match &branches[0].0 {
+            Answer::String(s) => assert_eq!(s, "seed"),
+            _ => panic!("Expected String answer"),
+        }
+        assert_eq!(branches[0].1, "seed");
+    }
+
+    #[test]
+    fn test_get_answer_branches_select() {
+        use cyanprompt::domain::models::question::{Question, SelectQuestion};
+
+        let q = SelectQuestion {
+            message: "Choose".to_string(),
+            desc: None,
+            options: vec!["opt1".to_string(), "opt2".to_string()],
+            id: "q1".to_string(),
+        };
+
+        let branches = get_answer_branches(&Question::Select(q), "seed", "pass", "2024-01-01");
+        assert_eq!(branches.len(), 2);
+        match &branches[0].0 {
+            Answer::String(s) => assert_eq!(s, "opt1"),
+            _ => panic!("Expected String answer"),
+        }
+        assert_eq!(branches[0].1, "opt1");
+        match &branches[1].0 {
+            Answer::String(s) => assert_eq!(s, "opt2"),
+            _ => panic!("Expected String answer"),
+        }
+        assert_eq!(branches[1].1, "opt2");
+    }
+
+    #[test]
+    fn test_get_answer_branches_confirm() {
+        use cyanprompt::domain::models::question::{ConfirmQuestion, Question};
+
+        let q = ConfirmQuestion {
+            message: "Confirm?".to_string(),
+            desc: None,
+            default: None,
+            error_message: None,
+            id: "q1".to_string(),
+        };
+
+        let branches = get_answer_branches(&Question::Confirm(q), "seed", "pass", "2024-01-01");
+        assert_eq!(branches.len(), 2);
+        match &branches[0].0 {
+            Answer::Bool(b) => assert!(*b),
+            _ => panic!("Expected Bool answer"),
+        }
+        assert_eq!(branches[0].1, "yes");
+        match &branches[1].0 {
+            Answer::Bool(b) => assert!(!*b),
+            _ => panic!("Expected Bool answer"),
+        }
+        assert_eq!(branches[1].1, "no");
+    }
+
+    #[test]
+    fn test_get_answer_branches_checkbox() {
+        use cyanprompt::domain::models::question::{CheckboxQuestion, Question};
+
+        let q = CheckboxQuestion {
+            message: "Select".to_string(),
+            options: vec!["opt1".to_string(), "opt2".to_string()],
+            desc: None,
+            id: "q1".to_string(),
+        };
+
+        let branches = get_answer_branches(&Question::Checkbox(q), "seed", "pass", "2024-01-01");
+        assert_eq!(branches.len(), 4); // none + each option + all
+
+        // Check empty selection
+        assert!(matches!(&branches[0].0, Answer::StringArray(v) if v.is_empty()));
+
+        // Check individual options
+        assert!(matches!(&branches[1].0, Answer::StringArray(v) if v.len() == 1 && v[0] == "opt1"));
+        assert!(matches!(&branches[2].0, Answer::StringArray(v) if v.len() == 1 && v[0] == "opt2"));
+
+        // Check all options
+        assert!(matches!(&branches[3].0, Answer::StringArray(v) if v.len() == 2));
+    }
+
+    #[test]
+    fn test_get_answer_branches_checkbox_empty() {
+        use cyanprompt::domain::models::question::{CheckboxQuestion, Question};
+
+        let q = CheckboxQuestion {
+            message: "Select".to_string(),
+            options: vec![],
+            desc: None,
+            id: "q1".to_string(),
+        };
+
+        let branches = get_answer_branches(&Question::Checkbox(q), "seed", "pass", "2024-01-01");
+        // Per spec: "Checkbox with 0 options → skip (no branching)"
+        assert_eq!(branches.len(), 0);
+    }
 }
