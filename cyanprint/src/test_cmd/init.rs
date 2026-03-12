@@ -743,6 +743,21 @@ fn execute_template_for_test(
 
     let _try_setup_res: TrySetupRes = coord_client.try_setup(&try_setup_req)?;
 
+    // Create cleanup guard to ensure session is always cleaned up, even on error
+    struct InitSessionCleanupGuard<'a> {
+        coord_client: &'a CyanCoordinatorClient,
+        session_id: String,
+    }
+    impl Drop for InitSessionCleanupGuard<'_> {
+        fn drop(&mut self) {
+            let _ = self.coord_client.try_cleanup(&self.session_id);
+        }
+    }
+    let _cleanup_guard = InitSessionCleanupGuard {
+        coord_client: &coord_client,
+        session_id: session_id.clone(),
+    };
+
     // Run Q&A loop
     println!("    [{test_name}] Running Q&A loop...");
     let port = warmup.port.ok_or_else(|| {
@@ -819,9 +834,7 @@ fn execute_template_for_test(
         .unpack(&test_output_dir)
         .map_err(|e| Box::new(e) as Box<dyn Error + Send>)?;
 
-    // Cleanup session
-    println!("    [{test_name}] Cleaning up session...");
-    let _ = coord_client.try_cleanup(&session_id);
+    // Session cleanup is handled by _cleanup_guard on drop
 
     Ok(test_output_dir)
 }

@@ -157,14 +157,12 @@ pub fn build_and_start_container(
     println!("  {artifact_type} image built: {image_ref}");
 
     // Find an available port
-    let port_range_start = match artifact_type {
-        "processor" => 5500,
-        "plugin" => 5600,
-        "resolver" => 5700,
-        _ => 5500,
+    let (port_range_start, port_range_end) = match artifact_type {
+        "processor" => (5500, 5599),
+        "plugin" => (5600, 5699),
+        "resolver" => (5700, 5799),
+        _ => (5500, 5599),
     };
-
-    let port_range_end = port_range_start + 100;
     let host_port = find_available_port(port_range_start, port_range_end).ok_or_else(|| {
         Box::new(std::io::Error::other(format!(
             "No available port in range {port_range_start}-{port_range_end}"
