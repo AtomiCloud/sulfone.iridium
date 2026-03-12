@@ -6,8 +6,12 @@ Implement `cyanprint test init <path>` which auto-generates template test cases 
 
 ## Dependencies
 
-- Plan 1 must be complete (CLI skeleton, config types)
-- Plan 2 must be complete (template warm-up and execution infrastructure)
+- Plan 1 must be complete (CLI skeleton, config types, template warm-up and execution infrastructure)
+
+## Documentation Requirements
+
+- `init.rs` — doc comments on `run_init`, the tree walker, `ExplorationState`, branching logic, and name generation
+- Inline comments on the DFS algorithm explaining the combination cap behavior
 
 ## Files to Modify
 
@@ -17,19 +21,23 @@ Replace the `todo!()` stub with the full implementation.
 
 #### Core Algorithm: Q&A Tree Walker
 
-The tree walker needs to interact with the template server's Q&A endpoint programmatically. Currently `TemplateEngine.start_with()` uses `prompt()` from the `inquire` crate for interactive input. For init, we need a non-interactive variant that can:
+The tree walker needs to interact with the template server's Q&A endpoint programmatically. `TemplateEngine.start_with()` uses `prompt()` from the `inquire` crate for interactive input — it cannot be used for automated exploration.
 
-1. Call the template server with current answers
-2. Inspect the returned question type
-3. Decide which answer(s) to try (based on question type and seed values)
-4. Fork state for branching questions
-
-**Approach**: Don't use `TemplateEngine.start_with()` directly. Instead, interact with the template server's HTTP API at the same level the engine does — via `CyanHttpRepo.prompt_template()`. This gives us:
+**Approach**: Interact with the template server's HTTP API directly via `CyanHttpRepo.prompt_template()`. This gives us:
 
 - `TemplateOutput::QnA(question)` — inspect question, decide answers
 - `TemplateOutput::Final(cyan)` — complete path found
 
-This avoids needing to modify `cyanprompt` at all.
+This avoids needing to modify `cyanprompt` at all. The `CyanHttpRepo` and `CyanClient` types are already accessible from `cyanprint` (used in `try_cmd.rs` via `run_qa_loop`).
+
+**Key types from cyanprompt** (read-only, no changes needed):
+
+- `CyanHttpRepo` implements `CyanRepo` trait → `prompt_template(TemplateAnswerInput) -> Result<TemplateOutput>`
+- `CyanClient` — HTTP client with `endpoint` and `client` fields
+- `TemplateAnswerInput` — `{ answers: HashMap<String, Answer>, deterministic_state: HashMap<String, String> }`
+- `TemplateOutput::QnA(QnAOutput)` where `QnAOutput` has `.question` (a `Question` enum) and `.deterministic_state`
+- `TemplateOutput::Final(FinalOutput)` where `FinalOutput` has `.cyan`
+- `Question` enum: `Confirm(ConfirmQuestion)`, `Date(DateQuestion)`, `Checkbox(CheckboxQuestion)`, `Password(PasswordQuestion)`, `Text(TextQuestion)`, `Select(SelectQuestion)`
 
 #### Tree Walk State
 
@@ -45,18 +53,20 @@ struct ExplorationState {
 
 At each `QnA` response, inspect the question variant:
 
-| Question      | Answers to explore                                                     |
-| ------------- | ---------------------------------------------------------------------- |
-| `Text(q)`     | Single: `Answer::String(text_seed)`                                    |
-| `Password(q)` | Single: `Answer::String(password_seed)`                                |
-| `Date(q)`     | Single: `Answer::String(date_seed)`                                    |
-| `Select(q)`   | One per `q.options` → `Answer::String(option.value)`                   |
-| `Confirm(q)`  | Two: `Answer::Bool(true)`, `Answer::Bool(false)`                       |
-| `Checkbox(q)` | Subset: empty + each individual + all. `Answer::StringArray(selected)` |
+| Question                | Answers to explore                                                                                  |
+| ----------------------- | --------------------------------------------------------------------------------------------------- |
+| `Question::Text(q)`     | Single: `Answer::String(text_seed)`                                                                 |
+| `Question::Password(q)` | Single: `Answer::String(password_seed)`                                                             |
+| `Question::Date(q)`     | Single: `Answer::String(date_seed)`                                                                 |
+| `Question::Select(q)`   | One per `q.options` entry → `Answer::String(option)` (options are `Vec<String>`)                    |
+| `Question::Confirm(q)`  | Two: `Answer::Bool(true)`, `Answer::Bool(false)`                                                    |
+| `Question::Checkbox(q)` | Subset: empty + each individual + all → `Answer::StringArray(selected)` (options are `Vec<String>`) |
 
 For non-branching types (Text, Password, Date): add the seed answer to the state, use the seed value as the path label (e.g., `"dummy"`), continue to next question.
 
-For branching types: for each possible answer, clone the state, add the answer, push a label (e.g., option name for Select, `"yes"`/`"no"` for Confirm), and recurse.
+For branching types: for each possible answer, clone the state, add the answer, push a label (e.g., option string for Select, `"yes"`/`"no"` for Confirm), and recurse.
+
+**Important**: After receiving a `QnA` response, update `deterministic_state` from `q.deterministic_state` before recursing. The server may update deterministic state at each step.
 
 #### Combination Cap
 
@@ -72,7 +82,7 @@ Once a `Final` state is reached:
 
 1. Increment the combination counter
 2. Record the `answer_state` and `deterministic_state`
-3. Run template execution (reuse from Plan 2's template warm-up/per-test logic):
+3. Run template execution (reuse from Plan 1's template warm-up/per-test logic):
    - Generate session_id, merger_id
    - `try_setup` → `bootstrap` → execute → unpack to `{output}/{test_name}/`
    - Session cleanup
@@ -98,9 +108,13 @@ Once a `Final` state is reached:
 
 ### `cyanprompt/src/domain/models/question.rs`
 
-The tree walker needs to extract options from Select and Checkbox questions. Check if the `Question` enum variants expose their inner data (options list, etc.). The `QuestionTrait` trait provides `.id()`. We may need to pattern match on variants to access options.
+The tree walker needs to extract options from Select and Checkbox questions. The `Question` enum variants expose their inner data:
 
-No code changes expected here — just reading. The init module will pattern match on `Question` variants directly.
+- `SelectQuestion { options: Vec<String>, ... }` — option values are plain strings
+- `CheckboxQuestion { options: Vec<String>, ... }` — same
+- `ConfirmQuestion` — no options needed, just branch true/false
+
+No code changes needed — just pattern matching on `Question` variants in `init.rs`.
 
 ### `cyanprompt/src/domain/services/repo.rs` / `cyanprompt/src/http/client.rs`
 
@@ -110,10 +124,10 @@ No code changes expected — just ensure the right items are `pub`.
 
 ## Approach
 
-1. Study `TemplateEngine.start_with()` and `CyanHttpRepo.prompt_template()` to understand the exact request/response flow
+1. Study `run_qa_loop()` in `try_cmd.rs` (lines 840-881) to see how `CyanHttpRepo` and `CyanClient` are constructed and used
 2. Implement the tree walker with DFS and the combination counter
 3. Implement the name generation logic
-4. Wire up template execution per combination (reuse Plan 2 infrastructure)
+4. Wire up template execution per combination (reuse Plan 1 infrastructure)
 5. Implement `test.cyan.yaml` writer (serialize `TestConfig` to YAML)
 6. Wire up in main.rs `Commands::Test::Init` handler
 7. Test with a real template (e.g., e2e fixtures)
@@ -127,6 +141,7 @@ No code changes expected — just ensure the right items are `pub`.
 - `test.cyan.yaml` already exists → warn and ask for confirmation, or use `--force` to overwrite
 - `fixtures/expected/` already has content → same, warn or overwrite
 - Very deep Q&A tree (many questions) → long names get truncated
+- Name collision after truncation → append a counter suffix (e.g., `-1`, `-2`)
 
 ## Testing Strategy
 
@@ -136,7 +151,7 @@ No code changes expected — just ensure the right items are `pub`.
 
 ## Implementation Checklist
 
-- [ ] Implement Q&A tree walker with DFS in `init.rs`
+- [ ] Implement Q&A tree walker with DFS in `init.rs` (with doc comments)
 - [ ] Implement branching logic for all question types
 - [ ] Implement combination cap with AtomicUsize counter
 - [ ] Implement name generation and sanitization
