@@ -331,7 +331,8 @@ pub fn health_check_container(
 ///
 /// # Errors
 ///
-/// Returns an error if cleanup fails (but continues with other cleanup steps).
+/// Returns an error if cleanup fails. Container stop errors are ignored,
+/// but container/image removal errors are propagated immediately.
 ///
 /// # Example
 ///

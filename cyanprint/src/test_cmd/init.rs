@@ -519,7 +519,7 @@ fn dfs_explore(
 /// | Date          | Single: seed value                |
 /// | Select        | One per option                    |
 /// | Confirm       | true ("yes"), false ("no")        |
-/// | Checkbox      | empty, each individual, all       |
+/// | Checkbox      | empty, each individual, all (if 2+)|
 ///
 /// # Arguments
 ///
@@ -577,8 +577,10 @@ fn get_answer_branches(
                 branches.push((Answer::StringArray(vec![opt.clone()]), opt.clone()));
             }
 
-            // All options
-            branches.push((Answer::StringArray(q.options.clone()), "all".to_string()));
+            // All options (only when there are at least 2, to avoid duplicating the singleton)
+            if q.options.len() > 1 {
+                branches.push((Answer::StringArray(q.options.clone()), "all".to_string()));
+            }
 
             branches
         }
@@ -683,7 +685,9 @@ fn truncated_with_ellipsis(s: &str, max_len: usize) -> String {
     if s.len() <= max_len {
         return s.to_string();
     }
-    format!("{}...", &s[..max_len - 3])
+    // Use char-based truncation to avoid panicking on UTF-8 boundary
+    let truncated: String = s.chars().take(max_len - 3).collect();
+    format!("{truncated}...")
 }
 
 /// Execute template for a single test case.
@@ -1087,6 +1091,60 @@ fn template_warmup(
 
     println!("Images built successfully");
 
+    // From this point on, we have built images that need cleanup on failure.
+    // Use a helper closure to complete warmup, cleaning up on any error.
+    let result = template_warmup_after_images(
+        &template_config,
+        &pinned,
+        template_path,
+        coordinator_endpoint,
+        blob_docker_ref.clone(),
+        template_docker_ref.clone(),
+    );
+
+    match result {
+        Ok(warmup) => Ok(warmup),
+        Err(e) => {
+            // Clean up built images on failure
+            eprintln!("Warmup failed after building images, cleaning up...");
+            if let Ok(docker) = Docker::connect_with_local_defaults() {
+                let rt = tokio::runtime::Builder::new_multi_thread()
+                    .enable_all()
+                    .build();
+                if let Ok(rt) = rt {
+                    rt.block_on(async {
+                        let _ = docker
+                            .remove_image(
+                                &template_docker_ref,
+                                None::<bollard::query_parameters::RemoveImageOptions>,
+                                None::<bollard::auth::DockerCredentials>,
+                            )
+                            .await;
+                        let _ = docker
+                            .remove_image(
+                                &blob_docker_ref,
+                                None::<bollard::query_parameters::RemoveImageOptions>,
+                                None::<bollard::auth::DockerCredentials>,
+                            )
+                            .await;
+                    });
+                }
+            }
+            Err(e)
+        }
+    }
+}
+
+/// Complete template warmup after images have been built.
+/// Extracted to allow the caller to handle cleanup of images on failure.
+fn template_warmup_after_images(
+    template_config: &CyanTemplateFileConfig,
+    pinned: &crate::try_cmd::PinnedDependencies,
+    _template_path: &str,
+    coordinator_endpoint: &str,
+    blob_docker_ref: String,
+    template_docker_ref: String,
+) -> Result<InitWarmup, Box<dyn Error + Send>> {
     // Create synthetic template
     println!("Creating synthetic template object...");
     let local_template_id = uuid::Uuid::new_v4().to_string();
@@ -1097,8 +1155,8 @@ fn template_warmup(
 
     let template = crate::try_cmd::build_synthetic_template(
         &local_template_id,
-        &template_config,
-        &pinned,
+        template_config,
+        pinned,
         false,
         build_result.as_ref(),
     )?;
@@ -1454,5 +1512,23 @@ mod tests {
         let branches = get_answer_branches(&Question::Checkbox(q), "seed", "pass", "2024-01-01");
         // Per spec: "Checkbox with 0 options → skip (no branching)"
         assert_eq!(branches.len(), 0);
+    }
+
+    #[test]
+    fn test_get_answer_branches_checkbox_single_option() {
+        use cyanprompt::domain::models::question::{CheckboxQuestion, Question};
+
+        let q = CheckboxQuestion {
+            message: "Select".to_string(),
+            options: vec!["only".to_string()],
+            desc: None,
+            id: "q1".to_string(),
+        };
+
+        let branches = get_answer_branches(&Question::Checkbox(q), "seed", "pass", "2024-01-01");
+        // none + the single option = 2 (no "all" since it would duplicate the singleton)
+        assert_eq!(branches.len(), 2);
+        assert!(matches!(&branches[0].0, Answer::StringArray(v) if v.is_empty()));
+        assert!(matches!(&branches[1].0, Answer::StringArray(v) if v.len() == 1 && v[0] == "only"));
     }
 }
