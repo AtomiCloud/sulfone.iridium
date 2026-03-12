@@ -156,6 +156,41 @@ pub fn build_and_start_container(
     let image_ref = format!("{registry}/{image_name}:latest");
     println!("  {artifact_type} image built: {image_ref}");
 
+    // Connect to Docker early so we can clean up on failure
+    let docker =
+        Docker::connect_with_local_defaults().map_err(|e| Box::new(e) as Box<dyn Error + Send>)?;
+
+    // Helper closure to remove the built image on error
+    let cleanup_image = |docker: &Docker, image_ref: &str| {
+        let rt = tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build();
+        if let Ok(rt) = rt {
+            let _ = rt.block_on(async {
+                docker
+                    .remove_image(
+                        image_ref,
+                        None::<bollard::query_parameters::RemoveImageOptions>,
+                        None::<bollard::auth::DockerCredentials>,
+                    )
+                    .await
+            });
+        }
+    };
+
+    // Helper closure to stop+remove a container on error
+    let cleanup_partial_container = |docker: &Docker, container_name: &str| {
+        let rt = tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build();
+        if let Ok(rt) = rt {
+            rt.block_on(async {
+                let _ = docker.stop_container(container_name, None).await;
+                let _ = docker.remove_container(container_name, None).await;
+            });
+        }
+    };
+
     // Find an available port
     let (port_range_start, port_range_end) = match artifact_type {
         "processor" => (5500, 5599),
@@ -163,11 +198,15 @@ pub fn build_and_start_container(
         "resolver" => (5700, 5799),
         _ => (5500, 5599),
     };
-    let host_port = find_available_port(port_range_start, port_range_end).ok_or_else(|| {
-        Box::new(std::io::Error::other(format!(
-            "No available port in range {port_range_start}-{port_range_end}"
-        ))) as Box<dyn Error + Send>
-    })?;
+    let host_port = match find_available_port(port_range_start, port_range_end) {
+        Some(port) => port,
+        None => {
+            cleanup_image(&docker, &image_ref);
+            return Err(Box::new(std::io::Error::other(format!(
+                "No available port in range {port_range_start}-{port_range_end}"
+            ))) as Box<dyn Error + Send>);
+        }
+    };
 
     // Create a container name
     let container_name = format!("cyanprint-test-{artifact_type}-{}", uuid::Uuid::new_v4());
@@ -192,16 +231,15 @@ pub fn build_and_start_container(
         }]),
     );
 
-    // Start container using bollard
-    let docker =
-        Docker::connect_with_local_defaults().map_err(|e| Box::new(e) as Box<dyn Error + Send>)?;
-
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
-        .map_err(|e| Box::new(e) as Box<dyn Error + Send>)?;
+        .map_err(|e| {
+            cleanup_image(&docker, &image_ref);
+            Box::new(e) as Box<dyn Error + Send>
+        })?;
 
-    runtime.block_on(async {
+    let container_created = runtime.block_on(async {
         // Image already built, create container
         println!("  Creating container {container_name}...");
         let config = ContainerCreateBody {
@@ -232,12 +270,22 @@ pub fn build_and_start_container(
             .map_err(|e| Box::new(e) as Box<dyn Error + Send>)?;
 
         Result::<(), Box<dyn Error + Send>>::Ok(())
-    })?;
+    });
+
+    if let Err(e) = container_created {
+        cleanup_partial_container(&docker, &container_name);
+        cleanup_image(&docker, &image_ref);
+        return Err(e);
+    }
 
     println!("  Container started on port {host_port}");
 
     // Health check
-    health_check_container(host_port, 30, 2)?;
+    if let Err(e) = health_check_container(host_port, 30, 2) {
+        cleanup_partial_container(&docker, &container_name);
+        cleanup_image(&docker, &image_ref);
+        return Err(e);
+    }
 
     Ok(ContainerHandle {
         container_name,

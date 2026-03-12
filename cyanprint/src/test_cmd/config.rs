@@ -276,6 +276,17 @@ pub fn read_test_config(path: String) -> Result<TestConfig, Box<dyn Error + Send
         ))) as Box<dyn Error + Send>
     })?;
 
+    // Validate uniqueness of test names
+    let mut seen_names = std::collections::HashSet::new();
+    for test_case in &config.tests {
+        if !seen_names.insert(&test_case.name) {
+            return Err(Box::new(TestConfigError::InvalidValue(format!(
+                "Duplicate test name: {}",
+                test_case.name
+            ))) as Box<dyn Error + Send>);
+        }
+    }
+
     Ok(config)
 }
 

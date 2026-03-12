@@ -18,7 +18,6 @@ use crate::test_cmd::config::{ExpectedOutput, TestCase, read_test_config};
 use crate::test_cmd::container::{ContainerHandle, build_and_start_container, cleanup_container};
 use crate::test_cmd::report::TestResult;
 use crate::test_cmd::validation::{compare_directories, run_validate_commands};
-use crate::try_cmd::ensure_daemon_running;
 
 /// Run processor tests.
 ///
@@ -58,8 +57,8 @@ pub fn run_processor_tests(
     _config: &str,
     output_dir: &str,
     junit_path: Option<&str>,
-    coordinator_endpoint: &str,
-    disable_daemon_autostart: bool,
+    _coordinator_endpoint: &str,
+    _disable_daemon_autostart: bool,
 ) -> Result<Vec<TestResult>, Box<dyn Error + Send>> {
     // Create output directory
     fs::create_dir_all(output_dir).map_err(|e| {
@@ -98,11 +97,11 @@ pub fn run_processor_tests(
 
     println!("Found {} test case(s) to run", test_cases.len());
 
-    // Pre-flight validation
+    // Pre-flight validation: only check Docker connectivity (processor tests don't need the coordinator)
     println!("Running pre-flight validation...");
-    let docker = bollard::Docker::connect_with_local_defaults()
+    let _docker = bollard::Docker::connect_with_local_defaults()
         .map_err(|e| Box::new(e) as Box<dyn Error + Send>)?;
-    ensure_daemon_running(&docker, disable_daemon_autostart, coordinator_endpoint)?;
+    println!("  Docker daemon is reachable");
 
     // Collect all input directories for bind mounts
     let mut test_inputs = std::collections::HashMap::new();

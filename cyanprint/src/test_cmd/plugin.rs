@@ -170,7 +170,7 @@ pub fn run_plugin_tests(
     println!("\nRunning tests...");
     let start_time = Instant::now();
 
-    let results = if parallel > 1 {
+    let results_result = if parallel > 1 {
         run_plugin_tests_parallel(
             test_cases,
             &container,
@@ -178,7 +178,7 @@ pub fn run_plugin_tests(
             &tmp_output_dir,
             update_snapshots,
             parallel,
-        )?
+        )
     } else {
         run_plugin_tests_sequential(
             test_cases,
@@ -186,20 +186,25 @@ pub fn run_plugin_tests(
             plugin_path,
             &tmp_output_dir,
             update_snapshots,
-        )?
+        )
     };
 
     let total_duration = start_time.elapsed();
 
-    // Cleanup warm-up resources
+    // Cleanup warm-up resources (always, even on test failure)
     println!("\nCleaning up plugin resources...");
-    cleanup_container(&container)?;
+    if let Err(e) = cleanup_container(&container) {
+        eprintln!("Warning: plugin container cleanup failed: {e}");
+    }
 
     // Cleanup tmp output directory
     if tmp_output_dir.exists() {
         let _ = fs::remove_dir_all(&tmp_output_dir);
     }
     println!("Cleanup complete");
+
+    // Propagate any test execution error after cleanup
+    let results = results_result?;
 
     // Write JUnit report if requested
     if let Some(junit_path) = junit_path {
@@ -313,18 +318,20 @@ fn run_plugin_tests_parallel(
             );
 
             // Store result
-            if let Ok(test_result) = result {
-                let mut results = results_mutex.lock().unwrap();
-                results.push(test_result);
-            } else {
-                // Handle error case
-                let mut results = results_mutex.lock().unwrap();
-                results.push(TestResult {
-                    name: test_case.name.clone(),
-                    passed: false,
-                    duration: Duration::from_secs(0),
-                    failure_message: Some(format!("Test failed: {:?}", result.unwrap_err())),
-                });
+            match result {
+                Ok(test_result) => {
+                    let mut results = results_mutex.lock().unwrap();
+                    results.push(test_result);
+                }
+                Err(err) => {
+                    let mut results = results_mutex.lock().unwrap();
+                    results.push(TestResult {
+                        name: test_case.name.clone(),
+                        passed: false,
+                        duration: Duration::from_secs(0),
+                        failure_message: Some(format!("Test failed: {err:?}")),
+                    });
+                }
             }
         });
 

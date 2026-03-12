@@ -18,7 +18,6 @@ use reqwest::blocking::Client;
 use crate::test_cmd::config::read_test_config;
 use crate::test_cmd::container::{build_and_start_container, cleanup_container};
 use crate::test_cmd::report::TestResult;
-use crate::try_cmd::ensure_daemon_running;
 
 /// Run resolver tests.
 ///
@@ -58,8 +57,8 @@ pub fn run_resolver_tests(
     _config: &str,
     output_dir: &str,
     junit_path: Option<&str>,
-    coordinator_endpoint: &str,
-    disable_daemon_autostart: bool,
+    _coordinator_endpoint: &str,
+    _disable_daemon_autostart: bool,
 ) -> Result<Vec<TestResult>, Box<dyn Error + Send>> {
     // Note: update_snapshots is used for resolver tests
     // We accept the parameter for API consistency with other test types
@@ -101,11 +100,11 @@ pub fn run_resolver_tests(
 
     println!("Found {} test case(s) to run", test_cases.len());
 
-    // Pre-flight validation
+    // Pre-flight validation: only check Docker connectivity (resolver tests don't need the coordinator)
     println!("Running pre-flight validation...");
-    let docker = bollard::Docker::connect_with_local_defaults()
+    let _docker = bollard::Docker::connect_with_local_defaults()
         .map_err(|e| Box::new(e) as Box<dyn Error + Send>)?;
-    ensure_daemon_running(&docker, disable_daemon_autostart, coordinator_endpoint)?;
+    println!("  Docker daemon is reachable");
 
     // Warm up resolver
     println!("\nWarming up resolver...");
@@ -117,27 +116,32 @@ pub fn run_resolver_tests(
     println!("\nRunning tests...");
     let start_time = Instant::now();
 
-    let results = if parallel > 1 && !update_snapshots {
+    let results_result = if parallel > 1 && !update_snapshots {
         run_resolver_tests_parallel(
             test_cases,
             &container,
             resolver_path,
             parallel,
             update_snapshots,
-        )?
+        )
     } else {
         if update_snapshots && parallel > 1 {
             println!("  Note: Running sequentially because --update-snapshots is enabled");
         }
-        run_resolver_tests_sequential(test_cases, &container, resolver_path, update_snapshots)?
+        run_resolver_tests_sequential(test_cases, &container, resolver_path, update_snapshots)
     };
 
     let total_duration = start_time.elapsed();
 
-    // Cleanup warm-up resources
+    // Cleanup warm-up resources (always, even on test failure)
     println!("\nCleaning up resolver resources...");
-    cleanup_container(&container)?;
+    if let Err(e) = cleanup_container(&container) {
+        eprintln!("Warning: resolver container cleanup failed: {e}");
+    }
     println!("Cleanup complete");
+
+    // Propagate any test execution error after cleanup
+    let results = results_result?;
 
     // Write JUnit report if requested
     if let Some(junit_path) = junit_path {

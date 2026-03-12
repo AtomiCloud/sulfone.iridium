@@ -213,7 +213,7 @@ pub fn run_template_tests(
     println!("\nRunning tests...");
     let start_time = Instant::now();
 
-    let results = if parallel > 1 {
+    let results_result = if parallel > 1 {
         run_tests_parallel(
             test_cases,
             &warmup,
@@ -222,7 +222,7 @@ pub fn run_template_tests(
             update_snapshots,
             coordinator_endpoint,
             parallel,
-        )?
+        )
     } else {
         run_tests_sequential(
             test_cases,
@@ -231,15 +231,20 @@ pub fn run_template_tests(
             output_dir,
             update_snapshots,
             coordinator_endpoint,
-        )?
+        )
     };
 
     let total_duration = start_time.elapsed();
 
-    // Cleanup warm-up resources
+    // Cleanup warm-up resources (always, even on test failure)
     println!("\nCleaning up template resources...");
-    cleanup_warmup(&warmup)?;
+    if let Err(e) = cleanup_warmup(&warmup) {
+        eprintln!("Warning: template warmup cleanup failed: {e}");
+    }
     println!("Cleanup complete");
+
+    // Propagate any test execution error after cleanup
+    let results = results_result?;
 
     // Write JUnit report if requested
     if let Some(junit_path) = junit_path {

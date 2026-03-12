@@ -259,13 +259,6 @@ pub fn compare_directories(
     let actual_files = collect_files_recursive(&actual_path)?;
     let expected_files = collect_files_recursive(&expected_path)?;
 
-    // Track binary files that were skipped (before consuming the vectors)
-    let skipped_binary: Vec<String> = actual_files
-        .iter()
-        .filter(|(_, is_binary)| *is_binary)
-        .map(|(p, _)| p.clone())
-        .collect();
-
     // Store the lengths before consuming the vectors
     let actual_files_len = actual_files.len();
     let expected_files_len = expected_files.len();
@@ -281,7 +274,7 @@ pub fn compare_directories(
     let mut mismatched_files = Vec::new();
     let mut extra_files = Vec::new();
     let mut missing_files = Vec::new();
-    let skipped_binary_files = skipped_binary;
+    let mut skipped_binary_files = Vec::new();
 
     // Compare files
     let all_paths: std::collections::HashSet<&String> =
@@ -296,7 +289,8 @@ pub fn compare_directories(
                 // File exists in both - compare contents
                 let is_binary = expected_map.get(path).unwrap();
                 if *is_binary {
-                    // Already tracked as skipped binary
+                    // Binary file exists in both sides - skip content comparison
+                    skipped_binary_files.push(path.clone());
                     continue;
                 }
 
@@ -328,18 +322,12 @@ pub fn compare_directories(
                 }
             }
             (true, false) => {
-                // File only in actual
-                let is_binary = actual_map.get(path).unwrap().0;
-                if !is_binary {
-                    extra_files.push(path.clone());
-                }
+                // File only in actual (including binary files)
+                extra_files.push(path.clone());
             }
             (false, true) => {
-                // File only in expected
-                let is_binary = expected_map.get(path).unwrap();
-                if !is_binary {
-                    missing_files.push(path.clone());
-                }
+                // File only in expected (including binary files)
+                missing_files.push(path.clone());
             }
             (false, false) => {
                 // Shouldn't happen
