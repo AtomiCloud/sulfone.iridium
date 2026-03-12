@@ -159,8 +159,8 @@ pub fn build_and_start_container(
     // Find an available port
     let port_range_start = match artifact_type {
         "processor" => 5500,
-        "plugin" => 5550,
-        "resolver" => 5600,
+        "plugin" => 5600,
+        "resolver" => 5700,
         _ => 5500,
     };
 

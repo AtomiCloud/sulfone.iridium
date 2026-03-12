@@ -1033,13 +1033,11 @@ fn template_warmup(
     println!("Running pre-flight validation...");
     pre_flight_validation(template_path, false)?;
 
-    // Ensure daemon is running
-    if !disable_daemon_autostart {
-        println!("Ensuring daemon is running...");
-        let docker = Docker::connect_with_local_defaults()
-            .map_err(|e| Box::new(e) as Box<dyn Error + Send>)?;
-        ensure_daemon_running(&docker, disable_daemon_autostart, coordinator_endpoint)?;
-    }
+    // Ensure daemon is running (always check, even with --disable-daemon-autostart)
+    println!("Ensuring daemon is running...");
+    let docker =
+        Docker::connect_with_local_defaults().map_err(|e| Box::new(e) as Box<dyn Error + Send>)?;
+    ensure_daemon_running(&docker, disable_daemon_autostart, coordinator_endpoint)?;
 
     // Resolve and pin dependencies
     println!("Resolving and pinning dependencies...");

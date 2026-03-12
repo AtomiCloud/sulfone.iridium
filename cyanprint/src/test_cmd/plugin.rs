@@ -439,71 +439,73 @@ fn run_single_plugin_test_case(
         }
 
         // Compare with expected snapshot if no validate failures
-        if let ExpectedOutput::Snapshot { ref path } = test_case.expected {
-            let expected_path = if path.starts_with('/') {
-                // Absolute path
-                PathBuf::from(path)
-            } else {
-                // Relative to plugin directory
-                PathBuf::from(plugin_path).join(path)
-            };
+        if failure_message.is_none() {
+            if let ExpectedOutput::Snapshot { ref path } = test_case.expected {
+                let expected_path = if path.starts_with('/') {
+                    // Absolute path
+                    PathBuf::from(path)
+                } else {
+                    // Relative to plugin directory
+                    PathBuf::from(plugin_path).join(path)
+                };
 
-            if test_output_dir.exists() {
-                println!(
-                    "  Comparing with expected snapshot at {}...",
-                    expected_path.display()
-                );
+                if test_output_dir.exists() {
+                    println!(
+                        "  Comparing with expected snapshot at {}...",
+                        expected_path.display()
+                    );
 
-                let comparison = compare_directories(
-                    test_output_dir.to_str().unwrap(),
-                    expected_path.to_str().unwrap(),
-                )?;
+                    let comparison = compare_directories(
+                        test_output_dir.to_str().unwrap(),
+                        expected_path.to_str().unwrap(),
+                    )?;
 
-                if !comparison.matched {
-                    let mut messages = Vec::new();
+                    if !comparison.matched {
+                        let mut messages = Vec::new();
 
-                    for file in &comparison.mismatched_files {
-                        messages.push(format!(
-                            "File '{}' mismatched: {}",
-                            file.path,
-                            file.details.as_deref().unwrap_or("unknown error")
-                        ));
-                    }
+                        for file in &comparison.mismatched_files {
+                            messages.push(format!(
+                                "File '{}' mismatched: {}",
+                                file.path,
+                                file.details.as_deref().unwrap_or("unknown error")
+                            ));
+                        }
 
-                    for file in &comparison.extra_files {
-                        messages.push(format!("Extra file: {file}"));
-                    }
+                        for file in &comparison.extra_files {
+                            messages.push(format!("Extra file: {file}"));
+                        }
 
-                    for file in &comparison.missing_files {
-                        messages.push(format!("Missing file: {file}"));
-                    }
+                        for file in &comparison.missing_files {
+                            messages.push(format!("Missing file: {file}"));
+                        }
 
-                    if !comparison.skipped_binary_files.is_empty() {
-                        messages.push(format!(
-                            "Skipped {} binary files",
-                            comparison.skipped_binary_files.len()
-                        ));
-                    }
+                        if !comparison.skipped_binary_files.is_empty() {
+                            messages.push(format!(
+                                "Skipped {} binary files",
+                                comparison.skipped_binary_files.len()
+                            ));
+                        }
 
-                    failure_message = Some(format!(
-                        "Snapshot comparison failed:\n{}",
-                        messages.join("\n")
-                    ));
-
-                    // Update snapshots if requested
-                    if update_snapshots {
-                        println!("  Updating snapshot...");
-                        copy_to_snapshot(&test_output_dir, &expected_path)?;
-                        println!("  Snapshot updated");
+                        // Update snapshots if requested
+                        if update_snapshots {
+                            println!("  Updating snapshot...");
+                            copy_to_snapshot(&test_output_dir, &expected_path)?;
+                            println!("  Snapshot updated");
+                        } else {
+                            failure_message = Some(format!(
+                                "Snapshot comparison failed:\n{}",
+                                messages.join("\n")
+                            ));
+                        }
+                    } else {
+                        println!("  Snapshot matched");
                     }
                 } else {
-                    println!("  Snapshot matched");
+                    failure_message = Some(format!(
+                        "Output directory not found: {}",
+                        test_output_dir.display()
+                    ));
                 }
-            } else {
-                failure_message = Some(format!(
-                    "Output directory not found: {}",
-                    test_output_dir.display()
-                ));
             }
         }
     }

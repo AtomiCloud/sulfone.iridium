@@ -294,13 +294,11 @@ fn template_warmup(
     println!("Running pre-flight validation...");
     crate::try_cmd::pre_flight_validation(template_path, false)?;
 
-    // Ensure daemon is running
-    if !disable_daemon_autostart {
-        println!("Ensuring daemon is running...");
-        let docker = Docker::connect_with_local_defaults()
-            .map_err(|e| Box::new(e) as Box<dyn Error + Send>)?;
-        ensure_daemon_running(&docker, disable_daemon_autostart, coordinator_endpoint)?;
-    }
+    // Ensure daemon is running (always check, even with --disable-daemon-autostart)
+    println!("Ensuring daemon is running...");
+    let docker =
+        Docker::connect_with_local_defaults().map_err(|e| Box::new(e) as Box<dyn Error + Send>)?;
+    ensure_daemon_running(&docker, disable_daemon_autostart, coordinator_endpoint)?;
 
     // Resolve and pin dependencies
     println!("Resolving and pinning dependencies...");
@@ -710,6 +708,16 @@ fn run_single_test_case(
     }
 
     // Unpack tar.gz to output directory
+    // Clear any previous output first to avoid stale files contaminating reruns
+    if test_output_dir.exists() {
+        fs::remove_dir_all(&test_output_dir).map_err(|e| {
+            Box::new(std::io::Error::other(format!(
+                "Failed to clear test output directory {}: {}",
+                test_output_dir.display(),
+                e
+            ))) as Box<dyn Error + Send>
+        })?;
+    }
     println!("  Unpacking output to {}...", test_output_dir.display());
     let tar = GzDecoder::new(response);
     let mut archive = tar::Archive::new(tar);
@@ -791,16 +799,16 @@ fn run_single_test_case(
                 ));
             }
 
-            failure_message = Some(format!(
-                "Snapshot comparison failed:\n{}",
-                messages.join("\n")
-            ));
-
             // Update snapshots if requested
             if update_snapshots {
                 println!("  Updating snapshot...");
                 copy_to_snapshot(&test_output_dir, &expected_path)?;
                 println!("  Snapshot updated");
+            } else {
+                failure_message = Some(format!(
+                    "Snapshot comparison failed:\n{}",
+                    messages.join("\n")
+                ));
             }
         } else {
             println!("  Snapshot matched");

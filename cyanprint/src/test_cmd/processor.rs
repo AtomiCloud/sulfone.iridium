@@ -173,40 +173,47 @@ pub fn run_processor_tests(
     let container = processor_warmup(processor_path, bind_mounts)?;
     println!("Processor warmed up successfully");
 
-    // Run tests (parallel or sequential based on parallel count)
-    println!("\nRunning tests...");
+    // Run tests, ensuring cleanup happens even on failure
     let start_time = Instant::now();
+    let test_result = (|| -> Result<Vec<TestResult>, Box<dyn Error + Send>> {
+        // Run tests (parallel or sequential based on parallel count)
+        println!("\nRunning tests...");
 
-    let results = if parallel > 1 {
-        run_processor_tests_parallel(
-            test_cases,
-            &container,
-            processor_path,
-            &tmp_output_dir,
-            update_snapshots,
-            parallel,
-        )?
-    } else {
-        run_processor_tests_sequential(
-            test_cases,
-            &container,
-            processor_path,
-            &tmp_output_dir,
-            update_snapshots,
-        )?
-    };
+        let results = if parallel > 1 {
+            run_processor_tests_parallel(
+                test_cases,
+                &container,
+                processor_path,
+                &tmp_output_dir,
+                update_snapshots,
+                parallel,
+            )?
+        } else {
+            run_processor_tests_sequential(
+                test_cases,
+                &container,
+                processor_path,
+                &tmp_output_dir,
+                update_snapshots,
+            )?
+        };
+
+        Ok(results)
+    })();
 
     let total_duration = start_time.elapsed();
 
-    // Cleanup warm-up resources
+    // Cleanup warm-up resources (always runs, even on error)
     println!("\nCleaning up processor resources...");
-    cleanup_container(&container)?;
+    let _ = cleanup_container(&container);
 
-    // Cleanup tmp output directory
+    // Cleanup tmp output directory (always runs, even on error)
     if tmp_output_dir.exists() {
         let _ = fs::remove_dir_all(&tmp_output_dir);
     }
     println!("Cleanup complete");
+
+    let results = test_result?;
 
     // Write JUnit report if requested
     if let Some(junit_path) = junit_path {

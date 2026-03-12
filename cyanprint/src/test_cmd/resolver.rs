@@ -113,10 +113,11 @@ pub fn run_resolver_tests(
     println!("Resolver warmed up successfully");
 
     // Run tests (parallel or sequential based on parallel count)
+    // Force sequential when updating snapshots to avoid read-modify-write races on test.cyan.yaml
     println!("\nRunning tests...");
     let start_time = Instant::now();
 
-    let results = if parallel > 1 {
+    let results = if parallel > 1 && !update_snapshots {
         run_resolver_tests_parallel(
             test_cases,
             &container,
@@ -125,6 +126,9 @@ pub fn run_resolver_tests(
             update_snapshots,
         )?
     } else {
+        if update_snapshots && parallel > 1 {
+            println!("  Note: Running sequentially because --update-snapshots is enabled");
+        }
         run_resolver_tests_sequential(test_cases, &container, resolver_path, update_snapshots)?
     };
 
@@ -339,19 +343,19 @@ fn run_single_resolver_test_case(
 
             // JSON deep comparison (field order doesn't matter)
             if response_json != expected_json {
-                failure_message = Some(format!(
-                    "Resolver output mismatch:\nExpected: {}\nActual:   {}",
-                    serde_json::to_string_pretty(&expected_json)
-                        .unwrap_or_else(|_| "Invalid JSON".to_string()),
-                    serde_json::to_string_pretty(&response_json)
-                        .unwrap_or_else(|_| "Invalid JSON".to_string())
-                ));
-
                 // Update snapshots if requested
                 if update_snapshots {
                     println!("  Updating snapshot...");
                     update_resolver_snapshot(resolver_path, &test_case.name, &response_text)?;
                     println!("  Snapshot updated");
+                } else {
+                    failure_message = Some(format!(
+                        "Resolver output mismatch:\nExpected: {}\nActual:   {}",
+                        serde_json::to_string_pretty(&expected_json)
+                            .unwrap_or_else(|_| "Invalid JSON".to_string()),
+                        serde_json::to_string_pretty(&response_json)
+                            .unwrap_or_else(|_| "Invalid JSON".to_string())
+                    ));
                 }
             }
         }
