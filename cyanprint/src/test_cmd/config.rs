@@ -141,29 +141,58 @@ pub struct GlobEntry {
 
 /// Resolver input data for resolver tests (defined now, used in Plan 2).
 ///
-/// Contains the input data to send to a conflict resolver for testing.
+/// Contains input data to send to a conflict resolver for testing.
+/// Matches Helium SDK ResolverInput structure.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ResolverInput {
-    /// Current file content
-    pub current: String,
+    /// Runtime configuration for resolver
+    pub config: serde_json::Value,
 
-    /// Incoming file content to merge
-    pub incoming: String,
+    /// File variations to resolve
+    pub files: Vec<ResolverFile>,
+}
 
-    /// Optional base file content for 3-way merge
-    pub base: Option<String>,
+/// A single file variation in a resolver test.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ResolverFile {
+    /// File path
+    pub path: String,
+
+    /// File content
+    pub content: String,
+
+    /// Origin metadata (template and layer)
+    pub origin: ResolverFileOrigin,
+}
+
+/// Origin metadata for a file variation.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ResolverFileOrigin {
+    /// Template ID that produced this file
+    pub template: String,
+
+    /// Layer index (order in composition)
+    pub layer: i32,
 }
 
 /// Resolver expected output for resolver tests (defined now, used in Plan 2).
 ///
-/// Contains the expected output from a conflict resolver for testing.
+/// Contains expected output from a conflict resolver for testing.
+/// Expected is an array of {path, content} pairs.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ResolverExpected {
-    /// Expected resolved/merged content
-    pub output: String,
+    /// Expected resolved files as an array of {path, content} pairs
+    pub files: Vec<ExpectedResolverFile>,
+}
 
-    /// Optional expected error message (for error cases)
-    pub error: Option<String>,
+/// An expected resolved file.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExpectedResolverFile {
+    /// Expected file path
+    pub path: String,
+
+    /// Expected resolved file content
+    pub content: String,
 }
 
 /// Error type for test configuration parsing.
@@ -350,11 +379,23 @@ tests:
       value:
         path: ./snapshots/resolver1
     resolver_input:
-      current: '{"key": "old"}'
-      incoming: '{"key": "new"}'
-      base: '{"key": "base"}'
+      config:
+        strategy: line-merge
+      files:
+        - path: config.json
+          content: '{"key": "old"}'
+          origin:
+            template: template1
+            layer: 0
+        - path: config.json
+          content: '{"key": "new"}'
+          origin:
+            template: template2
+            layer: 1
     resolver_expected:
-      output: '{"key": "new"}'
+      files:
+        - path: config.json
+          content: '{"key": "new"}'
 "#;
         let config: TestConfig = serde_yaml::from_str(yaml).expect("Failed to parse YAML");
         assert_eq!(config.tests.len(), 1);
@@ -362,16 +403,17 @@ tests:
         assert_eq!(test.name, "resolver_basic_merge");
         assert!(test.resolver_input.is_some());
         assert!(test.resolver_expected.is_some());
-
         let input = test.resolver_input.as_ref().unwrap();
-        assert_eq!(input.current, "{\"key\": \"old\"}");
-        assert_eq!(input.incoming, "{\"key\": \"new\"}");
-        assert_eq!(input.base.as_ref().unwrap(), "{\"key\": \"base\"}");
+        assert_eq!(
+            input.config.get("strategy").and_then(|v| v.as_str()),
+            Some("line-merge")
+        );
+        assert_eq!(input.files.len(), 2);
 
         let expected = test.resolver_expected.as_ref().unwrap();
-        assert_eq!(expected.output, "{\"key\": \"new\"}");
+        assert_eq!(expected.files.len(), 1);
+        assert_eq!(expected.files[0].path, "config.json");
     }
-
     #[test]
     fn test_parse_test_config_empty_tests() {
         let yaml = r#"

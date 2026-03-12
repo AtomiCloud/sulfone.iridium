@@ -223,7 +223,7 @@ pub enum TestCommands {
         disable_daemon_autostart: bool,
     },
 
-    #[command(about = "Run processor tests (not yet implemented)")]
+    #[command(about = "Run processor tests")]
     Processor {
         #[arg(default_value = ".", help = "Path to processor directory")]
         path: String,
@@ -268,7 +268,7 @@ pub enum TestCommands {
         disable_daemon_autostart: bool,
     },
 
-    #[command(about = "Run plugin tests (not yet implemented)")]
+    #[command(about = "Run plugin tests")]
     Plugin {
         #[arg(default_value = ".", help = "Path to plugin directory")]
         path: String,
@@ -309,7 +309,7 @@ pub enum TestCommands {
         disable_daemon_autostart: bool,
     },
 
-    #[command(about = "Run resolver tests (not yet implemented)")]
+    #[command(about = "Run resolver tests")]
     Resolver {
         #[arg(default_value = ".", help = "Path to resolver directory")]
         path: String,
@@ -354,7 +354,7 @@ pub enum TestCommands {
         disable_daemon_autostart: bool,
     },
 
-    #[command(about = "Initialize test configuration and snapshots (not yet implemented)")]
+    #[command(about = "Initialize test configuration and snapshots")]
     Init {
         #[arg(default_value = ".", help = "Path to template directory")]
         path: String,

@@ -17,8 +17,11 @@ use crate::commands::{
 use crate::coord::{start_coordinator, stop_coordinator};
 use crate::docker::{BuildOptions, BuildOutput, BuildxBuilder};
 use crate::run::cyan_run;
+use crate::test_cmd::init::run_init;
 use crate::test_cmd::report::write_human_report;
-use crate::test_cmd::{init::run_init, run_template_tests};
+use crate::test_cmd::{
+    run_plugin_tests, run_processor_tests, run_resolver_tests, run_template_tests,
+};
 use crate::try_cmd::{execute_try_command, execute_try_group_command};
 use crate::update::UserAborted;
 use crate::update::cyan_update;
@@ -579,23 +582,113 @@ fn run() -> Result<(), Box<dyn Error + Send>> {
                     Ok(())
                 }
             }
-            TestCommands::Processor { .. } => {
-                eprintln!("Error: Processor tests not yet implemented, coming in next plan");
-                Err(Box::new(std::io::Error::other(
-                    "Processor tests not yet implemented, coming in next plan",
-                )))
+            TestCommands::Processor {
+                path,
+                test,
+                parallel,
+                update_snapshots,
+                config,
+                output,
+                junit,
+                coordinator_endpoint,
+                disable_daemon_autostart,
+            } => {
+                println!("Running processor tests");
+                let results = run_processor_tests(
+                    &path,
+                    test.as_deref(),
+                    parallel,
+                    update_snapshots,
+                    &config,
+                    &output,
+                    junit.as_deref(),
+                    &coordinator_endpoint,
+                    disable_daemon_autostart,
+                )?;
+
+                write_human_report(&results);
+
+                let failed = results.iter().filter(|r| !r.passed).count();
+                if failed > 0 {
+                    Err(
+                        Box::new(std::io::Error::other(format!("{failed} test(s) failed")))
+                            as Box<dyn Error + Send>,
+                    )
+                } else {
+                    Ok(())
+                }
             }
-            TestCommands::Plugin { .. } => {
-                eprintln!("Error: Plugin tests not yet implemented, coming in next plan");
-                Err(Box::new(std::io::Error::other(
-                    "Plugin tests not yet implemented, coming in next plan",
-                )))
+            TestCommands::Plugin {
+                path,
+                test,
+                parallel,
+                update_snapshots,
+                config,
+                output,
+                junit,
+                coordinator_endpoint,
+                disable_daemon_autostart,
+            } => {
+                println!("Running plugin tests");
+                let results = run_plugin_tests(
+                    &path,
+                    test.as_deref(),
+                    parallel,
+                    update_snapshots,
+                    &config,
+                    &output,
+                    junit.as_deref(),
+                    &coordinator_endpoint,
+                    disable_daemon_autostart,
+                )?;
+
+                write_human_report(&results);
+
+                let failed = results.iter().filter(|r| !r.passed).count();
+                if failed > 0 {
+                    Err(
+                        Box::new(std::io::Error::other(format!("{failed} test(s) failed")))
+                            as Box<dyn Error + Send>,
+                    )
+                } else {
+                    Ok(())
+                }
             }
-            TestCommands::Resolver { .. } => {
-                eprintln!("Error: Resolver tests not yet implemented, coming in next plan");
-                Err(Box::new(std::io::Error::other(
-                    "Resolver tests not yet implemented, coming in next plan",
-                )))
+            TestCommands::Resolver {
+                path,
+                test,
+                parallel,
+                update_snapshots,
+                config,
+                output,
+                junit,
+                coordinator_endpoint,
+                disable_daemon_autostart,
+            } => {
+                println!("Running resolver tests");
+                let results = run_resolver_tests(
+                    &path,
+                    test.as_deref(),
+                    parallel,
+                    update_snapshots,
+                    &config,
+                    &output,
+                    junit.as_deref(),
+                    &coordinator_endpoint,
+                    disable_daemon_autostart,
+                )?;
+
+                write_human_report(&results);
+
+                let failed = results.iter().filter(|r| !r.passed).count();
+                if failed > 0 {
+                    Err(
+                        Box::new(std::io::Error::other(format!("{failed} test(s) failed")))
+                            as Box<dyn Error + Send>,
+                    )
+                } else {
+                    Ok(())
+                }
             }
             TestCommands::Init {
                 path,
