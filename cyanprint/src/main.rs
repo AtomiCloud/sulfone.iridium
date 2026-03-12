@@ -11,10 +11,11 @@ use cyancoordinator::session::DefaultSessionIdGenerator;
 use cyanregistry::cli::mapper::read_build_config;
 use cyanregistry::http::client::CyanRegistryClient;
 
-use crate::commands::{Cli, Commands, DaemonCommands, PushArgs, PushCommands};
+use crate::commands::{Cli, Commands, DaemonCommands, PushArgs, PushCommands, TryCommands};
 use crate::coord::{start_coordinator, stop_coordinator};
-use crate::docker::{BuildOptions, BuildxBuilder};
+use crate::docker::{BuildOptions, BuildOutput, BuildxBuilder};
 use crate::run::cyan_run;
+use crate::try_cmd::{execute_try_command, execute_try_group_command};
 use crate::update::UserAborted;
 use crate::update::cyan_update;
 use crate::util::parse_ref;
@@ -24,7 +25,9 @@ pub mod coord;
 pub mod docker;
 pub mod errors;
 pub mod git;
+pub mod port;
 pub mod run;
+pub mod try_cmd;
 pub mod update;
 pub mod util;
 
@@ -506,55 +509,45 @@ fn run() -> Result<(), Box<dyn Error + Send>> {
 
             result
         }
-    }
-}
-
-/// Get the current platform for Docker builds
-/// Maps host OS/arch to Docker platform string
-fn get_current_platform() -> Vec<String> {
-    let current = std::env::consts::ARCH;
-    let os = std::env::consts::OS;
-    let platform_str = match (os, current) {
-        ("linux", "x86_64") => "linux/amd64",
-        ("linux", "aarch64") => "linux/arm64",
-        ("macos", "x86_64") => "linux/amd64", // Docker on macOS typically uses linux containers
-        ("macos", "aarch64") => "linux/arm64",
-        ("windows", "x86_64") => "linux/amd64",
-        _ => "linux/amd64", // Default fallback
-    };
-    vec![platform_str.to_string()]
-}
-
-/// Resolve platforms for build: CLI override → config (non-empty) → current platform
-///
-/// # Arguments
-/// * `cli_platform` - Optional comma-separated platforms from CLI --platform flag
-/// * `config_platforms` - Optional platforms from config file (may be empty vec)
-/// * `get_current` - Function to get current platform (for testability)
-fn resolve_platforms<F>(
-    cli_platform: Option<&str>,
-    config_platforms: Option<&Vec<String>>,
-    get_current: F,
-) -> Vec<String>
-where
-    F: FnOnce() -> Vec<String>,
-{
-    if let Some(p) = cli_platform {
-        p.split(',')
-            .map(|s| s.trim())
-            .filter(|s| !s.is_empty())
-            .map(|s| s.to_string())
-            .collect()
-    } else if let Some(config_platforms) = config_platforms {
-        // Treat empty platforms vector same as None - fall back to current platform
-        if config_platforms.is_empty() {
-            get_current()
-        } else {
-            config_platforms.clone()
-        }
-    } else {
-        // Default to current platform only
-        get_current()
+        Commands::Try { command } => match command {
+            TryCommands::Template {
+                template_path,
+                output_path,
+                dev,
+                keep_containers,
+                disable_daemon_autostart,
+                coordinator_endpoint,
+            } => {
+                let registry_ref = Rc::new(registry);
+                let _ = execute_try_command(
+                    template_path,
+                    output_path,
+                    dev,
+                    keep_containers,
+                    disable_daemon_autostart,
+                    cli.registry.clone(),
+                    coordinator_endpoint,
+                    registry_ref,
+                )?;
+                Ok(())
+            }
+            TryCommands::Group {
+                template_path,
+                output_path,
+                disable_daemon_autostart,
+                coordinator_endpoint,
+            } => {
+                let registry_ref = Rc::new(registry);
+                execute_try_group_command(
+                    template_path,
+                    output_path,
+                    disable_daemon_autostart,
+                    coordinator_endpoint,
+                    registry_ref,
+                )?;
+                Ok(())
+            }
+        },
     }
 }
 
@@ -683,6 +676,7 @@ fn handle_build(
             platforms: &platforms,
             no_cache,
             dry_run,
+            output: BuildOutput::Push,
         });
 
         match result {
@@ -856,6 +850,7 @@ fn build_for_push(
             platforms: &platforms,
             no_cache,
             dry_run,
+            output: BuildOutput::Push,
         });
 
         if let Err(e) = build_result {
@@ -890,6 +885,55 @@ fn build_for_push(
     }
 
     Ok(result)
+}
+
+/// Get the current platform for Docker builds
+/// Maps host OS/arch to Docker platform string
+fn get_current_platform() -> Vec<String> {
+    let current = std::env::consts::ARCH;
+    let os = std::env::consts::OS;
+    let platform_str = match (os, current) {
+        ("linux", "x86_64") => "linux/amd64",
+        ("linux", "aarch64") => "linux/arm64",
+        ("macos", "x86_64") => "linux/amd64", // Docker on macOS typically uses linux containers
+        ("macos", "aarch64") => "linux/arm64",
+        ("windows", "x86_64") => "linux/amd64",
+        _ => "linux/amd64", // Default fallback
+    };
+    vec![platform_str.to_string()]
+}
+
+/// Resolve platforms for build: CLI override → config (non-empty) → current platform
+///
+/// # Arguments
+/// * `cli_platform` - Optional comma-separated platforms from CLI --platform flag
+/// * `config_platforms` - Optional platforms from config file (may be empty vec)
+/// * `get_current` - Function to get current platform (for testability)
+fn resolve_platforms<F>(
+    cli_platform: Option<&str>,
+    config_platforms: Option<&Vec<String>>,
+    get_current: F,
+) -> Vec<String>
+where
+    F: FnOnce() -> Vec<String>,
+{
+    if let Some(p) = cli_platform {
+        p.split(',')
+            .map(|s| s.trim())
+            .filter(|s| !s.is_empty())
+            .map(|s| s.to_string())
+            .collect()
+    } else if let Some(config_platforms) = config_platforms {
+        // Treat empty platforms vector same as None - fall back to current platform
+        if config_platforms.is_empty() {
+            get_current()
+        } else {
+            config_platforms.clone()
+        }
+    } else {
+        // Default to current platform only
+        get_current()
+    }
 }
 
 #[cfg(test)]

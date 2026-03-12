@@ -12,3 +12,17 @@ templates:
   - cyane2e/template1
   - cyane2e/template2
 resolvers: []
+
+build:
+  registry: kirinnee
+  platforms:
+    - linux/amd64
+  images:
+    template:
+      image: template3
+      dockerfile: cyan/Dockerfile
+      context: ./cyan
+    blob:
+      image: blob3
+      dockerfile: blob.Dockerfile
+      context: .

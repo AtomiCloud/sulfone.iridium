@@ -384,6 +384,7 @@ dependencies = [
  "cyancoordinator",
  "cyanprompt",
  "cyanregistry",
+ "flate2",
  "futures",
  "futures-util",
  "inquire",
@@ -392,6 +393,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_yaml",
+ "tar",
  "tokio",
  "uuid",
 ]

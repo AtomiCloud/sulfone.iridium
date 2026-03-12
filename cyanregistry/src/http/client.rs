@@ -490,4 +490,41 @@ impl CyanRegistryClient {
                 }
             })
     }
+
+    pub fn get_resolver(
+        &self,
+        username: String,
+        name: String,
+        v: Option<u64>,
+    ) -> Result<crate::http::models::resolver_res::ResolverVersionRes, Box<dyn Error + Send>> {
+        let host = (self.endpoint).to_string().to_owned();
+        let version = (self.version).to_string().to_owned();
+
+        let endpoint = match v {
+            None => format!(
+                "{host}/api/v{version}/Resolver/slug/{username}/{name}/versions/latest?bumpDownload=true"
+            ),
+            Some(ver) => format!(
+                "{host}/api/v{version}/Resolver/slug/{username}/{name}/versions/{ver}?bumpDownload=true"
+            ),
+        };
+        self.client
+            .get(endpoint)
+            .send()
+            .map_err(|x| Box::new(x) as Box<dyn Error + Send>)
+            .and_then(|x| {
+                if x.status().is_success() {
+                    x.json().map_err(|e| Box::new(e) as Box<dyn Error + Send>)
+                } else {
+                    let r: Result<ProblemDetails, Box<dyn Error + Send>> =
+                        x.json().map_err(|e| Box::new(e) as Box<dyn Error + Send>);
+                    match r {
+                        Ok(ok) => {
+                            Err(Box::new(GenericError::ProblemDetails(ok)) as Box<dyn Error + Send>)
+                        }
+                        Err(err) => Err(err),
+                    }
+                }
+            })
+    }
 }

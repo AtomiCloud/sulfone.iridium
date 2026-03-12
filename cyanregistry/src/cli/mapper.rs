@@ -1,4 +1,5 @@
 use crate::cli::models::build_config::BuildConfig;
+use crate::cli::models::dev_config::DevConfig;
 use crate::cli::models::plugin_config::CyanPluginFileConfig;
 use crate::cli::models::resolver_config::CyanResolverFileConfig;
 use serde::de::DeserializeOwned;
@@ -141,6 +142,8 @@ pub enum ParsingError {
     MissingBuildRegistry,
     MissingBuildImages,
     MissingImageField(String),
+    MissingDevSection(Option<String>),
+    EmptyDevField(String),
 }
 
 impl Error for ParsingError {}
@@ -174,6 +177,15 @@ impl fmt::Display for ParsingError {
             }
             ParsingError::MissingImageField(image_name) => {
                 write!(f, "build.images.{image_name}.image is required")
+            }
+            ParsingError::MissingDevSection(Some(path)) => {
+                write!(f, "No dev configuration found in {path}")
+            }
+            ParsingError::MissingDevSection(None) => {
+                write!(f, "No dev configuration found")
+            }
+            ParsingError::EmptyDevField(field) => {
+                write!(f, "dev.{field} must not be empty")
             }
         }
     }
@@ -797,4 +809,85 @@ mod tests {
         assert_eq!(template.dockerfile, "Dockerfile");
         assert_eq!(template.context, ".");
     }
+
+    // ===== Dev Config Mapper Tests =====
+
+    #[test]
+    fn test_read_dev_config_missing_dev_section() {
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+        let config_path = temp_dir.path().join("cyan.yaml");
+        let mut config_file = std::fs::File::create(&config_path).expect("Failed to create config");
+        // Write YAML without dev section
+        config_file
+            .write_all(b"some_field: value\n")
+            .expect("Failed to write config");
+
+        let result = read_dev_config(config_path.to_string_lossy().to_string());
+        assert!(result.is_err(), "Should fail for missing dev section");
+
+        let err = result.unwrap_err();
+        let err_msg = err.to_string();
+        assert!(err_msg.contains("No dev configuration found in"));
+    }
+
+    #[test]
+    fn test_read_dev_config_valid() {
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+        let config_path = temp_dir.path().join("cyan.yaml");
+        let mut config_file = std::fs::File::create(&config_path).expect("Failed to create config");
+        config_file
+            .write_all(
+                r#"dev:
+  template_url: http://localhost:8080
+  blob_path: ./blob
+"#
+                .as_bytes(),
+            )
+            .expect("Failed to write config");
+
+        let result = read_dev_config(config_path.to_string_lossy().to_string());
+        assert!(result.is_ok(), "Should succeed with valid dev config");
+
+        let config = result.unwrap();
+        assert_eq!(config.template_url, "http://localhost:8080");
+        assert_eq!(config.blob_path, "./blob");
+    }
+}
+
+/// File configuration wrapper for dev section
+/// This is used to parse the dev section from cyan.yaml
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct DevFileConfig {
+    #[serde(default)]
+    pub dev: Option<DevConfig>,
+}
+
+/// Reads and parses a dev configuration from a YAML file
+/// Returns error if dev section is missing
+pub fn read_dev_config(config_path: String) -> Result<DevConfig, Box<dyn Error + Send>> {
+    let file_config: DevFileConfig = read_yaml(config_path.clone())?;
+
+    // Check if dev section exists
+    let dev_config = file_config.dev.ok_or_else(|| {
+        Box::new(ParsingError::MissingDevSection(Some(config_path))) as Box<dyn Error + Send>
+    })?;
+
+    let mut dev_config = dev_config;
+    dev_config.template_url = dev_config.template_url.trim().to_string();
+    dev_config.blob_path = dev_config.blob_path.trim().to_string();
+
+    if dev_config.template_url.is_empty() {
+        return Err(
+            Box::new(ParsingError::EmptyDevField("template_url".to_string()))
+                as Box<dyn Error + Send>,
+        );
+    }
+
+    if dev_config.blob_path.is_empty() {
+        return Err(
+            Box::new(ParsingError::EmptyDevField("blob_path".to_string())) as Box<dyn Error + Send>,
+        );
+    }
+
+    Ok(dev_config)
 }

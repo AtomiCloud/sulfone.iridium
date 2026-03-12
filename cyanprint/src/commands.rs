@@ -101,10 +101,69 @@ pub enum Commands {
         force: bool,
     },
 
+    #[command(
+        alias = "t",
+        about = "Try a local template or group without publishing to the registry"
+    )]
+    Try {
+        #[command(subcommand)]
+        command: TryCommands,
+    },
+
     #[command(alias = "d", about = "Manage the CyanPrint Coordinator daemon")]
     Daemon {
         #[command(subcommand)]
         command: DaemonCommands,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum TryCommands {
+    #[command(about = "Try a local template (with build/images)")]
+    Template {
+        template_path: String,
+
+        output_path: String,
+
+        #[arg(long, help = "Enable dev mode for local development")]
+        dev: bool,
+
+        #[arg(
+            long,
+            help = "Preserve template container and blob volume after execution"
+        )]
+        keep_containers: bool,
+
+        #[arg(long, help = "Skip automatic daemon start")]
+        disable_daemon_autostart: bool,
+
+        #[arg(
+            short,
+            long,
+            value_name = "COORDINATOR_ENDPOINT",
+            default_value = "http://coord.cyanprint.dev:9000",
+            env = "CYANPRINT_COORDINATOR"
+        )]
+        coordinator_endpoint: String,
+    },
+
+    #[command(about = "Try a local group template (no build, dependencies from registry)")]
+    Group {
+        template_path: String,
+
+        output_path: String,
+
+        #[arg(long, help = "Skip automatic daemon start")]
+        disable_daemon_autostart: bool,
+
+        #[arg(
+            short,
+            long,
+            value_name = "COORDINATOR_ENDPOINT",
+            default_value = "http://coord.cyanprint.dev:9000",
+            env = "CYANPRINT_COORDINATOR"
+        )]
+        coordinator_endpoint: String,
     },
 }
 
