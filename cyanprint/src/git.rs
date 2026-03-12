@@ -100,7 +100,7 @@ mod tests {
         match result {
             Ok(is_dirty) => {
                 // Test passed - we got a boolean result
-                assert!(is_dirty == true || is_dirty == false);
+                assert!(is_dirty || !is_dirty);
             }
             Err(GitError::NotAGitRepository) => {
                 // Also valid if we're not in a git repo

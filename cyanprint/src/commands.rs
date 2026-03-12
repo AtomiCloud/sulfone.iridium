@@ -110,6 +110,15 @@ pub enum Commands {
         command: TryCommands,
     },
 
+    #[command(
+        alias = "te",
+        about = "Run automated tests against CyanPrint artifacts"
+    )]
+    Test {
+        #[command(subcommand)]
+        command: TestCommands,
+    },
+
     #[command(alias = "d", about = "Manage the CyanPrint Coordinator daemon")]
     Daemon {
         #[command(subcommand)]
@@ -164,6 +173,230 @@ pub enum TryCommands {
             env = "CYANPRINT_COORDINATOR"
         )]
         coordinator_endpoint: String,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum TestCommands {
+    #[command(about = "Run template tests")]
+    Template {
+        #[arg(default_value = ".", help = "Path to template directory")]
+        path: String,
+
+        #[arg(long, help = "Run only a specific test by name")]
+        test: Option<String>,
+
+        #[arg(long, default_value = "1", help = "Number of parallel test cases")]
+        parallel: usize,
+
+        #[arg(long, help = "Update snapshots with actual output")]
+        update_snapshots: bool,
+
+        #[arg(
+            long,
+            default_value = "cyan.yaml",
+            help = "Template configuration file"
+        )]
+        config: String,
+
+        #[arg(
+            short = 'o',
+            long,
+            default_value = ".cyan_output",
+            help = "Output directory for test results"
+        )]
+        output: String,
+
+        #[arg(long, help = "Write JUnit XML report to file")]
+        junit: Option<String>,
+
+        #[arg(
+            short = 'c',
+            long,
+            value_name = "COORDINATOR_ENDPOINT",
+            default_value = "http://coord.cyanprint.dev:9000",
+            env = "CYANPRINT_COORDINATOR"
+        )]
+        coordinator_endpoint: String,
+
+        #[arg(long, help = "Skip automatic daemon start")]
+        disable_daemon_autostart: bool,
+    },
+
+    #[command(about = "Run processor tests (not yet implemented)")]
+    Processor {
+        #[arg(default_value = ".", help = "Path to processor directory")]
+        path: String,
+
+        #[arg(long, help = "Run only a specific test by name")]
+        test: Option<String>,
+
+        #[arg(long, default_value = "1", help = "Number of parallel test cases")]
+        parallel: usize,
+
+        #[arg(long, help = "Update snapshots with actual output")]
+        update_snapshots: bool,
+
+        #[arg(
+            long,
+            default_value = "cyan.yaml",
+            help = "Processor configuration file"
+        )]
+        config: String,
+
+        #[arg(
+            short = 'o',
+            long,
+            default_value = ".cyan_output",
+            help = "Output directory for test results"
+        )]
+        output: String,
+
+        #[arg(long, help = "Write JUnit XML report to file")]
+        junit: Option<String>,
+
+        #[arg(
+            short = 'c',
+            long,
+            value_name = "COORDINATOR_ENDPOINT",
+            default_value = "http://coord.cyanprint.dev:9000",
+            env = "CYANPRINT_COORDINATOR"
+        )]
+        coordinator_endpoint: String,
+
+        #[arg(long, help = "Skip automatic daemon start")]
+        disable_daemon_autostart: bool,
+    },
+
+    #[command(about = "Run plugin tests (not yet implemented)")]
+    Plugin {
+        #[arg(default_value = ".", help = "Path to plugin directory")]
+        path: String,
+
+        #[arg(long, help = "Run only a specific test by name")]
+        test: Option<String>,
+
+        #[arg(long, default_value = "1", help = "Number of parallel test cases")]
+        parallel: usize,
+
+        #[arg(long, help = "Update snapshots with actual output")]
+        update_snapshots: bool,
+
+        #[arg(long, default_value = "cyan.yaml", help = "Plugin configuration file")]
+        config: String,
+
+        #[arg(
+            short = 'o',
+            long,
+            default_value = ".cyan_output",
+            help = "Output directory for test results"
+        )]
+        output: String,
+
+        #[arg(long, help = "Write JUnit XML report to file")]
+        junit: Option<String>,
+
+        #[arg(
+            short = 'c',
+            long,
+            value_name = "COORDINATOR_ENDPOINT",
+            default_value = "http://coord.cyanprint.dev:9000",
+            env = "CYANPRINT_COORDINATOR"
+        )]
+        coordinator_endpoint: String,
+
+        #[arg(long, help = "Skip automatic daemon start")]
+        disable_daemon_autostart: bool,
+    },
+
+    #[command(about = "Run resolver tests (not yet implemented)")]
+    Resolver {
+        #[arg(default_value = ".", help = "Path to resolver directory")]
+        path: String,
+
+        #[arg(long, help = "Run only a specific test by name")]
+        test: Option<String>,
+
+        #[arg(long, default_value = "1", help = "Number of parallel test cases")]
+        parallel: usize,
+
+        #[arg(long, help = "Update snapshots with actual output")]
+        update_snapshots: bool,
+
+        #[arg(
+            long,
+            default_value = "cyan.yaml",
+            help = "Resolver configuration file"
+        )]
+        config: String,
+
+        #[arg(
+            short = 'o',
+            long,
+            default_value = ".cyan_output",
+            help = "Output directory for test results"
+        )]
+        output: String,
+
+        #[arg(long, help = "Write JUnit XML report to file")]
+        junit: Option<String>,
+
+        #[arg(
+            short = 'c',
+            long,
+            value_name = "COORDINATOR_ENDPOINT",
+            default_value = "http://coord.cyanprint.dev:9000",
+            env = "CYANPRINT_COORDINATOR"
+        )]
+        coordinator_endpoint: String,
+
+        #[arg(long, help = "Skip automatic daemon start")]
+        disable_daemon_autostart: bool,
+    },
+
+    #[command(about = "Initialize test configuration and snapshots (not yet implemented)")]
+    Init {
+        #[arg(default_value = ".", help = "Path to template directory")]
+        path: String,
+
+        #[arg(long, help = "Maximum number of test combinations to generate")]
+        max_combinations: Option<usize>,
+
+        #[arg(long, help = "Seed for text question generation")]
+        text_seed: Option<String>,
+
+        #[arg(long, help = "Seed for password question generation")]
+        password_seed: Option<String>,
+
+        #[arg(long, help = "Seed for date question generation")]
+        date_seed: Option<String>,
+
+        #[arg(
+            short = 'o',
+            long,
+            default_value = ".cyan_output",
+            help = "Output directory for test results"
+        )]
+        output: String,
+
+        #[arg(
+            long,
+            default_value = "cyan.yaml",
+            help = "Template configuration file"
+        )]
+        config: String,
+
+        #[arg(
+            short = 'c',
+            long,
+            value_name = "COORDINATOR_ENDPOINT",
+            default_value = "http://coord.cyanprint.dev:9000",
+            env = "CYANPRINT_COORDINATOR"
+        )]
+        coordinator_endpoint: String,
+
+        #[arg(long, help = "Skip automatic daemon start")]
+        disable_daemon_autostart: bool,
     },
 }
 
@@ -428,6 +661,83 @@ mod tests {
             assert_eq!(folder, ".");
         } else {
             panic!("Expected Commands::Build");
+        }
+    }
+
+    #[test]
+    fn test_test_template_command_basic() {
+        let cli = Cli::try_parse_from(["cyanprint", "test", "template"]);
+        assert!(cli.is_ok());
+        if let Commands::Test { command } = cli.unwrap().command {
+            if let TestCommands::Template {
+                path,
+                test,
+                parallel,
+                update_snapshots,
+                config,
+                output,
+                junit,
+                coordinator_endpoint,
+                disable_daemon_autostart,
+            } = command
+            {
+                assert_eq!(path, ".");
+                assert!(test.is_none());
+                assert_eq!(parallel, 1);
+                assert!(!update_snapshots);
+                assert_eq!(config, "cyan.yaml");
+                assert_eq!(output, ".cyan_output");
+                assert!(junit.is_none());
+                assert_eq!(coordinator_endpoint, "http://coord.cyanprint.dev:9000");
+                assert!(!disable_daemon_autostart);
+            } else {
+                panic!("Expected TestCommands::Template");
+            }
+        } else {
+            panic!("Expected Commands::Test");
+        }
+    }
+
+    #[test]
+    fn test_test_template_command_with_options() {
+        let cli = Cli::try_parse_from([
+            "cyanprint",
+            "test",
+            "template",
+            "/path/to/template",
+            "--test",
+            "my_test",
+            "--parallel",
+            "4",
+            "--update-snapshots",
+            "--junit",
+            "report.xml",
+            "--output",
+            "/output",
+        ]);
+        assert!(cli.is_ok());
+        if let Commands::Test { command } = cli.unwrap().command {
+            if let TestCommands::Template {
+                path,
+                test,
+                parallel,
+                update_snapshots,
+                output,
+                junit,
+                ..
+            } = command
+            {
+                assert_eq!(path, "/path/to/template");
+                assert_eq!(test, Some("my_test".to_string()));
+                assert_eq!(parallel, 4);
+                assert!(update_snapshots);
+                assert_eq!(output, "/output");
+                assert_eq!(junit, Some("report.xml".to_string()));
+            } else {
+                panic!("Expected TestCommands::Template");
+            }
+        } else {
+            panic!("Expected Commands::Test");
         }
     }
 }

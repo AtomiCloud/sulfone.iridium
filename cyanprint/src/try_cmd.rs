@@ -360,7 +360,7 @@ pub fn execute_try_command(
     })
 }
 
-fn split_image_ref(image_ref: &str) -> (String, String) {
+pub(crate) fn split_image_ref(image_ref: &str) -> (String, String) {
     if let Some(last_colon) = image_ref.rfind(':') {
         let potential_tag = &image_ref[last_colon + 1..];
         // Check if the colon is part of host:port (contains a slash in the potential tag)
@@ -378,7 +378,10 @@ fn split_image_ref(image_ref: &str) -> (String, String) {
     }
 }
 
-fn pre_flight_validation(template_path: &str, dev_mode: bool) -> Result<(), Box<dyn Error + Send>> {
+pub(crate) fn pre_flight_validation(
+    template_path: &str,
+    dev_mode: bool,
+) -> Result<(), Box<dyn Error + Send>> {
     println!("🔍 Running pre-flight checks...");
     BuildxBuilder::check_docker().map_err(|e| {
         Box::new(std::io::Error::other(format!("Docker check failed: {e}")))
@@ -445,7 +448,7 @@ fn pre_flight_validation(template_path: &str, dev_mode: bool) -> Result<(), Box<
     Ok(())
 }
 
-fn ensure_daemon_running(
+pub(crate) fn ensure_daemon_running(
     docker: &Docker,
     disable_autostart: bool,
     coordinator_endpoint: &str,
@@ -541,7 +544,7 @@ fn health_check_daemon(coordinator_endpoint: &str) -> Result<(), Box<dyn Error +
 }
 
 #[derive(Debug, Clone, Default)]
-struct PinnedDependencies {
+pub(crate) struct PinnedDependencies {
     pub processors: Vec<ProcessorVersionPrincipalRes>,
     pub plugins: Vec<PluginVersionPrincipalRes>,
     pub templates: Vec<TemplateVersionPrincipalRes>,
@@ -554,7 +557,7 @@ impl PinnedDependencies {
     }
 }
 
-fn resolve_and_pin_dependencies(
+pub(crate) fn resolve_and_pin_dependencies(
     registry: &CyanRegistryClient,
     config: &CyanTemplateFileConfig,
 ) -> Result<PinnedDependencies, Box<dyn Error + Send>> {
@@ -653,7 +656,7 @@ fn resolve_and_pin_dependencies(
     })
 }
 
-fn build_synthetic_template(
+pub(crate) fn build_synthetic_template(
     local_template_id: &str,
     config: &CyanTemplateFileConfig,
     pinned: &PinnedDependencies,
@@ -706,7 +709,7 @@ fn build_synthetic_template(
     })
 }
 
-fn build_image(
+pub(crate) fn build_image(
     builder: &BuildxBuilder,
     registry: &str,
     image_name: &str,
@@ -728,7 +731,7 @@ fn build_image(
     })
 }
 
-fn start_template_container(
+pub(crate) fn start_template_container(
     docker: &Docker,
     container_name: &str,
     image_ref: &str,
@@ -792,7 +795,7 @@ fn start_template_container(
     })
 }
 
-fn health_check_template_container(
+pub(crate) fn health_check_template_container(
     port: u16,
     max_attempts: u32,
     interval_secs: u64,
@@ -1011,7 +1014,7 @@ fn verify_qa_applied_to_configs(
 }
 
 #[allow(clippy::too_many_arguments)]
-fn execute_and_stream_output(
+pub(crate) fn execute_and_stream_output(
     coord_client: &CyanCoordinatorClient,
     session_id: &str,
     output_path: &str,
