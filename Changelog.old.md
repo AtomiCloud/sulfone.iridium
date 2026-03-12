@@ -1,3 +1,25 @@
+## [2.12.0](https://github.com/AtomiCloud/sulfone.iridium/compare/v2.11.0...v2.12.0) (2026-03-11)
+
+
+### 📜 Documentation 📜
+
+* add task spec for git dirty check prompt ([6c7b86a](https://github.com/AtomiCloud/sulfone.iridium/commit/6c7b86ac655d49ec8bda068ca78c74916be1e60d))
+
+
+### ✨ Features ✨
+
+* **cyanprint:** git dirty check in update orchestrator ([b9ccc06](https://github.com/AtomiCloud/sulfone.iridium/commit/b9ccc0674b8080a807740ac75217c8eb402429ce))
+* **cyanprint:** git module & CLI flag ([1828f9d](https://github.com/AtomiCloud/sulfone.iridium/commit/1828f9df16759a2c01c322ed9e573a84df3722d4))
+
+
+### 🐛 Bug Fixes 🐛
+
+* **cyanprint:** fix file deletion during upgrades [CU-86ewr17ey] ([08f65c1](https://github.com/AtomiCloud/sulfone.iridium/commit/08f65c1842e6667e635b2ad9deda56507ef60a90))
+* **cyanprint:** handle all GitError variants in test [CU-86ewrj4xd] ([2a6082f](https://github.com/AtomiCloud/sulfone.iridium/commit/2a6082fe4f92cdbed0a33b4a2b4fa039ca3990d2))
+* **cyancoordinator:** propagate dir-pruning errors [CU-86ewr17ey] ([c17dab5](https://github.com/AtomiCloud/sulfone.iridium/commit/c17dab57f4e9dcd887c966346896495544b22976))
+* **cyanprint:** reorder cleanup before write [CU-86ewr17ey] ([1abdee1](https://github.com/AtomiCloud/sulfone.iridium/commit/1abdee159f35c254443c8a16cc0bf855656b78df))
+* **cyanprint:** reorder cleanup, add tests [CU-86ewr17ey] ([2e31b37](https://github.com/AtomiCloud/sulfone.iridium/commit/2e31b37ba0ca6f10ec1b3677d353a483c1a8334d))
+
 ## [2.11.0](https://github.com/AtomiCloud/sulfone.iridium/compare/v2.10.0...v2.11.0) (2026-03-11)
 
 
