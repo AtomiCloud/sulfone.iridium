@@ -9,7 +9,9 @@ use std::error::Error;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use std::sync::{Arc, Condvar, Mutex};
+use std::sync::{Arc, Mutex};
+
+use crate::test_cmd::semaphore::Semaphore;
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -587,40 +589,4 @@ fn copy_recursive(from: &Path, to: &Path) -> Result<(), Box<dyn Error + Send>> {
     }
 
     Ok(())
-}
-
-/// Simple semaphore for limiting parallel test execution.
-struct Semaphore {
-    permits: Arc<Mutex<usize>>,
-    condvar: Arc<Condvar>,
-}
-
-impl Semaphore {
-    fn new(permits: usize) -> Self {
-        Semaphore {
-            permits: Arc::new(Mutex::new(permits)),
-            condvar: Arc::new(Condvar::new()),
-        }
-    }
-
-    fn acquire(&self) -> SemaphorePermit<'_> {
-        let mut available = self.permits.lock().unwrap();
-        while *available == 0 {
-            available = self.condvar.wait(available).unwrap();
-        }
-        *available -= 1;
-        SemaphorePermit { semaphore: self }
-    }
-}
-
-struct SemaphorePermit<'a> {
-    semaphore: &'a Semaphore,
-}
-
-impl<'a> Drop for SemaphorePermit<'a> {
-    fn drop(&mut self) {
-        let mut available = self.semaphore.permits.lock().unwrap();
-        *available += 1;
-        self.semaphore.condvar.notify_one();
-    }
 }

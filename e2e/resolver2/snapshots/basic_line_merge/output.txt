@@ -1,0 +1,2 @@
+line 1 from template A
+line 2 from template B

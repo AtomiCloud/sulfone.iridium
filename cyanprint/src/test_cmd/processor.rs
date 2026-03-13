@@ -8,7 +8,9 @@
 use std::error::Error;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Condvar, Mutex};
+use std::sync::{Arc, Mutex};
+
+use crate::test_cmd::semaphore::Semaphore;
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -398,18 +400,24 @@ fn run_single_processor_test_case(
         serde_json::json!(format!("/workspace/area/{}", test_case.name)),
     );
 
-    // Add globs if specified
+    // Add globs (always required by SDK, default to catch-all pattern)
+    // SDK expects field name "glob" (not "pattern") per CyanMapper.globReqToDomain
     if let Some(ref globs) = test_case.globs {
         let glob_array: Vec<serde_json::Value> = globs
             .iter()
             .map(|g| {
                 serde_json::json!({
-                    "pattern": g.pattern,
+                    "glob": g.pattern,
                     "type": g.glob_type
                 })
             })
             .collect();
         request_body.insert("globs".to_string(), serde_json::json!(glob_array));
+    } else {
+        request_body.insert(
+            "globs".to_string(),
+            serde_json::json!([{"glob": "**", "type": "template"}]),
+        );
     }
 
     // Add config if specified
@@ -609,40 +617,4 @@ fn copy_recursive(from: &Path, to: &Path) -> Result<(), Box<dyn Error + Send>> {
     }
 
     Ok(())
-}
-
-/// Simple semaphore for limiting parallel test execution.
-struct Semaphore {
-    permits: Arc<Mutex<usize>>,
-    condvar: Arc<Condvar>,
-}
-
-impl Semaphore {
-    fn new(permits: usize) -> Self {
-        Semaphore {
-            permits: Arc::new(Mutex::new(permits)),
-            condvar: Arc::new(Condvar::new()),
-        }
-    }
-
-    fn acquire(&self) -> SemaphorePermit<'_> {
-        let mut available = self.permits.lock().unwrap();
-        while *available == 0 {
-            available = self.condvar.wait(available).unwrap();
-        }
-        *available -= 1;
-        SemaphorePermit { semaphore: self }
-    }
-}
-
-struct SemaphorePermit<'a> {
-    semaphore: &'a Semaphore,
-}
-
-impl<'a> Drop for SemaphorePermit<'a> {
-    fn drop(&mut self) {
-        let mut available = self.semaphore.permits.lock().unwrap();
-        *available += 1;
-        self.semaphore.condvar.notify_one();
-    }
 }

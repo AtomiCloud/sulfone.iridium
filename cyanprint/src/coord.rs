@@ -24,14 +24,20 @@ pub async fn stop_coordinator(docker: Docker, port: u16) -> Result<(), Box<dyn E
     match cleanup_result {
         Ok(Ok(res)) => {
             println!("✅ Cleanup completed");
-            if !res.removed_containers.is_empty() {
-                println!("   Removed containers: {:?}", res.removed_containers);
+            if let Some(ref containers) = res.containers_removed {
+                if !containers.is_empty() {
+                    println!("   Removed containers: {containers:?}");
+                }
             }
-            if !res.removed_images.is_empty() {
-                println!("   Removed images: {:?}", res.removed_images);
+            if let Some(ref images) = res.images_removed {
+                if !images.is_empty() {
+                    println!("   Removed images: {images:?}");
+                }
             }
-            if !res.removed_volumes.is_empty() {
-                println!("   Removed volumes: {:?}", res.removed_volumes);
+            if let Some(ref volumes) = res.volumes_removed {
+                if !volumes.is_empty() {
+                    println!("   Removed volumes: {volumes:?}");
+                }
             }
         }
         Ok(Err(e)) => {

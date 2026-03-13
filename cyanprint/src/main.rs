@@ -568,6 +568,7 @@ fn run() -> Result<(), Box<dyn Error + Send>> {
                     junit.as_deref(),
                     &coordinator_endpoint,
                     disable_daemon_autostart,
+                    &registry,
                 )?;
 
                 write_human_report(&results);
@@ -696,9 +697,11 @@ fn run() -> Result<(), Box<dyn Error + Send>> {
                 text_seed,
                 password_seed,
                 date_seed,
+                parallel,
                 output,
                 config,
                 coordinator_endpoint,
+                interactive,
                 disable_daemon_autostart,
             } => {
                 println!("Initializing test configuration");
@@ -708,10 +711,13 @@ fn run() -> Result<(), Box<dyn Error + Send>> {
                     text_seed.as_deref(),
                     password_seed.as_deref(),
                     date_seed.as_deref(),
+                    parallel,
+                    interactive,
                     &output,
                     &config,
                     &coordinator_endpoint,
                     disable_daemon_autostart,
+                    &registry,
                 )?;
                 Ok(())
             }

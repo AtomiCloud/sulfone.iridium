@@ -208,8 +208,8 @@ pub fn build_and_start_container(
         }
     };
 
-    // Create a container name
-    let container_name = format!("cyanprint-test-{artifact_type}-{}", uuid::Uuid::new_v4());
+    let id = uuid::Uuid::new_v4().to_string().replace('-', "");
+    let container_name = format!("cyan-{artifact_type}-{id}-test");
 
     // Build bind mounts
     let mut binds_vec = Vec::new();
@@ -244,9 +244,16 @@ pub fn build_and_start_container(
         println!("  Creating container {container_name}...");
         let config = ContainerCreateBody {
             image: Some(image_ref.clone()),
+            exposed_ports: Some(vec![port_binding.clone()]),
+            labels: Some({
+                let mut labels = HashMap::new();
+                labels.insert("cyanprint.test".to_string(), "true".to_string());
+                labels
+            }),
             host_config: Some(HostConfig {
                 port_bindings: Some(port_bindings_map),
                 binds: Some(binds_vec),
+                network_mode: Some("cyanprint".to_string()),
                 ..Default::default()
             }),
             ..Default::default()
@@ -337,12 +344,12 @@ pub fn health_check_container(
 
     for attempt in 0..max_retries {
         match client.get(&url).send() {
-            Ok(response) if response.status().is_success() => {
+            Ok(_) => {
+                // Any HTTP response means the container is up and listening.
+                // The root path may return 404 since cyan SDK containers only
+                // serve on their specific API endpoints (/api/plug, etc.).
                 println!("  Container health check passed");
                 return Ok(());
-            }
-            Ok(_) => {
-                // Got a response but not success - retry
             }
             Err(_) => {
                 // Connection error - retry
@@ -457,12 +464,14 @@ mod tests {
 
     #[test]
     fn test_container_name_generation() {
-        // Container names should follow pattern: cyanprint-test-{artifact_type}-{uuid}
+        // Container names should follow pattern: cyan-{artifact_type}-{uuid}-test
         let artifact_type = "processor";
-        let container_name = format!("cyanprint-test-{artifact_type}-{}", uuid::Uuid::new_v4());
+        let id = uuid::Uuid::new_v4().to_string().replace('-', "");
+        let container_name = format!("cyan-{artifact_type}-{id}-test");
 
-        assert!(container_name.starts_with("cyanprint-test-processor-"));
-        assert!(container_name.len() > "cyanprint-test-processor-".len());
+        assert!(container_name.starts_with("cyan-processor-"));
+        assert!(container_name.ends_with("-test"));
+        assert!(container_name.len() > "cyan-processor--test".len());
     }
 
     #[test]

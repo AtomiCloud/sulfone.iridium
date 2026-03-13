@@ -1,0 +1,105 @@
+tests:
+  - name: dummy:stocks:conservative:retirement:short-term-2-years:salary
+    expected:
+      type: snapshot
+      value:
+        path: fixtures/expected/dummy:stocks:conservative:retirement:short-term-2-years:salary
+    answer_state:
+      cyane2e/template2/investmentType:
+        type: String
+        value: Stocks
+      cyane2e/template2/investmentHorizon:
+        type: String
+        value: Short-term (< 2 years)
+      cyane2e/template2/savingsGoal:
+        type: String
+        value: Retirement
+      cyane2e/template2/incomeSource:
+        type: String
+        value: Salary
+      cyane2e/template1/name:
+        type: String
+        value: dummy
+      cyane2e/template2/riskTolerance:
+        type: String
+        value: Conservative
+    deterministic_state: {}
+    validate: []
+  - name: dummy:stocks:conservative:retirement:medium-term-2-5-years:salary
+    expected:
+      type: snapshot
+      value:
+        path: fixtures/expected/dummy:stocks:conservative:retirement:medium-term-2-5-years:salary
+    answer_state:
+      cyane2e/template2/investmentHorizon:
+        type: String
+        value: Medium-term (2-5 years)
+      cyane2e/template2/riskTolerance:
+        type: String
+        value: Conservative
+      cyane2e/template1/name:
+        type: String
+        value: dummy
+      cyane2e/template2/investmentType:
+        type: String
+        value: Stocks
+      cyane2e/template2/savingsGoal:
+        type: String
+        value: Retirement
+      cyane2e/template2/incomeSource:
+        type: String
+        value: Salary
+    deterministic_state: {}
+    validate: []
+  - name: dummy:stocks:conservative:home-purchase:short-term-2-years:salary
+    expected:
+      type: snapshot
+      value:
+        path: fixtures/expected/dummy:stocks:conservative:home-purchase:short-term-2-years:salary
+    answer_state:
+      cyane2e/template2/incomeSource:
+        type: String
+        value: Salary
+      cyane2e/template2/riskTolerance:
+        type: String
+        value: Conservative
+      cyane2e/template1/name:
+        type: String
+        value: dummy
+      cyane2e/template2/investmentType:
+        type: String
+        value: Stocks
+      cyane2e/template2/investmentHorizon:
+        type: String
+        value: Short-term (< 2 years)
+      cyane2e/template2/savingsGoal:
+        type: String
+        value: Home Purchase
+    deterministic_state: {}
+    validate: []
+  - name: dummy:stocks:conservative:home-purchase:medium-term-2-5-years:salary
+    expected:
+      type: snapshot
+      value:
+        path: fixtures/expected/dummy:stocks:conservative:home-purchase:medium-term-2-5-years:salary
+    answer_state:
+      cyane2e/template1/name:
+        type: String
+        value: dummy
+      cyane2e/template2/riskTolerance:
+        type: String
+        value: Conservative
+      cyane2e/template2/investmentType:
+        type: String
+        value: Stocks
+      cyane2e/template2/investmentHorizon:
+        type: String
+        value: Medium-term (2-5 years)
+      cyane2e/template2/savingsGoal:
+        type: String
+        value: Home Purchase
+      cyane2e/template2/incomeSource:
+        type: String
+        value: Salary
+    deterministic_state: {}
+    validate: []

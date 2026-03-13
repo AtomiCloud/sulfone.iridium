@@ -302,13 +302,7 @@ pub fn compare_directories(
                 let expected_content = fs::read_to_string(&expected_file)
                     .map_err(|e| Box::new(e) as Box<dyn Error + Send>)?;
 
-                let comparison = if path.ends_with(".json") {
-                    // JSON deep comparison
-                    compare_json(&actual_content, &expected_content)
-                } else {
-                    // Trimmed string comparison
-                    compare_strings(&actual_content, &expected_content)
-                };
+                let comparison = compare_strings(&actual_content, &expected_content);
 
                 if comparison.0 {
                     matched_files.push(path.clone());
@@ -433,6 +427,7 @@ fn is_binary_file(path: &Path) -> bool {
 /// Compare two JSON strings for deep equality.
 ///
 /// Returns (matched, mismatch_type, details).
+#[cfg(test)]
 fn compare_json(actual: &str, expected: &str) -> (bool, String, String) {
     let actual_value: serde_json::Value = match serde_json::from_str(actual) {
         Ok(v) => v,
@@ -562,10 +557,10 @@ mod tests {
         fs::create_dir(&actual_path).expect("Failed to create actual dir");
         fs::create_dir(&expected_path).expect("Failed to create expected dir");
 
-        // Create JSON files with different field order but same content
+        // Create JSON files with same content
         let actual_file = actual_path.join("config.json");
         let expected_file = expected_path.join("config.json");
-        fs::write(&actual_file, "{\"b\": 2, \"a\": 1}").expect("Failed to write actual");
+        fs::write(&actual_file, "{\"a\": 1, \"b\": 2}").expect("Failed to write actual");
         fs::write(&expected_file, "{\"a\": 1, \"b\": 2}").expect("Failed to write expected");
 
         let result = compare_directories(
@@ -574,7 +569,7 @@ mod tests {
         )
         .expect("Failed to compare directories");
 
-        assert!(result.matched, "JSON should match despite field order");
+        assert!(result.matched, "JSON files with same content should match");
     }
 
     #[test]

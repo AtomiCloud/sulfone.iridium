@@ -372,6 +372,14 @@ pub enum TestCommands {
         date_seed: Option<String>,
 
         #[arg(
+            short = 'p',
+            long,
+            default_value = "1",
+            help = "Number of parallel test cases for snapshot generation"
+        )]
+        parallel: usize,
+
+        #[arg(
             short = 'o',
             long,
             default_value = ".cyan_output",
@@ -394,6 +402,13 @@ pub enum TestCommands {
             env = "CYANPRINT_COORDINATOR"
         )]
         coordinator_endpoint: String,
+
+        #[arg(
+            short = 'i',
+            long,
+            help = "Interactive mode: prompt for seed values and branch selection per question"
+        )]
+        interactive: bool,
 
         #[arg(long, help = "Skip automatic daemon start")]
         disable_daemon_autostart: bool,
