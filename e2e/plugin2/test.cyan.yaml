@@ -1,13 +1,12 @@
 # Test configuration for plugin2
-# Plugin2 generates a file named 'plugin2' with random alphanumeric characters
-# Note: Since the content is random, we only verify file existence, not content
+# Plugin2 generates a file named 'plugin2' with fixed deterministic content for snapshot testing
 
 tests:
-  - name: generates_random_file
+  - name: generates_deterministic_file
     expected:
       type: snapshot
       value:
-        path: ./snapshots/generates_random_file
+        path: ./snapshots/generates_deterministic_file
     validate:
       - test -f plugin2
       - test $(wc -c < plugin2) -eq 15
