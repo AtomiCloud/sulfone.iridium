@@ -17,7 +17,7 @@
 //! - [`processor`]: Processor test execution flow
 //! - [`plugin`]: Plugin test execution flow
 //! - [`resolver`]: Resolver test execution flow
-//! - [`init`]: Test initialization (placeholder for Plan 3)
+//! - [`init`]: Test initialization and fixture generation
 
 pub mod config;
 pub mod container;

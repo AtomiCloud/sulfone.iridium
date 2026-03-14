@@ -703,7 +703,8 @@ mod tests {
                 assert_eq!(config, "cyan.yaml");
                 assert_eq!(output, ".cyan_output");
                 assert!(junit.is_none());
-                assert_eq!(coordinator_endpoint, "http://coord.cyanprint.dev:9000");
+                // coordinator_endpoint uses env-backed default, so we only verify it's non-empty
+                assert!(!coordinator_endpoint.is_empty());
                 assert!(!disable_daemon_autostart);
             } else {
                 panic!("Expected TestCommands::Template");
