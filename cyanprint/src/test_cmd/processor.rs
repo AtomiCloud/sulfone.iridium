@@ -59,8 +59,8 @@ pub fn run_processor_tests(
     _config: &str,
     output_dir: &str,
     junit_path: Option<&str>,
-    _coordinator_endpoint: &str,
-    _disable_daemon_autostart: bool,
+    coordinator_endpoint: &str,
+    disable_daemon_autostart: bool,
 ) -> Result<Vec<TestResult>, Box<dyn Error + Send>> {
     // Create output directory
     fs::create_dir_all(output_dir).map_err(|e| {
@@ -99,10 +99,12 @@ pub fn run_processor_tests(
 
     println!("Found {} test case(s) to run", test_cases.len());
 
-    // Pre-flight validation: only check Docker connectivity (processor tests don't need the coordinator)
+    // Pre-flight validation: ensure Docker daemon is running and the cyanprint
+    // network exists (build_and_start_container uses network_mode: "cyanprint")
     println!("Running pre-flight validation...");
-    let _docker = bollard::Docker::connect_with_local_defaults()
+    let docker = bollard::Docker::connect_with_local_defaults()
         .map_err(|e| Box::new(e) as Box<dyn Error + Send>)?;
+    crate::try_cmd::ensure_daemon_running(&docker, disable_daemon_autostart, coordinator_endpoint)?;
     println!("  Docker daemon is reachable");
 
     // Collect all input directories for bind mounts

@@ -25,7 +25,10 @@ pub async fn stop_coordinator(docker: Docker, port: u16) -> Result<(), Box<dyn E
         Ok(Ok(res)) => {
             // Check for error/non-ok status before claiming success
             let has_error = res.error.as_deref().map(|e| !e.is_empty()).unwrap_or(false);
-            let is_ok_status = res.status.as_deref() == Some("ok");
+            let is_ok_status = res
+                .status
+                .as_deref()
+                .is_some_and(|s| s.eq_ignore_ascii_case("ok"));
             if has_error || !is_ok_status {
                 eprintln!(
                     "⚠️ Cleanup returned non-ok status: {:?}, error: {:?}",

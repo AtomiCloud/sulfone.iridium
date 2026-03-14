@@ -490,17 +490,26 @@ fn compare_json(actual: &str, expected: &str) -> (bool, String, String) {
 ///
 /// Returns (matched, mismatch_type, details).
 fn compare_strings(actual: &str, expected: &str) -> (bool, String, String) {
-    let actual_trimmed = actual.trim();
-    let expected_trimmed = expected.trim();
+    // Normalize line endings (CRLF -> LF) and strip a single trailing newline.
+    // We do NOT use trim() because that masks real whitespace regressions
+    // in indentation-sensitive files (YAML, Markdown, etc.).
+    let actual_normalized = actual
+        .replace("\r\n", "\n")
+        .trim_end_matches('\n')
+        .to_string();
+    let expected_normalized = expected
+        .replace("\r\n", "\n")
+        .trim_end_matches('\n')
+        .to_string();
 
-    if actual_trimmed == expected_trimmed {
+    if actual_normalized == expected_normalized {
         (true, String::new(), String::new())
     } else {
         (
             false,
             "content_mismatch".to_string(),
             format!(
-                "String content differs\nActual:   {actual_trimmed:?}\nExpected: {expected_trimmed:?}"
+                "String content differs\nActual:   {actual_normalized:?}\nExpected: {expected_normalized:?}"
             ),
         )
     }
@@ -707,14 +716,29 @@ mod tests {
     }
 
     #[test]
-    fn test_compare_strings_with_whitespace() {
-        let actual = "  hello world  ";
+    fn test_compare_strings_trailing_newline() {
+        let actual = "hello world\n";
         let expected = "hello world";
 
         let (matched, mismatch_type, details) = compare_strings(actual, expected);
-        assert!(matched, "Strings should match after trimming");
+        assert!(
+            matched,
+            "Strings should match after trailing newline normalization"
+        );
         assert!(mismatch_type.is_empty());
         assert!(details.is_empty());
+    }
+
+    #[test]
+    fn test_compare_strings_leading_whitespace_differs() {
+        let actual = "  hello world";
+        let expected = "hello world";
+
+        let (matched, _, _) = compare_strings(actual, expected);
+        assert!(
+            !matched,
+            "Leading whitespace differences should be detected"
+        );
     }
 
     #[test]
