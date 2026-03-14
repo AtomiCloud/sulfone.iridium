@@ -8,7 +8,9 @@
 use std::error::Error;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Condvar, Mutex};
+use std::sync::{Arc, Mutex};
+
+use crate::test_cmd::semaphore::Semaphore;
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -18,7 +20,6 @@ use crate::test_cmd::config::{ExpectedOutput, TestCase, read_test_config};
 use crate::test_cmd::container::{ContainerHandle, build_and_start_container, cleanup_container};
 use crate::test_cmd::report::TestResult;
 use crate::test_cmd::validation::{compare_directories, run_validate_commands};
-use crate::try_cmd::ensure_daemon_running;
 
 /// Run processor tests.
 ///
@@ -58,8 +59,8 @@ pub fn run_processor_tests(
     _config: &str,
     output_dir: &str,
     junit_path: Option<&str>,
-    coordinator_endpoint: &str,
-    disable_daemon_autostart: bool,
+    _coordinator_endpoint: &str,
+    _disable_daemon_autostart: bool,
 ) -> Result<Vec<TestResult>, Box<dyn Error + Send>> {
     // Create output directory
     fs::create_dir_all(output_dir).map_err(|e| {
@@ -98,11 +99,11 @@ pub fn run_processor_tests(
 
     println!("Found {} test case(s) to run", test_cases.len());
 
-    // Pre-flight validation
+    // Pre-flight validation: only check Docker connectivity (processor tests don't need the coordinator)
     println!("Running pre-flight validation...");
-    let docker = bollard::Docker::connect_with_local_defaults()
+    let _docker = bollard::Docker::connect_with_local_defaults()
         .map_err(|e| Box::new(e) as Box<dyn Error + Send>)?;
-    ensure_daemon_running(&docker, disable_daemon_autostart, coordinator_endpoint)?;
+    println!("  Docker daemon is reachable");
 
     // Collect all input directories for bind mounts
     let mut test_inputs = std::collections::HashMap::new();
@@ -173,40 +174,47 @@ pub fn run_processor_tests(
     let container = processor_warmup(processor_path, bind_mounts)?;
     println!("Processor warmed up successfully");
 
-    // Run tests (parallel or sequential based on parallel count)
-    println!("\nRunning tests...");
+    // Run tests, ensuring cleanup happens even on failure
     let start_time = Instant::now();
+    let test_result = (|| -> Result<Vec<TestResult>, Box<dyn Error + Send>> {
+        // Run tests (parallel or sequential based on parallel count)
+        println!("\nRunning tests...");
 
-    let results = if parallel > 1 {
-        run_processor_tests_parallel(
-            test_cases,
-            &container,
-            processor_path,
-            &tmp_output_dir,
-            update_snapshots,
-            parallel,
-        )?
-    } else {
-        run_processor_tests_sequential(
-            test_cases,
-            &container,
-            processor_path,
-            &tmp_output_dir,
-            update_snapshots,
-        )?
-    };
+        let results = if parallel > 1 {
+            run_processor_tests_parallel(
+                test_cases,
+                &container,
+                processor_path,
+                &tmp_output_dir,
+                update_snapshots,
+                parallel,
+            )?
+        } else {
+            run_processor_tests_sequential(
+                test_cases,
+                &container,
+                processor_path,
+                &tmp_output_dir,
+                update_snapshots,
+            )?
+        };
+
+        Ok(results)
+    })();
 
     let total_duration = start_time.elapsed();
 
-    // Cleanup warm-up resources
+    // Cleanup warm-up resources (always runs, even on error)
     println!("\nCleaning up processor resources...");
-    cleanup_container(&container)?;
+    let _ = cleanup_container(&container);
 
-    // Cleanup tmp output directory
+    // Cleanup tmp output directory (always runs, even on error)
     if tmp_output_dir.exists() {
         let _ = fs::remove_dir_all(&tmp_output_dir);
     }
     println!("Cleanup complete");
+
+    let results = test_result?;
 
     // Write JUnit report if requested
     if let Some(junit_path) = junit_path {
@@ -392,18 +400,24 @@ fn run_single_processor_test_case(
         serde_json::json!(format!("/workspace/area/{}", test_case.name)),
     );
 
-    // Add globs if specified
+    // Add globs (always required by SDK, default to catch-all pattern)
+    // SDK expects field name "glob" (not "pattern") per CyanMapper.globReqToDomain
     if let Some(ref globs) = test_case.globs {
         let glob_array: Vec<serde_json::Value> = globs
             .iter()
             .map(|g| {
                 serde_json::json!({
-                    "pattern": g.pattern,
+                    "glob": g.pattern,
                     "type": g.glob_type
                 })
             })
             .collect();
         request_body.insert("globs".to_string(), serde_json::json!(glob_array));
+    } else {
+        request_body.insert(
+            "globs".to_string(),
+            serde_json::json!([{"glob": "**", "type": "template"}]),
+        );
     }
 
     // Add config if specified
@@ -438,37 +452,11 @@ fn run_single_processor_test_case(
         }
     }
 
-    // If no API error, run validation and compare snapshots
+    // If no API error, compare snapshots first, then run validation
     if failure_message.is_none() {
         let test_output_dir = tmp_output_dir.join(&test_case.name);
 
-        // Run validate commands if specified
-        if !test_case.validate.is_empty() {
-            println!("  Running validate commands...");
-            if test_output_dir.exists() {
-                let validate_results =
-                    run_validate_commands(test_output_dir.to_str().unwrap(), &test_case.validate)?;
-
-                let validate_failures: Vec<&crate::test_cmd::validation::ValidateResult> =
-                    validate_results.iter().filter(|r| !r.passed).collect();
-
-                if !validate_failures.is_empty() {
-                    let mut messages = Vec::new();
-                    for result in &validate_failures {
-                        messages.push(format!(
-                            "Command '{}' failed: {}",
-                            result.command, result.stderr
-                        ));
-                    }
-                    failure_message = Some(format!(
-                        "Validate commands failed:\n{}",
-                        messages.join("\n")
-                    ));
-                }
-            }
-        }
-
-        // Compare with expected snapshot if no validate failures
+        // Compare with expected snapshot first
         if let ExpectedOutput::Snapshot { ref path } = test_case.expected {
             let expected_path = if path.starts_with('/') {
                 // Absolute path
@@ -515,16 +503,16 @@ fn run_single_processor_test_case(
                         ));
                     }
 
-                    failure_message = Some(format!(
-                        "Snapshot comparison failed:\n{}",
-                        messages.join("\n")
-                    ));
-
                     // Update snapshots if requested
                     if update_snapshots {
                         println!("  Updating snapshot...");
                         copy_to_snapshot(&test_output_dir, &expected_path)?;
                         println!("  Snapshot updated");
+                    } else {
+                        failure_message = Some(format!(
+                            "Snapshot comparison failed:\n{}",
+                            messages.join("\n")
+                        ));
                     }
                 } else {
                     println!("  Snapshot matched");
@@ -534,6 +522,38 @@ fn run_single_processor_test_case(
                     "Output directory not found: {}",
                     test_output_dir.display()
                 ));
+            }
+        }
+
+        // Run validate commands if specified (always run, regardless of snapshot result)
+        if !test_case.validate.is_empty() {
+            println!("  Running validate commands...");
+            if test_output_dir.exists() {
+                let validate_results =
+                    run_validate_commands(test_output_dir.to_str().unwrap(), &test_case.validate)?;
+
+                let validate_failures: Vec<&crate::test_cmd::validation::ValidateResult> =
+                    validate_results.iter().filter(|r| !r.passed).collect();
+
+                if !validate_failures.is_empty() {
+                    let mut messages = Vec::new();
+                    for result in &validate_failures {
+                        let exit_info = result
+                            .exit_code
+                            .map(|c| format!(" (exit code {c})"))
+                            .unwrap_or_default();
+                        messages.push(format!(
+                            "Command '{}' failed{}: {}",
+                            result.command, exit_info, result.stderr
+                        ));
+                    }
+                    let validate_msg =
+                        format!("Validate commands failed:\n{}", messages.join("\n"));
+                    failure_message = Some(match failure_message {
+                        Some(existing) => format!("{existing}\n{validate_msg}"),
+                        None => validate_msg,
+                    });
+                }
             }
         }
     }
@@ -603,40 +623,4 @@ fn copy_recursive(from: &Path, to: &Path) -> Result<(), Box<dyn Error + Send>> {
     }
 
     Ok(())
-}
-
-/// Simple semaphore for limiting parallel test execution.
-struct Semaphore {
-    permits: Arc<Mutex<usize>>,
-    condvar: Arc<Condvar>,
-}
-
-impl Semaphore {
-    fn new(permits: usize) -> Self {
-        Semaphore {
-            permits: Arc::new(Mutex::new(permits)),
-            condvar: Arc::new(Condvar::new()),
-        }
-    }
-
-    fn acquire(&self) -> SemaphorePermit<'_> {
-        let mut available = self.permits.lock().unwrap();
-        while *available == 0 {
-            available = self.condvar.wait(available).unwrap();
-        }
-        *available -= 1;
-        SemaphorePermit { semaphore: self }
-    }
-}
-
-struct SemaphorePermit<'a> {
-    semaphore: &'a Semaphore,
-}
-
-impl<'a> Drop for SemaphorePermit<'a> {
-    fn drop(&mut self) {
-        let mut available = self.semaphore.permits.lock().unwrap();
-        *available += 1;
-        self.semaphore.condvar.notify_one();
-    }
 }

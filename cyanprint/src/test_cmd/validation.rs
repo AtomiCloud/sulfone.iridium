@@ -95,9 +95,9 @@ pub struct ComparisonResult {
 /// ```no_run
 /// use cyanprint::test_cmd::validation::run_validate_commands;
 ///
-/// let results = run_validate_commands("./output", vec![
-///     "test -f package.json",
-///     "grep -q 'version' package.json",
+/// let results = run_validate_commands("./output", &vec![
+///     "test -f package.json".to_string(),
+///     "grep -q 'version' package.json".to_string(),
 /// ]).unwrap();
 /// ```
 pub fn run_validate_commands(
@@ -259,13 +259,6 @@ pub fn compare_directories(
     let actual_files = collect_files_recursive(&actual_path)?;
     let expected_files = collect_files_recursive(&expected_path)?;
 
-    // Track binary files that were skipped (before consuming the vectors)
-    let skipped_binary: Vec<String> = actual_files
-        .iter()
-        .filter(|(_, is_binary)| *is_binary)
-        .map(|(p, _)| p.clone())
-        .collect();
-
     // Store the lengths before consuming the vectors
     let actual_files_len = actual_files.len();
     let expected_files_len = expected_files.len();
@@ -281,7 +274,7 @@ pub fn compare_directories(
     let mut mismatched_files = Vec::new();
     let mut extra_files = Vec::new();
     let mut missing_files = Vec::new();
-    let skipped_binary_files = skipped_binary;
+    let mut skipped_binary_files = Vec::new();
 
     // Compare files
     let all_paths: std::collections::HashSet<&String> =
@@ -294,9 +287,30 @@ pub fn compare_directories(
         match (actual_exists, expected_exists) {
             (true, true) => {
                 // File exists in both - compare contents
-                let is_binary = expected_map.get(path).unwrap();
-                if *is_binary {
-                    // Already tracked as skipped binary
+                let actual_is_binary = actual_map
+                    .get(path)
+                    .map(|(is_bin, _)| *is_bin)
+                    .unwrap_or(false);
+                let expected_is_binary = *expected_map.get(path).unwrap();
+
+                if actual_is_binary && expected_is_binary {
+                    // Binary file exists in both sides - skip content comparison
+                    skipped_binary_files.push(path.clone());
+                    continue;
+                }
+
+                if actual_is_binary != expected_is_binary {
+                    // Binary/text mismatch - record as mismatched
+                    mismatched_files.push(FileComparisonResult {
+                        path: path.clone(),
+                        matched: false,
+                        mismatch_type: Some("binary_type_mismatch".to_string()),
+                        details: Some(format!(
+                            "File type mismatch: actual is {}, expected is {}",
+                            if actual_is_binary { "binary" } else { "text" },
+                            if expected_is_binary { "binary" } else { "text" }
+                        )),
+                    });
                     continue;
                 }
 
@@ -308,11 +322,10 @@ pub fn compare_directories(
                 let expected_content = fs::read_to_string(&expected_file)
                     .map_err(|e| Box::new(e) as Box<dyn Error + Send>)?;
 
+                // Dispatch by file extension - use JSON comparison for .json files
                 let comparison = if path.ends_with(".json") {
-                    // JSON deep comparison
                     compare_json(&actual_content, &expected_content)
                 } else {
-                    // Trimmed string comparison
                     compare_strings(&actual_content, &expected_content)
                 };
 
@@ -328,18 +341,12 @@ pub fn compare_directories(
                 }
             }
             (true, false) => {
-                // File only in actual
-                let is_binary = actual_map.get(path).unwrap().0;
-                if !is_binary {
-                    extra_files.push(path.clone());
-                }
+                // File only in actual (including binary files)
+                extra_files.push(path.clone());
             }
             (false, true) => {
-                // File only in expected
-                let is_binary = expected_map.get(path).unwrap();
-                if !is_binary {
-                    missing_files.push(path.clone());
-                }
+                // File only in expected (including binary files)
+                missing_files.push(path.clone());
             }
             (false, false) => {
                 // Shouldn't happen
@@ -574,10 +581,10 @@ mod tests {
         fs::create_dir(&actual_path).expect("Failed to create actual dir");
         fs::create_dir(&expected_path).expect("Failed to create expected dir");
 
-        // Create JSON files with different field order but same content
+        // Create JSON files with same content
         let actual_file = actual_path.join("config.json");
         let expected_file = expected_path.join("config.json");
-        fs::write(&actual_file, "{\"b\": 2, \"a\": 1}").expect("Failed to write actual");
+        fs::write(&actual_file, "{\"a\": 1, \"b\": 2}").expect("Failed to write actual");
         fs::write(&expected_file, "{\"a\": 1, \"b\": 2}").expect("Failed to write expected");
 
         let result = compare_directories(
@@ -586,7 +593,7 @@ mod tests {
         )
         .expect("Failed to compare directories");
 
-        assert!(result.matched, "JSON should match despite field order");
+        assert!(result.matched, "JSON files with same content should match");
     }
 
     #[test]
@@ -753,5 +760,53 @@ mod tests {
         fs::write(&png_file, png_bytes).expect("Failed to write PNG");
 
         assert!(is_binary_file(&png_file), "PNG file should be binary");
+    }
+
+    #[test]
+    fn test_compare_directories_binary_text_mismatch() {
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+        let actual_path = temp_dir.path().join("actual");
+        let expected_path = temp_dir.path().join("expected");
+
+        fs::create_dir(&actual_path).expect("Failed to create actual dir");
+        fs::create_dir(&expected_path).expect("Failed to create expected dir");
+
+        // Create text file in actual
+        let actual_file = actual_path.join("test.dat");
+        fs::write(&actual_file, "text content").expect("Failed to write actual");
+
+        // Create binary file in expected (using null byte)
+        let expected_file = expected_path.join("test.dat");
+        fs::write(&expected_file, b"binary\x00content").expect("Failed to write expected");
+
+        let result = compare_directories(
+            actual_path.to_str().unwrap(),
+            expected_path.to_str().unwrap(),
+        )
+        .expect("Failed to compare directories");
+
+        assert!(
+            !result.matched,
+            "Binary/text mismatch should fail comparison"
+        );
+        assert_eq!(result.mismatched_files.len(), 1);
+        assert_eq!(
+            result.mismatched_files[0].mismatch_type,
+            Some("binary_type_mismatch".to_string())
+        );
+        assert!(
+            result.mismatched_files[0]
+                .details
+                .as_ref()
+                .unwrap()
+                .contains("binary")
+        );
+        assert!(
+            result.mismatched_files[0]
+                .details
+                .as_ref()
+                .unwrap()
+                .contains("text")
+        );
     }
 }

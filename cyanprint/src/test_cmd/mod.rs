@@ -17,7 +17,7 @@
 //! - [`processor`]: Processor test execution flow
 //! - [`plugin`]: Plugin test execution flow
 //! - [`resolver`]: Resolver test execution flow
-//! - [`init`]: Test initialization (placeholder for Plan 3)
+//! - [`init`]: Test initialization and fixture generation
 
 pub mod config;
 pub mod container;
@@ -26,13 +26,11 @@ pub mod plugin;
 pub mod processor;
 pub mod report;
 pub mod resolver;
+pub mod semaphore;
 pub mod template;
 pub mod validation;
 
-pub use config::{
-    AnswerStateEntry, GlobEntry, ResolverExpected, ResolverInput, TestCase, TestConfig,
-    read_test_config,
-};
+pub use config::{AnswerStateEntry, GlobEntry, TestCase, TestConfig, read_test_config};
 pub use plugin::run_plugin_tests;
 pub use processor::run_processor_tests;
 pub use report::{TestResult, write_human_report, write_junit_report};

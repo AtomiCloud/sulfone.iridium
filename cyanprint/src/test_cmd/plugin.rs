@@ -9,7 +9,9 @@ use std::error::Error;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use std::sync::{Arc, Condvar, Mutex};
+use std::sync::{Arc, Mutex};
+
+use crate::test_cmd::semaphore::Semaphore;
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -170,7 +172,7 @@ pub fn run_plugin_tests(
     println!("\nRunning tests...");
     let start_time = Instant::now();
 
-    let results = if parallel > 1 {
+    let results_result = if parallel > 1 {
         run_plugin_tests_parallel(
             test_cases,
             &container,
@@ -178,7 +180,7 @@ pub fn run_plugin_tests(
             &tmp_output_dir,
             update_snapshots,
             parallel,
-        )?
+        )
     } else {
         run_plugin_tests_sequential(
             test_cases,
@@ -186,20 +188,25 @@ pub fn run_plugin_tests(
             plugin_path,
             &tmp_output_dir,
             update_snapshots,
-        )?
+        )
     };
 
     let total_duration = start_time.elapsed();
 
-    // Cleanup warm-up resources
+    // Cleanup warm-up resources (always, even on test failure)
     println!("\nCleaning up plugin resources...");
-    cleanup_container(&container)?;
+    if let Err(e) = cleanup_container(&container) {
+        eprintln!("Warning: plugin container cleanup failed: {e}");
+    }
 
     // Cleanup tmp output directory
     if tmp_output_dir.exists() {
         let _ = fs::remove_dir_all(&tmp_output_dir);
     }
     println!("Cleanup complete");
+
+    // Propagate any test execution error after cleanup
+    let results = results_result?;
 
     // Write JUnit report if requested
     if let Some(junit_path) = junit_path {
@@ -313,18 +320,20 @@ fn run_plugin_tests_parallel(
             );
 
             // Store result
-            if let Ok(test_result) = result {
-                let mut results = results_mutex.lock().unwrap();
-                results.push(test_result);
-            } else {
-                // Handle error case
-                let mut results = results_mutex.lock().unwrap();
-                results.push(TestResult {
-                    name: test_case.name.clone(),
-                    passed: false,
-                    duration: Duration::from_secs(0),
-                    failure_message: Some(format!("Test failed: {:?}", result.unwrap_err())),
-                });
+            match result {
+                Ok(test_result) => {
+                    let mut results = results_mutex.lock().unwrap();
+                    results.push(test_result);
+                }
+                Err(err) => {
+                    let mut results = results_mutex.lock().unwrap();
+                    results.push(TestResult {
+                        name: test_case.name.clone(),
+                        passed: false,
+                        duration: Duration::from_secs(0),
+                        failure_message: Some(format!("Test failed: {err:?}")),
+                    });
+                }
             }
         });
 
@@ -408,37 +417,11 @@ fn run_single_plugin_test_case(
         }
     }
 
-    // If no API error, run validation and compare snapshots
+    // If no API error, compare snapshots first, then run validation
     if failure_message.is_none() {
         let test_output_dir = tmp_output_dir.join(&test_case.name);
 
-        // Run validate commands if specified
-        if !test_case.validate.is_empty() {
-            println!("  Running validate commands...");
-            if test_output_dir.exists() {
-                let validate_results =
-                    run_validate_commands(test_output_dir.to_str().unwrap(), &test_case.validate)?;
-
-                let validate_failures: Vec<&crate::test_cmd::validation::ValidateResult> =
-                    validate_results.iter().filter(|r| !r.passed).collect();
-
-                if !validate_failures.is_empty() {
-                    let mut messages = Vec::new();
-                    for result in &validate_failures {
-                        messages.push(format!(
-                            "Command '{}' failed: {}",
-                            result.command, result.stderr
-                        ));
-                    }
-                    failure_message = Some(format!(
-                        "Validate commands failed:\n{}",
-                        messages.join("\n")
-                    ));
-                }
-            }
-        }
-
-        // Compare with expected snapshot if no validate failures
+        // Compare with expected snapshot first
         if let ExpectedOutput::Snapshot { ref path } = test_case.expected {
             let expected_path = if path.starts_with('/') {
                 // Absolute path
@@ -485,16 +468,16 @@ fn run_single_plugin_test_case(
                         ));
                     }
 
-                    failure_message = Some(format!(
-                        "Snapshot comparison failed:\n{}",
-                        messages.join("\n")
-                    ));
-
                     // Update snapshots if requested
                     if update_snapshots {
                         println!("  Updating snapshot...");
                         copy_to_snapshot(&test_output_dir, &expected_path)?;
                         println!("  Snapshot updated");
+                    } else {
+                        failure_message = Some(format!(
+                            "Snapshot comparison failed:\n{}",
+                            messages.join("\n")
+                        ));
                     }
                 } else {
                     println!("  Snapshot matched");
@@ -504,6 +487,34 @@ fn run_single_plugin_test_case(
                     "Output directory not found: {}",
                     test_output_dir.display()
                 ));
+            }
+        }
+
+        // Run validate commands if specified (always run, regardless of snapshot result)
+        if !test_case.validate.is_empty() {
+            println!("  Running validate commands...");
+            if test_output_dir.exists() {
+                let validate_results =
+                    run_validate_commands(test_output_dir.to_str().unwrap(), &test_case.validate)?;
+
+                let validate_failures: Vec<&crate::test_cmd::validation::ValidateResult> =
+                    validate_results.iter().filter(|r| !r.passed).collect();
+
+                if !validate_failures.is_empty() {
+                    let mut messages = Vec::new();
+                    for result in &validate_failures {
+                        messages.push(format!(
+                            "Command '{}' failed: {}",
+                            result.command, result.stderr
+                        ));
+                    }
+                    let validate_msg =
+                        format!("Validate commands failed:\n{}", messages.join("\n"));
+                    failure_message = Some(match failure_message {
+                        Some(existing) => format!("{existing}\n{validate_msg}"),
+                        None => validate_msg,
+                    });
+                }
             }
         }
     }
@@ -578,40 +589,4 @@ fn copy_recursive(from: &Path, to: &Path) -> Result<(), Box<dyn Error + Send>> {
     }
 
     Ok(())
-}
-
-/// Simple semaphore for limiting parallel test execution.
-struct Semaphore {
-    permits: Arc<Mutex<usize>>,
-    condvar: Arc<Condvar>,
-}
-
-impl Semaphore {
-    fn new(permits: usize) -> Self {
-        Semaphore {
-            permits: Arc::new(Mutex::new(permits)),
-            condvar: Arc::new(Condvar::new()),
-        }
-    }
-
-    fn acquire(&self) -> SemaphorePermit<'_> {
-        let mut available = self.permits.lock().unwrap();
-        while *available == 0 {
-            available = self.condvar.wait(available).unwrap();
-        }
-        *available -= 1;
-        SemaphorePermit { semaphore: self }
-    }
-}
-
-struct SemaphorePermit<'a> {
-    semaphore: &'a Semaphore,
-}
-
-impl<'a> Drop for SemaphorePermit<'a> {
-    fn drop(&mut self) {
-        let mut available = self.semaphore.permits.lock().unwrap();
-        *available += 1;
-        self.semaphore.condvar.notify_one();
-    }
 }

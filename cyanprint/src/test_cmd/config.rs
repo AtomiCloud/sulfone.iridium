@@ -20,9 +20,12 @@ use serde::{Deserialize, Serialize};
 /// tests:
 ///   - name: basic_template
 ///     expected:
-///       path: ./snapshots/basic_template
+///       type: snapshot
+///       value:
+///         path: ./snapshots/basic_template
 ///     answer_state:
-///       - type: String
+///       question_id_1:
+///         type: String
 ///         value: "my-project"
 ///     deterministic_state:
 ///       projectName: "my-project"
@@ -45,7 +48,7 @@ pub struct TestConfig {
 /// - **Template tests**: use `answer_state`, `deterministic_state`, `expected`
 /// - **Processor tests**: use `input`, `expected`, `config`
 /// - **Plugin tests**: use `input`, `expected`, `config`
-/// - **Resolver tests**: use `resolver_input`, `resolver_expected`
+/// - **Resolver tests**: use `resolver_inputs` (directory-based), `config`
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TestCase {
     /// Unique identifier for this test case
@@ -70,24 +73,23 @@ pub struct TestCase {
     pub validate: Vec<String>,
 
     /// Input for processor/plugin tests
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub input: Option<serde_json::Value>,
 
     /// File glob patterns for processor/plugin tests
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub globs: Option<Vec<GlobEntry>>,
 
     /// Runtime configuration for processors/plugins (YAML in file, serde_json::Value in memory)
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub config: Option<serde_json::Value>,
 
-    /// Resolver input data (resolver tests only, used in Plan 2)
-    #[serde(default)]
-    pub resolver_input: Option<ResolverInput>,
-
-    /// Resolver expected output (resolver tests only, used in Plan 2)
-    #[serde(default)]
-    pub resolver_expected: Option<ResolverExpected>,
+    /// Resolver input directories (resolver tests only)
+    ///
+    /// Each entry is a directory of files + origin metadata.
+    /// Files at the same relative path across directories are conflicts to resolve.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resolver_inputs: Option<Vec<ResolverInputEntry>>,
 }
 
 /// Expected output for snapshot comparison.
@@ -139,32 +141,6 @@ pub struct GlobEntry {
     pub glob_type: String,
 }
 
-/// Resolver input data for resolver tests (defined now, used in Plan 2).
-///
-/// Contains input data to send to a conflict resolver for testing.
-/// Matches Helium SDK ResolverInput structure.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ResolverInput {
-    /// Runtime configuration for resolver
-    pub config: serde_json::Value,
-
-    /// File variations to resolve
-    pub files: Vec<ResolverFile>,
-}
-
-/// A single file variation in a resolver test.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ResolverFile {
-    /// File path
-    pub path: String,
-
-    /// File content
-    pub content: String,
-
-    /// Origin metadata (template and layer)
-    pub origin: ResolverFileOrigin,
-}
-
 /// Origin metadata for a file variation.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ResolverFileOrigin {
@@ -175,24 +151,17 @@ pub struct ResolverFileOrigin {
     pub layer: i32,
 }
 
-/// Resolver expected output for resolver tests (defined now, used in Plan 2).
+/// An input directory entry for directory-based resolver tests.
 ///
-/// Contains expected output from a conflict resolver for testing.
-/// Expected is an array of {path, content} pairs.
+/// Points to a directory of files that represent one template's output.
+/// Files at the same relative path across multiple entries are conflicts.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ResolverExpected {
-    /// Expected resolved files as an array of {path, content} pairs
-    pub files: Vec<ExpectedResolverFile>,
-}
-
-/// An expected resolved file.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ExpectedResolverFile {
-    /// Expected file path
+pub struct ResolverInputEntry {
+    /// Path to directory containing files from this template
     pub path: String,
 
-    /// Expected resolved file content
-    pub content: String,
+    /// Origin metadata for all files in this directory
+    pub origin: ResolverFileOrigin,
 }
 
 /// Error type for test configuration parsing.
@@ -275,6 +244,17 @@ pub fn read_test_config(path: String) -> Result<TestConfig, Box<dyn Error + Send
             "YAML parsing error: {e}"
         ))) as Box<dyn Error + Send>
     })?;
+
+    // Validate uniqueness of test names
+    let mut seen_names = std::collections::HashSet::new();
+    for test_case in &config.tests {
+        if !seen_names.insert(&test_case.name) {
+            return Err(Box::new(TestConfigError::InvalidValue(format!(
+                "Duplicate test name: {}",
+                test_case.name
+            ))) as Box<dyn Error + Send>);
+        }
+    }
 
     Ok(config)
 }
@@ -370,49 +350,37 @@ tests:
     }
 
     #[test]
-    fn test_parse_test_config_with_resolver_input() {
+    fn test_parse_test_config_with_resolver_inputs_dirs() {
         let yaml = r#"
 tests:
-  - name: resolver_basic_merge
+  - name: resolver_dir_merge
     expected:
       type: snapshot
       value:
         path: ./snapshots/resolver1
-    resolver_input:
-      config:
-        strategy: line-merge
-      files:
-        - path: config.json
-          content: '{"key": "old"}'
-          origin:
-            template: template1
-            layer: 0
-        - path: config.json
-          content: '{"key": "new"}'
-          origin:
-            template: template2
-            layer: 1
-    resolver_expected:
-      files:
-        - path: config.json
-          content: '{"key": "new"}'
+    config: {}
+    resolver_inputs:
+      - path: ./inputs/resolver1/template-a
+        origin:
+          template: template-a
+          layer: 0
+      - path: ./inputs/resolver1/template-b
+        origin:
+          template: template-b
+          layer: 1
 "#;
         let config: TestConfig = serde_yaml::from_str(yaml).expect("Failed to parse YAML");
         assert_eq!(config.tests.len(), 1);
         let test = &config.tests[0];
-        assert_eq!(test.name, "resolver_basic_merge");
-        assert!(test.resolver_input.is_some());
-        assert!(test.resolver_expected.is_some());
-        let input = test.resolver_input.as_ref().unwrap();
-        assert_eq!(
-            input.config.get("strategy").and_then(|v| v.as_str()),
-            Some("line-merge")
-        );
-        assert_eq!(input.files.len(), 2);
-
-        let expected = test.resolver_expected.as_ref().unwrap();
-        assert_eq!(expected.files.len(), 1);
-        assert_eq!(expected.files[0].path, "config.json");
+        assert_eq!(test.name, "resolver_dir_merge");
+        assert!(test.resolver_inputs.is_some());
+        let inputs = test.resolver_inputs.as_ref().unwrap();
+        assert_eq!(inputs.len(), 2);
+        assert_eq!(inputs[0].path, "./inputs/resolver1/template-a");
+        assert_eq!(inputs[0].origin.template, "template-a");
+        assert_eq!(inputs[0].origin.layer, 0);
+        assert_eq!(inputs[1].origin.template, "template-b");
+        assert_eq!(inputs[1].origin.layer, 1);
     }
     #[test]
     fn test_parse_test_config_empty_tests() {

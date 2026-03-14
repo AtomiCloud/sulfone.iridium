@@ -220,6 +220,8 @@ fn format_duration(duration: Duration) -> String {
 /// Escape XML special characters.
 ///
 /// Replaces characters that would break XML structure.
+/// Also strips XML 1.0 invalid control characters (U+0000–U+0008, U+000B, U+000C, U+000E–U+001F)
+/// while preserving tab (U+0009), newline (U+000A), and carriage return (U+000D).
 fn escape_xml(s: &str) -> String {
     s.chars()
         .flat_map(|c| match c {
@@ -228,6 +230,10 @@ fn escape_xml(s: &str) -> String {
             '>' => "&gt;".chars().collect::<Vec<_>>(),
             '"' => "&quot;".chars().collect::<Vec<_>>(),
             '\'' => "&apos;".chars().collect::<Vec<_>>(),
+            // Strip invalid XML 1.0 control characters
+            // Valid: \t (0x09), \n (0x0A), \r (0x0D)
+            // Invalid: 0x00-0x08, 0x0B, 0x0C, 0x0E-0x1F
+            c if c as u32 <= 0x1F && c != '\t' && c != '\n' && c != '\r' => vec![],
             _ => vec![c],
         })
         .collect()
@@ -268,6 +274,21 @@ mod tests {
     fn test_escape_xml_only_special() {
         let escaped = escape_xml("normal_text");
         assert_eq!(escaped, "normal_text");
+    }
+
+    #[test]
+    fn test_escape_xml_strips_invalid_control_chars() {
+        // Valid control characters should be preserved
+        let with_valid_controls = escape_xml("hello\tworld\nnew\rline");
+        assert_eq!(with_valid_controls, "hello\tworld\nnew\rline");
+
+        // Invalid control characters should be stripped
+        let with_invalid_controls = escape_xml("a\x00b\x01c\x08d\x0Be\x0Cf\x1Fg");
+        assert_eq!(with_invalid_controls, "abcdefg");
+
+        // Mix of valid and invalid
+        let mixed = escape_xml("start\x00mid\ntab\there\x1Fend");
+        assert_eq!(mixed, "startmid\ntab\thereend");
     }
 
     #[test]

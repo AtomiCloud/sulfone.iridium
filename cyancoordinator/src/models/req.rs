@@ -36,7 +36,13 @@ pub struct DockerImageReference {
     pub tag: String,
 }
 
-/// Request for setting up a try executor session
+/// Request for setting up a try environment (blob volume, images, resolvers).
+///
+/// This prepares the template environment (once-per-template work).
+/// Session volumes are created separately via `/executor/:sessionId/warm`.
+///
+/// Note: `session_id` and `merger_id` are kept for backward compatibility
+/// with Boron until it is updated to not require them.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TrySetupReq {

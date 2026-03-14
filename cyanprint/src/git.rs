@@ -55,7 +55,7 @@ pub fn is_git_dirty(path: &Path) -> Result<bool, GitError> {
     if !output.status.success() {
         // Not a git repository or git error - return specific error
         let stderr = String::from_utf8_lossy(&output.stderr);
-        if stderr.contains("not a git repository") || stderr.contains("not a git repository") {
+        if stderr.contains("not a git repository") {
             return Err(GitError::NotAGitRepository);
         }
         return Err(GitError::CommandFailed(stderr.to_string()));

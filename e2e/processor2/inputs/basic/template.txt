@@ -1,0 +1,3 @@
+Hello, var__name__!
+This is a test for var__processor__.
+End of file.

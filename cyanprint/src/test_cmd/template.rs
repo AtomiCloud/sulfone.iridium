@@ -11,7 +11,9 @@ use std::error::Error;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
-use std::sync::{Arc, Condvar, Mutex};
+use std::sync::{Arc, Mutex};
+
+use crate::test_cmd::semaphore::Semaphore;
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -19,20 +21,17 @@ use bollard::Docker;
 use reqwest::blocking::Client;
 
 use cyancoordinator::client::CyanCoordinatorClient;
-use cyancoordinator::models::req::{DockerImageReference, TrySetupReq};
-use cyancoordinator::models::res::TrySetupRes;
+use cyancoordinator::session::{DefaultSessionIdGenerator, SessionIdGenerator};
 use cyanprompt::domain::models::answer::Answer;
 use cyanprompt::domain::models::cyan::Cyan;
 use cyanprompt::domain::models::question::QuestionTrait;
 use cyanprompt::domain::models::template::{input::TemplateAnswerInput, output::TemplateOutput};
 use cyanprompt::domain::services::repo::{CyanHttpRepo, CyanRepo};
 use cyanprompt::http::client::CyanClient;
-use cyanprompt::http::mapper::cyan_req_mapper;
 use cyanregistry::cli::mapper::read_build_config;
 use cyanregistry::cli::models::template_config::CyanTemplateFileConfig;
 use cyanregistry::http::client::CyanRegistryClient;
 use cyanregistry::http::models::template_res::TemplateVersionRes;
-use flate2::read::GzDecoder;
 use tokio::runtime::Builder;
 
 use crate::docker::buildx::BuildxBuilder;
@@ -160,6 +159,7 @@ pub fn run_template_tests(
     junit_path: Option<&str>,
     coordinator_endpoint: &str,
     disable_daemon_autostart: bool,
+    registry_client: &CyanRegistryClient,
 ) -> Result<Vec<TestResult>, Box<dyn Error + Send>> {
     // Create output directory
     fs::create_dir_all(output_dir).map_err(|e| {
@@ -198,6 +198,12 @@ pub fn run_template_tests(
 
     println!("Found {} test case(s) to run", test_cases.len());
 
+    // Clean up stale containers from previous runs BEFORE warmup.
+    // This MUST happen before warmup so we don't remove the container we just started.
+    println!("\nCleaning up stale sessions...");
+    cleanup_stale_test_containers();
+    println!("Stale sessions cleaned up");
+
     // Warm up template
     println!("\nWarming up template...");
     let warmup = template_warmup(
@@ -205,6 +211,7 @@ pub fn run_template_tests(
         config,
         coordinator_endpoint,
         disable_daemon_autostart,
+        registry_client,
     )?;
 
     println!("Template warmed up successfully");
@@ -213,7 +220,7 @@ pub fn run_template_tests(
     println!("\nRunning tests...");
     let start_time = Instant::now();
 
-    let results = if parallel > 1 {
+    let results_result = if parallel > 1 {
         run_tests_parallel(
             test_cases,
             &warmup,
@@ -222,7 +229,7 @@ pub fn run_template_tests(
             update_snapshots,
             coordinator_endpoint,
             parallel,
-        )?
+        )
     } else {
         run_tests_sequential(
             test_cases,
@@ -231,15 +238,20 @@ pub fn run_template_tests(
             output_dir,
             update_snapshots,
             coordinator_endpoint,
-        )?
+        )
     };
 
     let total_duration = start_time.elapsed();
 
-    // Cleanup warm-up resources
+    // Cleanup warm-up resources (always, even on test failure)
     println!("\nCleaning up template resources...");
-    cleanup_warmup(&warmup)?;
+    if let Err(e) = cleanup_warmup(&warmup) {
+        eprintln!("Warning: template warmup cleanup failed: {e}");
+    }
     println!("Cleanup complete");
+
+    // Propagate any test execution error after cleanup
+    let results = results_result?;
 
     // Write JUnit report if requested
     if let Some(junit_path) = junit_path {
@@ -252,6 +264,13 @@ pub fn run_template_tests(
         results.len(),
         total_duration.as_secs_f64()
     );
+
+    // Clean up temporary output directory
+    if PathBuf::from(output_dir).exists() {
+        if let Err(e) = fs::remove_dir_all(output_dir) {
+            eprintln!("Warning: failed to clean up output directory {output_dir}: {e}");
+        }
+    }
 
     Ok(results)
 }
@@ -272,6 +291,7 @@ fn template_warmup(
     config_path: &str,
     coordinator_endpoint: &str,
     disable_daemon_autostart: bool,
+    registry_client: &CyanRegistryClient,
 ) -> Result<TemplateWarmup, Box<dyn Error + Send>> {
     // Template tests always use build mode (dev_mode=false)
     let _dev_mode = false;
@@ -294,28 +314,15 @@ fn template_warmup(
     println!("Running pre-flight validation...");
     crate::try_cmd::pre_flight_validation(template_path, false)?;
 
-    // Ensure daemon is running
-    if !disable_daemon_autostart {
-        println!("Ensuring daemon is running...");
-        let docker = Docker::connect_with_local_defaults()
-            .map_err(|e| Box::new(e) as Box<dyn Error + Send>)?;
-        ensure_daemon_running(&docker, disable_daemon_autostart, coordinator_endpoint)?;
-    }
+    // Ensure daemon is running (always check, even with --disable-daemon-autostart)
+    println!("Ensuring daemon is running...");
+    let docker =
+        Docker::connect_with_local_defaults().map_err(|e| Box::new(e) as Box<dyn Error + Send>)?;
+    ensure_daemon_running(&docker, disable_daemon_autostart, coordinator_endpoint)?;
 
     // Resolve and pin dependencies
     println!("Resolving and pinning dependencies...");
-    let registry_client = CyanRegistryClient {
-        endpoint: "https://api.zinc.sulfone.raichu.cluster.atomi.cloud".to_string(),
-        version: "1.0".to_string(),
-        client: Rc::new(
-            Client::builder()
-                .timeout(Duration::from_secs(600))
-                .build()
-                .map_err(|e| Box::new(e) as Box<dyn Error + Send>)?,
-        ),
-    };
-
-    let pinned = crate::try_cmd::resolve_and_pin_dependencies(&registry_client, &template_config)?;
+    let pinned = crate::try_cmd::resolve_and_pin_dependencies(registry_client, &template_config)?;
 
     // Build images
     println!("Building template and blob images...");
@@ -355,6 +362,22 @@ fn template_warmup(
 
     println!("Synthetic template created");
 
+    // Setup try environment with Boron (blob volume, images, resolvers — once)
+    println!("Setting up try environment with Boron...");
+    let coord_client = CyanCoordinatorClient::new(coordinator_endpoint.to_string());
+    let (reference, tag) = split_image_ref(&template_docker_ref);
+    let try_setup_req = cyancoordinator::models::req::TrySetupReq {
+        session_id: String::new(), // unused, kept for Boron backward compat
+        local_template_id: local_template_id.clone(),
+        source: "image".to_string(),
+        image_ref: Some(cyancoordinator::models::req::DockerImageReference { reference, tag }),
+        path: None,
+        template: template.clone(),
+        merger_id: String::new(), // unused, kept for Boron backward compat
+    };
+    coord_client.try_setup(&try_setup_req)?;
+    println!("Try environment ready");
+
     // Find available port and start template container
     println!("Starting template container...");
     let port = find_available_port(5600, 5900).ok_or_else(|| {
@@ -366,7 +389,10 @@ fn template_warmup(
     let docker =
         Docker::connect_with_local_defaults().map_err(|e| Box::new(e) as Box<dyn Error + Send>)?;
 
-    let container_name = Some(format!("cyanprint-test-template-{local_template_id}"));
+    let container_name = Some(format!(
+        "cyan-template-{}",
+        local_template_id.replace('-', "")
+    ));
     let image_ref = template_docker_ref;
 
     crate::try_cmd::start_template_container(
@@ -375,6 +401,7 @@ fn template_warmup(
         &image_ref,
         port,
         coordinator_endpoint,
+        "cyanprint.test",
     )?;
 
     println!("Template container started on port {port}");
@@ -576,34 +603,16 @@ fn run_single_test_case(
     println!("Running test case: {}", test_case.name);
 
     // Generate unique IDs
-    let session_id = uuid::Uuid::new_v4().to_string();
+    let id_gen = DefaultSessionIdGenerator;
+    let session_id = id_gen.generate();
     let merger_id = uuid::Uuid::new_v4().to_string();
 
-    // Setup coordinator session with try_setup (BEFORE Q&A loop)
-    println!("  Setting up coordinator session...");
+    // Warm executor session (creates session volume)
+    println!("  Warming executor session...");
     let coord_client = CyanCoordinatorClient::new(coordinator_endpoint.to_string());
+    let warm_res = coord_client.warn_executor(session_id.clone(), &warmup.template)?;
 
-    // Build try_setup request with image reference
-    let image_ref = warmup.template_image_ref.as_ref().ok_or_else(|| {
-        Box::new(std::io::Error::other("Template image reference required"))
-            as Box<dyn Error + Send>
-    })?;
-
-    let (reference, tag) = split_image_ref(image_ref);
-
-    let try_setup_req = TrySetupReq {
-        session_id: session_id.clone(),
-        local_template_id: warmup.local_template_id.clone(),
-        source: "image".to_string(),
-        image_ref: Some(DockerImageReference { reference, tag }),
-        path: None,
-        template: warmup.template.clone(),
-        merger_id: merger_id.clone(),
-    };
-
-    let try_setup_res: TrySetupRes = coord_client.try_setup(&try_setup_req)?;
-
-    println!("  Coordinator session setup complete");
+    println!("  Executor session warmed");
 
     // Create cleanup guard to ensure session is always cleaned up, even on error
     let _cleanup_guard = SessionCleanupGuard::new(&coord_client, session_id.clone());
@@ -632,7 +641,7 @@ fn run_single_test_case(
         }
     }
 
-    // Run non-interactive Q&A loop (AFTER try_setup, BEFORE bootstrap)
+    // Run non-interactive Q&A loop (AFTER warm, BEFORE bootstrap)
     // Note: Template tests always use build mode (dev_mode=false)
     println!("  Running Q&A loop for {}...", test_case.name);
     let port = warmup.port.ok_or_else(|| {
@@ -655,97 +664,39 @@ fn run_single_test_case(
 
     // Bootstrap executor session (AFTER Q&A loop, BEFORE execution)
     println!("  Bootstrapping executor session...");
-    let start_executor_req = cyancoordinator::models::req::StartExecutorReq {
-        session_id: session_id.clone(),
-        template: warmup.template.clone(),
-        write_vol_reference: cyancoordinator::models::req::DockerVolumeReferenceReq {
-            cyan_id: try_setup_res.session_volume.cyan_id,
-            session_id: try_setup_res.session_volume.session_id,
-        },
-        merger: cyancoordinator::models::req::MergerReq {
-            merger_id: merger_id.clone(),
-        },
-    };
-
+    let start_executor_req =
+        crate::try_cmd::build_bootstrap_req(&session_id, &warmup.template, &warm_res, &merger_id);
     coord_client.bootstrap(&start_executor_req)?;
 
-    let http_client = Client::builder()
-        .timeout(Duration::from_secs(600))
-        .build()
-        .map_err(|e| Box::new(e) as Box<dyn Error + Send>)?;
-
-    // Execute template and stream output
+    // Execute template and unpack output
     println!("  Executing template and capturing output...");
     let test_output_dir = PathBuf::from(output_dir).join(&test_case.name);
-    fs::create_dir_all(&test_output_dir).map_err(|e| {
-        Box::new(std::io::Error::other(format!(
-            "Failed to create test output directory {}: {}",
-            test_output_dir.display(),
-            e
-        ))) as Box<dyn Error + Send>
-    })?;
 
-    let cyan_req = cyan_req_mapper(cyan);
-
-    let build_req = cyancoordinator::models::req::BuildReq {
-        template: warmup.template.clone(),
-        cyan: cyan_req,
-        merger_id: merger_id.clone(),
-    };
-
-    let execute_url = format!("{coordinator_endpoint}/executor/{session_id}");
-    let response = http_client
-        .post(&execute_url)
-        .json(&build_req)
-        .send()
-        .map_err(|e| Box::new(e) as Box<dyn Error + Send>)?;
-
-    if !response.status().is_success() {
-        let err_text = response
-            .text()
-            .unwrap_or_else(|_| "Unknown error".to_string());
-        return Err(Box::new(std::io::Error::other(format!(
-            "Template execution failed: {err_text}"
-        ))) as Box<dyn Error + Send>);
+    // Clear any previous output first to avoid stale files contaminating reruns
+    if test_output_dir.exists() {
+        fs::remove_dir_all(&test_output_dir).map_err(|e| {
+            Box::new(std::io::Error::other(format!(
+                "Failed to clear test output directory {}: {}",
+                test_output_dir.display(),
+                e
+            ))) as Box<dyn Error + Send>
+        })?;
     }
 
-    // Unpack tar.gz to output directory
-    println!("  Unpacking output to {}...", test_output_dir.display());
-    let tar = GzDecoder::new(response);
-    let mut archive = tar::Archive::new(tar);
-    archive
-        .unpack(&test_output_dir)
-        .map_err(|e| Box::new(e) as Box<dyn Error + Send>)?;
+    crate::try_cmd::execute_and_unpack(
+        coordinator_endpoint,
+        &session_id,
+        test_output_dir.to_str().unwrap(),
+        &warmup.template,
+        cyan,
+        &merger_id,
+    )?;
 
     println!("  Output unpacked successfully");
 
-    // Run validate commands if specified
+    // Compare with expected snapshot first
     let mut failure_message: Option<String> = None;
 
-    if !test_case.validate.is_empty() {
-        println!("  Running validate commands...");
-        let validate_results =
-            run_validate_commands(test_output_dir.to_str().unwrap(), &test_case.validate)?;
-
-        let validate_failures: Vec<&ValidateResult> =
-            validate_results.iter().filter(|r| !r.passed).collect();
-
-        if !validate_failures.is_empty() {
-            let mut messages = Vec::new();
-            for result in &validate_failures {
-                messages.push(format!(
-                    "Command '{}' failed: {}",
-                    result.command, result.stderr
-                ));
-            }
-            failure_message = Some(format!(
-                "Validate commands failed:\n{}",
-                messages.join("\n")
-            ));
-        }
-    }
-
-    // Compare with expected snapshot if no validate failures
     if let ExpectedOutput::Snapshot { ref path } = test_case.expected {
         let expected_path = if path.starts_with('/') {
             // Absolute path
@@ -791,19 +742,48 @@ fn run_single_test_case(
                 ));
             }
 
-            failure_message = Some(format!(
-                "Snapshot comparison failed:\n{}",
-                messages.join("\n")
-            ));
-
             // Update snapshots if requested
             if update_snapshots {
                 println!("  Updating snapshot...");
                 copy_to_snapshot(&test_output_dir, &expected_path)?;
                 println!("  Snapshot updated");
+            } else {
+                failure_message = Some(format!(
+                    "Snapshot comparison failed:\n{}",
+                    messages.join("\n")
+                ));
             }
         } else {
             println!("  Snapshot matched");
+        }
+    }
+
+    // Run validate commands if specified (always run, regardless of snapshot result)
+    if !test_case.validate.is_empty() {
+        println!("  Running validate commands...");
+        let validate_results =
+            run_validate_commands(test_output_dir.to_str().unwrap(), &test_case.validate)?;
+
+        let validate_failures: Vec<&ValidateResult> =
+            validate_results.iter().filter(|r| !r.passed).collect();
+
+        if !validate_failures.is_empty() {
+            let mut messages = Vec::new();
+            for result in &validate_failures {
+                let exit_info = result
+                    .exit_code
+                    .map(|c| format!(" (exit code {c})"))
+                    .unwrap_or_default();
+                messages.push(format!(
+                    "Command '{}' failed{}: {}",
+                    result.command, exit_info, result.stderr
+                ));
+            }
+            let validate_msg = format!("Validate commands failed:\n{}", messages.join("\n"));
+            failure_message = Some(match failure_message {
+                Some(existing) => format!("{existing}\n{validate_msg}"),
+                None => validate_msg,
+            });
         }
     }
 
@@ -997,38 +977,49 @@ fn cleanup_warmup(warmup: &TemplateWarmup) -> Result<(), Box<dyn Error + Send>> 
     Ok(())
 }
 
-/// Simple semaphore for limiting parallel test execution.
-struct Semaphore {
-    permits: Arc<Mutex<usize>>,
-    condvar: Arc<Condvar>,
-}
+/// Remove stale containers via Docker API before tests.
+///
+/// Removes all containers labeled `cyanprint.dev=true` (Boron-managed)
+/// or `cyanprint.test=true` (test containers).
+fn cleanup_stale_test_containers() {
+    let Ok(docker) = Docker::connect_with_local_defaults() else {
+        return;
+    };
+    let Ok(rt) = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+    else {
+        return;
+    };
+    rt.block_on(async {
+        use bollard::query_parameters::ListContainersOptions;
 
-impl Semaphore {
-    fn new(permits: usize) -> Self {
-        Semaphore {
-            permits: Arc::new(Mutex::new(permits)),
-            condvar: Arc::new(Condvar::new()),
+        // Remove ALL cyanprint.dev containers directly (bypasses Boron's name parser)
+        // This catches stale unzip, plugin, processor, resolver containers from Boron
+        for label in ["cyanprint.dev=true", "cyanprint.test=true"] {
+            let mut filters = HashMap::new();
+            filters.insert("label".to_string(), vec![label.to_string()]);
+
+            let options = ListContainersOptions {
+                all: true,
+                filters: Some(filters),
+                ..Default::default()
+            };
+            if let Ok(containers) = docker.list_containers(Some(options)).await {
+                for container in containers {
+                    if let Some(id) = &container.id {
+                        let name = container
+                            .names
+                            .as_ref()
+                            .and_then(|n| n.first())
+                            .map(|n| n.trim_start_matches('/').to_string())
+                            .unwrap_or_else(|| id.clone());
+                        println!("  Removing stale container: {name}");
+                        let _ = docker.stop_container(id, None).await;
+                        let _ = docker.remove_container(id, None).await;
+                    }
+                }
+            }
         }
-    }
-
-    fn acquire(&self) -> SemaphorePermit<'_> {
-        let mut available = self.permits.lock().unwrap();
-        while *available == 0 {
-            available = self.condvar.wait(available).unwrap();
-        }
-        *available -= 1;
-        SemaphorePermit { semaphore: self }
-    }
-}
-
-struct SemaphorePermit<'a> {
-    semaphore: &'a Semaphore,
-}
-
-impl<'a> Drop for SemaphorePermit<'a> {
-    fn drop(&mut self) {
-        let mut available = self.semaphore.permits.lock().unwrap();
-        *available += 1;
-        self.semaphore.condvar.notify_one();
-    }
+    });
 }
