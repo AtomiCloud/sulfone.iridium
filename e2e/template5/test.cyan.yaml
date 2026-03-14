@@ -1,0 +1,109 @@
+tests:
+  - name: hello:asd:2026-03-13:typescript:no:none
+    expected:
+      type: snapshot
+      value:
+        path: fixtures/expected/hello:asd:2026-03-13:typescript:no:none
+    answer_state:
+      cyane2e/template5/startDate:
+        type: String
+        value: 2026-03-13
+      cyane2e/template5/language:
+        type: String
+        value: TypeScript
+      cyane2e/template5/useDocker:
+        type: Bool
+        value: false
+      cyane2e/template5/apiKey:
+        type: String
+        value: asd
+      cyane2e/template5/projectName:
+        type: String
+        value: hello
+      cyane2e/template5/features:
+        type: StringArray
+        value: []
+    deterministic_state: {}
+    validate: []
+  - name: hello:asd:2026-03-13:typescript:no:logging-tracing
+    expected:
+      type: snapshot
+      value:
+        path: fixtures/expected/hello:asd:2026-03-13:typescript:no:logging-tracing
+    answer_state:
+      cyane2e/template5/projectName:
+        type: String
+        value: hello
+      cyane2e/template5/startDate:
+        type: String
+        value: 2026-03-13
+      cyane2e/template5/apiKey:
+        type: String
+        value: asd
+      cyane2e/template5/language:
+        type: String
+        value: TypeScript
+      cyane2e/template5/useDocker:
+        type: Bool
+        value: false
+      cyane2e/template5/features:
+        type: StringArray
+        value:
+          - logging
+          - tracing
+    deterministic_state: {}
+    validate: []
+  - name: bye:asd:2026-03-13:typescript:no:none
+    expected:
+      type: snapshot
+      value:
+        path: fixtures/expected/bye:asd:2026-03-13:typescript:no:none
+    answer_state:
+      cyane2e/template5/projectName:
+        type: String
+        value: bye
+      cyane2e/template5/features:
+        type: StringArray
+        value: []
+      cyane2e/template5/startDate:
+        type: String
+        value: 2026-03-13
+      cyane2e/template5/apiKey:
+        type: String
+        value: asd
+      cyane2e/template5/useDocker:
+        type: Bool
+        value: false
+      cyane2e/template5/language:
+        type: String
+        value: TypeScript
+    deterministic_state: {}
+    validate: []
+  - name: bye:asd:2026-03-13:typescript:no:logging-tracing
+    expected:
+      type: snapshot
+      value:
+        path: fixtures/expected/bye:asd:2026-03-13:typescript:no:logging-tracing
+    answer_state:
+      cyane2e/template5/useDocker:
+        type: Bool
+        value: false
+      cyane2e/template5/startDate:
+        type: String
+        value: 2026-03-13
+      cyane2e/template5/apiKey:
+        type: String
+        value: asd
+      cyane2e/template5/language:
+        type: String
+        value: TypeScript
+      cyane2e/template5/projectName:
+        type: String
+        value: bye
+      cyane2e/template5/features:
+        type: StringArray
+        value:
+          - logging
+          - tracing
+    deterministic_state: {}
+    validate: []

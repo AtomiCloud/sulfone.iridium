@@ -452,37 +452,11 @@ fn run_single_processor_test_case(
         }
     }
 
-    // If no API error, run validation and compare snapshots
+    // If no API error, compare snapshots first, then run validation
     if failure_message.is_none() {
         let test_output_dir = tmp_output_dir.join(&test_case.name);
 
-        // Run validate commands if specified
-        if !test_case.validate.is_empty() {
-            println!("  Running validate commands...");
-            if test_output_dir.exists() {
-                let validate_results =
-                    run_validate_commands(test_output_dir.to_str().unwrap(), &test_case.validate)?;
-
-                let validate_failures: Vec<&crate::test_cmd::validation::ValidateResult> =
-                    validate_results.iter().filter(|r| !r.passed).collect();
-
-                if !validate_failures.is_empty() {
-                    let mut messages = Vec::new();
-                    for result in &validate_failures {
-                        messages.push(format!(
-                            "Command '{}' failed: {}",
-                            result.command, result.stderr
-                        ));
-                    }
-                    failure_message = Some(format!(
-                        "Validate commands failed:\n{}",
-                        messages.join("\n")
-                    ));
-                }
-            }
-        }
-
-        // Compare with expected snapshot if no validate failures
+        // Compare with expected snapshot first
         if let ExpectedOutput::Snapshot { ref path } = test_case.expected {
             let expected_path = if path.starts_with('/') {
                 // Absolute path
@@ -548,6 +522,38 @@ fn run_single_processor_test_case(
                     "Output directory not found: {}",
                     test_output_dir.display()
                 ));
+            }
+        }
+
+        // Run validate commands if specified (always run, regardless of snapshot result)
+        if !test_case.validate.is_empty() {
+            println!("  Running validate commands...");
+            if test_output_dir.exists() {
+                let validate_results =
+                    run_validate_commands(test_output_dir.to_str().unwrap(), &test_case.validate)?;
+
+                let validate_failures: Vec<&crate::test_cmd::validation::ValidateResult> =
+                    validate_results.iter().filter(|r| !r.passed).collect();
+
+                if !validate_failures.is_empty() {
+                    let mut messages = Vec::new();
+                    for result in &validate_failures {
+                        let exit_info = result
+                            .exit_code
+                            .map(|c| format!(" (exit code {c})"))
+                            .unwrap_or_default();
+                        messages.push(format!(
+                            "Command '{}' failed{}: {}",
+                            result.command, exit_info, result.stderr
+                        ));
+                    }
+                    let validate_msg =
+                        format!("Validate commands failed:\n{}", messages.join("\n"));
+                    failure_message = Some(match failure_message {
+                        Some(existing) => format!("{existing}\n{validate_msg}"),
+                        None => validate_msg,
+                    });
+                }
             }
         }
     }

@@ -6,7 +6,7 @@
 //! - Writes `test.cyan.yaml` with generated test cases
 //! - Runs `test template --update-snapshots` to generate initial snapshots
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::error::Error;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -14,7 +14,7 @@ use std::rc::Rc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
-use inquire::{Confirm, MultiSelect};
+use inquire::{Confirm, DateSelect, MultiSelect, Text};
 
 use bollard::Docker;
 use reqwest::blocking::Client;
@@ -33,6 +33,9 @@ use crate::port::find_available_port;
 use crate::test_cmd::config::{AnswerStateEntry, ExpectedOutput, TestCase, TestConfig};
 use crate::test_cmd::template::run_template_tests;
 use crate::try_cmd::{ensure_daemon_running, pre_flight_validation};
+
+/// Type alias for branch configurations to avoid type complexity warnings.
+type BranchConfig = HashMap<String, Vec<(Answer, String)>>;
 
 /// Exploration state for Q&A tree walking.
 ///
@@ -63,6 +66,41 @@ impl ExplorationState {
 
     fn update_deterministic_state(&mut self, state: HashMap<String, String>) {
         self.deterministic_state = state;
+    }
+}
+
+/// Classification of a question type for discovery purposes.
+///
+/// Mirrors `Question` variants but is `Clone`-able and stores only type + message,
+/// since `Question` itself doesn't derive `Clone`.
+#[derive(Debug, Clone, PartialEq)]
+enum DiscoveredQuestionType {
+    Text,
+    Password,
+    Date,
+    Select,
+    Confirm,
+    Checkbox,
+}
+
+/// A question discovered during pass-1 tree walking.
+#[derive(Debug, Clone)]
+struct DiscoveredQuestion {
+    id: String,
+    question_type: DiscoveredQuestionType,
+    message: String,
+    branches: Vec<(Answer, String)>, // (answer_value, display_label)
+}
+
+/// Extract the question type and message from a `Question` reference.
+fn classify_question(question: &Question) -> (DiscoveredQuestionType, String) {
+    match question {
+        Question::Text(q) => (DiscoveredQuestionType::Text, q.message.clone()),
+        Question::Password(q) => (DiscoveredQuestionType::Password, q.message.clone()),
+        Question::Date(q) => (DiscoveredQuestionType::Date, q.message.clone()),
+        Question::Select(q) => (DiscoveredQuestionType::Select, q.message.clone()),
+        Question::Confirm(q) => (DiscoveredQuestionType::Confirm, q.message.clone()),
+        Question::Checkbox(q) => (DiscoveredQuestionType::Checkbox, q.message.clone()),
     }
 }
 
@@ -242,6 +280,25 @@ fn backup_existing_artifacts(path: &str) -> Result<Option<PathBuf>, Box<dyn Erro
 
     println!("  Backup saved to: {}", backup_dir.display());
 
+    // Remove originals after backup so init starts from a clean slate
+    if test_config.exists() {
+        fs::remove_file(&test_config).map_err(|e| {
+            Box::new(std::io::Error::other(format!(
+                "Failed to remove old test.cyan.yaml: {e}"
+            ))) as Box<dyn Error + Send>
+        })?;
+        println!("  Removed old test.cyan.yaml");
+    }
+
+    if fixtures_dir.exists() {
+        fs::remove_dir_all(&fixtures_dir).map_err(|e| {
+            Box::new(std::io::Error::other(format!(
+                "Failed to remove old fixtures/expected: {e}"
+            ))) as Box<dyn Error + Send>
+        })?;
+        println!("  Removed old fixtures/expected/");
+    }
+
     Ok(Some(backup_dir))
 }
 
@@ -303,12 +360,15 @@ fn walk_and_write_config(
     Ok(())
 }
 
-/// Walk the Q&A tree using DFS to generate test cases.
+/// Walk the Q&A tree using a two-pass approach to generate test cases.
 ///
-/// When `interactive` is true, uses a two-pass approach:
-/// 1. Full non-interactive DFS to discover all possible test cases
-/// 2. Present discovered questions/branches to user for narrowing down
-/// 3. Filter test cases to only those matching user selections
+/// Pass 1 (`discovery_dfs`): Discover all unique questions and their branches.
+/// Uses a visited set so each question ID is only branched on once, avoiding
+/// combinatorial explosion during discovery.
+///
+/// Pass 2 (`full_dfs`): Full combinatorial DFS with per-path state, using the
+/// branch configuration from pass 1 (optionally modified by the user in
+/// interactive mode).
 fn walk_qa_tree(
     warmup: &QaWarmup,
     max_combinations: usize,
@@ -332,15 +392,47 @@ fn walk_qa_tree(
         },
     };
 
+    // Pass 1: Discover all unique questions and their branches
+    println!("  Pass 1: Discovering questions...");
+    let mut visited = HashSet::new();
+    let mut discovered: Vec<DiscoveredQuestion> = Vec::new();
+    let initial_state = ExplorationState::new();
+
+    discovery_dfs(
+        &repo,
+        initial_state,
+        &mut visited,
+        &mut discovered,
+        text_seed,
+        password_seed,
+        date_seed,
+    )?;
+
+    println!("  Discovered {} unique question(s)", discovered.len());
+
+    // Build branch_config from discovered questions (or let user modify)
+    let branch_config: HashMap<String, Vec<(Answer, String)>> =
+        if interactive && !discovered.is_empty() {
+            println!("\n  Select which branches to keep/expand per question.\n");
+            interactive_modify(&discovered)?
+        } else {
+            discovered
+                .iter()
+                .map(|dq| (dq.id.clone(), dq.branches.clone()))
+                .collect()
+        };
+
+    // Pass 2: Full combinatorial DFS using branch_config
+    println!("  Pass 2: Generating test cases...");
     let combination_counter = AtomicUsize::new(0);
     let mut generated_tests = Vec::new();
     let mut used_names = HashMap::new();
 
-    // Always do a full non-interactive walk first
     let initial_state = ExplorationState::new();
-    dfs_explore(
+    full_dfs(
         &repo,
         initial_state,
+        &branch_config,
         &mut generated_tests,
         &mut used_names,
         &combination_counter,
@@ -350,22 +442,11 @@ fn walk_qa_tree(
         date_seed,
     )?;
 
-    if !interactive || generated_tests.is_empty() {
-        return Ok(generated_tests);
-    }
-
-    // Interactive mode: let user narrow down branches per question
-    println!(
-        "\n  Discovered {} test case(s) from full tree walk.",
-        generated_tests.len()
-    );
-    println!("  Now select which branches to keep per question.\n");
-
-    let filtered = interactive_filter(generated_tests)?;
-    Ok(filtered)
+    Ok(generated_tests)
 }
 
 /// Display string for an `AnswerStateEntry`.
+#[allow(dead_code)]
 fn answer_display(entry: &AnswerStateEntry) -> String {
     match entry {
         AnswerStateEntry::String(s) => s.clone(),
@@ -380,91 +461,381 @@ fn answer_display(entry: &AnswerStateEntry) -> String {
     }
 }
 
-/// Two-pass interactive filter: present discovered questions to user and filter test cases.
+/// Pass 1: Discovery DFS — find all unique questions and their branches.
 ///
-/// Collects all unique (question_id → answer values) from generated tests,
-/// presents each question with `MultiSelect`, and filters to matching test cases.
-fn interactive_filter(
-    tests: Vec<GeneratedTestCase>,
-) -> Result<Vec<GeneratedTestCase>, Box<dyn Error + Send>> {
-    // Collect unique question_ids preserving discovery order, and their unique answer values
-    let mut question_order: Vec<String> = Vec::new();
-    let mut question_values: HashMap<String, Vec<String>> = HashMap::new();
-
-    for test in &tests {
-        for (qid, entry) in &test.answer_state {
-            let display = answer_display(entry);
-            let values = question_values.entry(qid.clone()).or_default();
-            if values.is_empty() {
-                question_order.push(qid.clone());
-            }
-            if !values.contains(&display) {
-                values.push(display);
-            }
-        }
-    }
-
-    if question_order.is_empty() {
-        return Ok(tests);
-    }
-
-    // For each question, let user select which branches to keep
-    let mut selections: HashMap<String, Vec<String>> = HashMap::new();
-
-    for qid in &question_order {
-        let values = &question_values[qid];
-        if values.len() <= 1 {
-            // Only one value — no branching, auto-include
-            selections.insert(qid.clone(), values.clone());
-            println!("  {qid}: {} (only value, auto-included)", values[0]);
-            continue;
-        }
-
-        let selected =
-            MultiSelect::new(&format!("{qid} — select branches to keep:"), values.clone())
-                .with_all_selected_by_default()
-                .prompt_skippable()
-                .map_err(|e| {
-                    Box::new(std::io::Error::other(e.to_string())) as Box<dyn Error + Send>
-                })?
-                .unwrap_or_default();
-
-        if selected.is_empty() {
-            // Esc or none selected — keep all
-            println!("  {qid}: keeping all {} branches", values.len());
-            selections.insert(qid.clone(), values.clone());
-        } else {
-            println!(
-                "  {qid}: keeping {} of {} branches",
-                selected.len(),
-                values.len()
-            );
-            selections.insert(qid.clone(), selected);
-        }
-    }
-
-    // Filter test cases: keep only those where every answer matches a selected branch
-    let filtered: Vec<GeneratedTestCase> = tests
-        .into_iter()
-        .filter(|test| {
-            test.answer_state.iter().all(|(qid, entry)| {
-                let display = answer_display(entry);
-                selections
-                    .get(qid)
-                    .is_none_or(|allowed| allowed.contains(&display))
-            })
-        })
-        .collect();
-
-    println!("\n  Filtered to {} test case(s)", filtered.len());
-    Ok(filtered)
-}
-
-/// DFS exploration of Q&A tree.
-#[allow(clippy::too_many_arguments)]
-fn dfs_explore(
+/// Uses a `visited` set so each question ID is only fully branched on once.
+/// When a question ID is encountered again (on a different tree path), it reuses
+/// the first branch's answer to continue deeper without branching, avoiding
+/// combinatorial explosion during discovery.
+fn discovery_dfs(
     repo: &CyanHttpRepo,
     state: ExplorationState,
+    visited: &mut HashSet<String>,
+    discovered: &mut Vec<DiscoveredQuestion>,
+    text_seed: &str,
+    password_seed: &str,
+    date_seed: &str,
+) -> Result<(), Box<dyn Error + Send>> {
+    let input = TemplateAnswerInput {
+        answers: state.answers.clone(),
+        deterministic_state: state.deterministic_state.clone(),
+    };
+
+    let output = repo.prompt_template(input)?;
+
+    match output {
+        TemplateOutput::Final(_) => {
+            // Base case — leaf node, nothing more to discover
+            Ok(())
+        }
+        TemplateOutput::QnA(qna) => {
+            let mut updated_state = state.clone();
+            updated_state.update_deterministic_state(qna.deterministic_state);
+
+            let question_id = qna.question.id();
+            let branches = get_answer_branches(&qna.question, text_seed, password_seed, date_seed);
+
+            if visited.insert(question_id.clone()) {
+                // First time seeing this question — record it and explore all branches
+                let (question_type, message) = classify_question(&qna.question);
+                discovered.push(DiscoveredQuestion {
+                    id: question_id.clone(),
+                    question_type,
+                    message,
+                    branches: branches.clone(),
+                });
+
+                for (answer, label) in &branches {
+                    let mut branch_state = updated_state.clone();
+                    branch_state.add_answer(question_id.clone(), answer.clone(), label.clone());
+                    discovery_dfs(
+                        repo,
+                        branch_state,
+                        visited,
+                        discovered,
+                        text_seed,
+                        password_seed,
+                        date_seed,
+                    )?;
+                }
+            } else {
+                // Already visited — reuse first branch answer to continue deeper
+                if let Some((answer, label)) = branches.into_iter().next() {
+                    let mut branch_state = updated_state;
+                    branch_state.add_answer(question_id, answer, label);
+                    discovery_dfs(
+                        repo,
+                        branch_state,
+                        visited,
+                        discovered,
+                        text_seed,
+                        password_seed,
+                        date_seed,
+                    )?;
+                }
+            }
+
+            Ok(())
+        }
+    }
+}
+
+/// Returns `true` if a branch with the given label already exists.
+fn branch_already_exists(branches: &[(Answer, String)], label: &str) -> bool {
+    branches.iter().any(|(_, l)| l == label)
+}
+
+/// Convert an `inquire::InquireError` into our boxed error type.
+fn inquire_err(e: inquire::InquireError) -> Box<dyn Error + Send> {
+    Box::new(std::io::Error::other(e.to_string()))
+}
+
+/// Interactive modification of discovered branches.
+///
+/// - **Text/Password**: Reprompt loop — shows default seed, asks for values one at a time
+///   until user says no to "Add another?". Deduplicates by label.
+/// - **Date**: `DateSelect` date-picker widget; reprompt loop with dedup on formatted date.
+/// - **Checkbox**: `MultiSelect` from individual options per combination; dedup on sorted label.
+/// - **Select/Confirm**: `MultiSelect` to de-select branches; enforces ≥1 branch via reprompt.
+fn interactive_modify(
+    discovered: &[DiscoveredQuestion],
+) -> Result<BranchConfig, Box<dyn Error + Send>> {
+    let mut branch_config: HashMap<String, Vec<(Answer, String)>> = HashMap::new();
+
+    for dq in discovered {
+        match dq.question_type {
+            DiscoveredQuestionType::Text | DiscoveredQuestionType::Password => {
+                if dq.branches.is_empty() {
+                    branch_config.insert(dq.id.clone(), dq.branches.clone());
+                    continue;
+                }
+
+                let default_seed = &dq.branches[0].1;
+                println!(
+                    "\n  {} [{}] (default: '{}')",
+                    dq.id, dq.message, default_seed
+                );
+
+                let mut branches: Vec<(Answer, String)> = Vec::new();
+
+                // Prompt for first value
+                let first = Text::new(&format!("  Enter value (empty to keep '{default_seed}'):"))
+                    .prompt()
+                    .map_err(inquire_err)?;
+
+                let first_trimmed = first.trim();
+                if first_trimmed.is_empty() {
+                    branches.push(dq.branches[0].clone());
+                } else if !branch_already_exists(&branches, first_trimmed) {
+                    branches.push((
+                        Answer::String(first_trimmed.to_string()),
+                        first_trimmed.to_string(),
+                    ));
+                } else {
+                    println!("  (skipped duplicate '{first_trimmed}')");
+                }
+
+                // Reprompt loop
+                loop {
+                    let add_more = Confirm::new("  Add another value?")
+                        .with_default(false)
+                        .prompt()
+                        .map_err(inquire_err)?;
+
+                    if !add_more {
+                        break;
+                    }
+
+                    let next = Text::new("  Enter value:").prompt().map_err(inquire_err)?;
+
+                    let next_trimmed = next.trim();
+                    if !next_trimmed.is_empty() {
+                        if branch_already_exists(&branches, next_trimmed) {
+                            println!("  (skipped duplicate '{next_trimmed}')");
+                        } else {
+                            branches.push((
+                                Answer::String(next_trimmed.to_string()),
+                                next_trimmed.to_string(),
+                            ));
+                        }
+                    }
+                }
+
+                println!("  {}: {} value(s)", dq.id, branches.len());
+                branch_config.insert(dq.id.clone(), branches);
+            }
+            DiscoveredQuestionType::Date => {
+                if dq.branches.is_empty() {
+                    branch_config.insert(dq.id.clone(), dq.branches.clone());
+                    continue;
+                }
+
+                let default_seed = &dq.branches[0].1;
+                println!(
+                    "\n  {} [{}] (default: '{}')",
+                    dq.id, dq.message, default_seed
+                );
+
+                let mut branches: Vec<(Answer, String)> = Vec::new();
+
+                // Prompt for first date using DateSelect widget
+                let first_date =
+                    DateSelect::new(&format!("  Pick a date (default: '{default_seed}'):"))
+                        .prompt()
+                        .map_err(inquire_err)?;
+
+                let label = first_date.format("%Y-%m-%d").to_string();
+                if !branch_already_exists(&branches, &label) {
+                    branches.push((Answer::String(label.clone()), label));
+                } else {
+                    println!("  (skipped duplicate '{label}')");
+                }
+
+                // Reprompt loop for more dates
+                loop {
+                    let add_more = Confirm::new("  Add another date?")
+                        .with_default(false)
+                        .prompt()
+                        .map_err(inquire_err)?;
+
+                    if !add_more {
+                        break;
+                    }
+
+                    let next_date = DateSelect::new("  Pick date:")
+                        .prompt()
+                        .map_err(inquire_err)?;
+
+                    let label = next_date.format("%Y-%m-%d").to_string();
+                    if branch_already_exists(&branches, &label) {
+                        println!("  (skipped duplicate '{label}')");
+                    } else {
+                        branches.push((Answer::String(label.clone()), label));
+                    }
+                }
+
+                println!("  {}: {} date(s)", dq.id, branches.len());
+                branch_config.insert(dq.id.clone(), branches);
+            }
+            DiscoveredQuestionType::Checkbox => {
+                if dq.branches.is_empty() {
+                    branch_config.insert(dq.id.clone(), dq.branches.clone());
+                    continue;
+                }
+
+                // Extract individual option names from discovered branches
+                let available_options: Vec<String> = dq
+                    .branches
+                    .iter()
+                    .filter_map(|(answer, _)| match answer {
+                        Answer::StringArray(arr) if arr.len() == 1 => Some(arr[0].clone()),
+                        _ => None,
+                    })
+                    .collect();
+
+                println!(
+                    "\n  {} [{}] — options: [{}]",
+                    dq.id,
+                    dq.message,
+                    available_options.join(", ")
+                );
+                println!("  Select combinations one at a time using the multi-select picker.");
+
+                let mut branches: Vec<(Answer, String)> = Vec::new();
+
+                // First combination via MultiSelect
+                let first_selected = MultiSelect::new(
+                    "  Select options for this combination (none = empty set):",
+                    available_options.clone(),
+                )
+                .prompt()
+                .map_err(inquire_err)?;
+
+                let mut sorted = first_selected;
+                sorted.sort();
+                let label = if sorted.is_empty() {
+                    "none".to_string()
+                } else {
+                    sorted.join("+")
+                };
+                if !branch_already_exists(&branches, &label) {
+                    branches.push((Answer::StringArray(sorted), label));
+                } else {
+                    println!("  (skipped duplicate '{label}')");
+                }
+
+                // Reprompt loop for more combinations
+                loop {
+                    let add_more = Confirm::new("  Add another combination?")
+                        .with_default(false)
+                        .prompt()
+                        .map_err(inquire_err)?;
+
+                    if !add_more {
+                        break;
+                    }
+
+                    let next_selected = MultiSelect::new(
+                        "  Select options for this combination (none = empty set):",
+                        available_options.clone(),
+                    )
+                    .prompt()
+                    .map_err(inquire_err)?;
+
+                    let mut sorted = next_selected;
+                    sorted.sort();
+                    let label = if sorted.is_empty() {
+                        "none".to_string()
+                    } else {
+                        sorted.join("+")
+                    };
+                    if branch_already_exists(&branches, &label) {
+                        println!("  (skipped duplicate '{label}')");
+                    } else {
+                        branches.push((Answer::StringArray(sorted), label));
+                    }
+                }
+
+                println!("  {}: {} combination(s)", dq.id, branches.len());
+                branch_config.insert(dq.id.clone(), branches);
+            }
+            DiscoveredQuestionType::Select | DiscoveredQuestionType::Confirm => {
+                if dq.branches.len() <= 1 {
+                    if !dq.branches.is_empty() {
+                        println!(
+                            "  {}: {} (single value, auto-included)",
+                            dq.id, dq.branches[0].1
+                        );
+                    }
+                    branch_config.insert(dq.id.clone(), dq.branches.clone());
+                    continue;
+                }
+
+                // MultiSelect to de-select branches — reprompt until ≥1 selected
+                let labels: Vec<String> = dq.branches.iter().map(|(_, l)| l.clone()).collect();
+                let indices: Vec<usize> = (0..labels.len()).collect();
+
+                let selected = loop {
+                    let result = MultiSelect::new(
+                        &format!("{} [{}] — select branches to keep:", dq.id, dq.message),
+                        labels.clone(),
+                    )
+                    .with_default(&indices)
+                    .prompt()
+                    .map_err(inquire_err)?;
+
+                    if result.is_empty() {
+                        println!("  At least 1 branch is required. Please select again.");
+                        continue;
+                    }
+                    break result;
+                };
+
+                let kept: Vec<(Answer, String)> = dq
+                    .branches
+                    .iter()
+                    .filter(|(_, label)| selected.contains(label))
+                    .cloned()
+                    .collect();
+                println!(
+                    "  {}: keeping {} of {} branches",
+                    dq.id,
+                    kept.len(),
+                    dq.branches.len()
+                );
+                branch_config.insert(dq.id.clone(), kept);
+            }
+        }
+    }
+
+    // Safety net: if any question ended up with 0 branches after user interaction,
+    // fall back to the discovered defaults.
+    for dq in discovered {
+        if let Some(branches) = branch_config.get(&dq.id) {
+            if branches.is_empty() && !dq.branches.is_empty() {
+                println!(
+                    "  Warning: {} had 0 branches after modification, restoring defaults",
+                    dq.id
+                );
+                branch_config.insert(dq.id.clone(), dq.branches.clone());
+            }
+        }
+    }
+
+    Ok(branch_config)
+}
+
+/// Pass 2: Full combinatorial DFS with per-path state.
+///
+/// Uses `branch_config` to determine which branches to explore for each question.
+/// If a question ID is not found in `branch_config` (e.g. it was only reachable
+/// via a different deterministic_state in pass 1), falls back to
+/// `get_answer_branches()` with default seeds.
+#[allow(clippy::too_many_arguments)]
+fn full_dfs(
+    repo: &CyanHttpRepo,
+    state: ExplorationState,
+    branch_config: &HashMap<String, Vec<(Answer, String)>>,
     generated_tests: &mut Vec<GeneratedTestCase>,
     used_names: &mut HashMap<String, usize>,
     combination_counter: &AtomicUsize,
@@ -520,7 +891,13 @@ fn dfs_explore(
             updated_state.update_deterministic_state(qna.deterministic_state);
 
             let question_id = qna.question.id();
-            let branches = get_answer_branches(&qna.question, text_seed, password_seed, date_seed);
+
+            // Use branch_config if available, otherwise fall back to default branches
+            let branches = if let Some(configured) = branch_config.get(&question_id) {
+                configured.clone()
+            } else {
+                get_answer_branches(&qna.question, text_seed, password_seed, date_seed)
+            };
 
             for (answer, label) in branches {
                 if combination_counter.load(Ordering::Relaxed) >= max_combinations {
@@ -530,9 +907,10 @@ fn dfs_explore(
                 let mut branch_state = updated_state.clone();
                 branch_state.add_answer(question_id.clone(), answer, label);
 
-                dfs_explore(
+                full_dfs(
                     repo,
                     branch_state,
+                    branch_config,
                     generated_tests,
                     used_names,
                     combination_counter,

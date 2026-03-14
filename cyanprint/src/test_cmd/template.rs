@@ -202,23 +202,7 @@ pub fn run_template_tests(
     // This MUST happen before warmup so we don't remove the container we just started.
     println!("\nCleaning up stale sessions...");
     cleanup_stale_test_containers();
-
-    // Then call coordinator cleanup for volumes/images
-    let coord_client = CyanCoordinatorClient::new(coordinator_endpoint.to_string());
-    match coord_client.cleanup() {
-        Ok(res) => {
-            if let Some(ref err) = res.error {
-                if !err.is_empty() {
-                    println!("  Coordinator cleanup had errors (non-fatal): {err}");
-                }
-            } else {
-                println!("Stale sessions cleaned up");
-            }
-        }
-        Err(e) => {
-            println!("  Warning: Coordinator cleanup failed (non-fatal): {e}");
-        }
-    }
+    println!("Stale sessions cleaned up");
 
     // Warm up template
     println!("\nWarming up template...");
@@ -710,33 +694,9 @@ fn run_single_test_case(
 
     println!("  Output unpacked successfully");
 
-    // Run validate commands if specified
+    // Compare with expected snapshot first
     let mut failure_message: Option<String> = None;
 
-    if !test_case.validate.is_empty() {
-        println!("  Running validate commands...");
-        let validate_results =
-            run_validate_commands(test_output_dir.to_str().unwrap(), &test_case.validate)?;
-
-        let validate_failures: Vec<&ValidateResult> =
-            validate_results.iter().filter(|r| !r.passed).collect();
-
-        if !validate_failures.is_empty() {
-            let mut messages = Vec::new();
-            for result in &validate_failures {
-                messages.push(format!(
-                    "Command '{}' failed: {}",
-                    result.command, result.stderr
-                ));
-            }
-            failure_message = Some(format!(
-                "Validate commands failed:\n{}",
-                messages.join("\n")
-            ));
-        }
-    }
-
-    // Compare with expected snapshot if no validate failures
     if let ExpectedOutput::Snapshot { ref path } = test_case.expected {
         let expected_path = if path.starts_with('/') {
             // Absolute path
@@ -795,6 +755,35 @@ fn run_single_test_case(
             }
         } else {
             println!("  Snapshot matched");
+        }
+    }
+
+    // Run validate commands if specified (always run, regardless of snapshot result)
+    if !test_case.validate.is_empty() {
+        println!("  Running validate commands...");
+        let validate_results =
+            run_validate_commands(test_output_dir.to_str().unwrap(), &test_case.validate)?;
+
+        let validate_failures: Vec<&ValidateResult> =
+            validate_results.iter().filter(|r| !r.passed).collect();
+
+        if !validate_failures.is_empty() {
+            let mut messages = Vec::new();
+            for result in &validate_failures {
+                let exit_info = result
+                    .exit_code
+                    .map(|c| format!(" (exit code {c})"))
+                    .unwrap_or_default();
+                messages.push(format!(
+                    "Command '{}' failed{}: {}",
+                    result.command, exit_info, result.stderr
+                ));
+            }
+            let validate_msg = format!("Validate commands failed:\n{}", messages.join("\n"));
+            failure_message = Some(match failure_message {
+                Some(existing) => format!("{existing}\n{validate_msg}"),
+                None => validate_msg,
+            });
         }
     }
 

@@ -234,13 +234,15 @@ pub fn execute_try_command(
     let try_setup_req = if dev_mode {
         let dev_config = read_dev_config(cyan_yaml_path.to_string_lossy().to_string())?;
 
-        let blob_full_path = template_path_abs.join(&dev_config.blob_path);
-        if !blob_full_path.exists() {
-            return Err(Box::new(std::io::Error::new(
-                std::io::ErrorKind::NotFound,
-                format!("Blob path does not exist: {}", blob_full_path.display()),
-            )) as Box<dyn Error + Send>);
-        }
+        let blob_full_path = template_path_abs
+            .join(&dev_config.blob_path)
+            .canonicalize()
+            .map_err(|e| {
+                Box::new(std::io::Error::other(format!(
+                    "Failed to resolve blob path '{}': {e}",
+                    dev_config.blob_path
+                ))) as Box<dyn Error + Send>
+            })?;
 
         TrySetupReq {
             session_id: session_id.clone(),
