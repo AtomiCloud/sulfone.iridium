@@ -65,7 +65,7 @@ impl ExplorationState {
     }
 
     fn update_deterministic_state(&mut self, state: HashMap<String, String>) {
-        self.deterministic_state = state;
+        self.deterministic_state.extend(state);
     }
 }
 
@@ -1014,7 +1014,14 @@ fn generate_test_name(
         sanitized_labels.join(":").to_lowercase()
     };
 
-    let count = used_names.entry(base_name.clone()).or_insert(0);
+    // Compute truncated name first (without suffix adjustment) to key deduplication
+    let base_truncated_prelim = if base_name.len() > 80 {
+        truncated_with_ellipsis(&base_name, 80)
+    } else {
+        base_name.clone()
+    };
+
+    let count = used_names.entry(base_truncated_prelim.clone()).or_insert(0);
 
     let suffix_len = if *count > 0 {
         count.to_string().len() + 1

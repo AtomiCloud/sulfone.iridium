@@ -493,13 +493,15 @@ fn compare_strings(actual: &str, expected: &str) -> (bool, String, String) {
     // Normalize line endings (CRLF -> LF) and strip a single trailing newline.
     // We do NOT use trim() because that masks real whitespace regressions
     // in indentation-sensitive files (YAML, Markdown, etc.).
-    let actual_normalized = actual
-        .replace("\r\n", "\n")
-        .trim_end_matches('\n')
+    let actual_replaced = actual.replace("\r\n", "\n");
+    let actual_normalized = actual_replaced
+        .strip_suffix('\n')
+        .unwrap_or(&actual_replaced)
         .to_string();
-    let expected_normalized = expected
-        .replace("\r\n", "\n")
-        .trim_end_matches('\n')
+    let expected_replaced = expected.replace("\r\n", "\n");
+    let expected_normalized = expected_replaced
+        .strip_suffix('\n')
+        .unwrap_or(&expected_replaced)
         .to_string();
 
     if actual_normalized == expected_normalized {

@@ -417,31 +417,41 @@ pub fn cleanup_container(handle: &ContainerHandle) -> Result<(), Box<dyn Error +
 
     // Stop and remove container
     println!("  Removing container {}", handle.container_name);
-    runtime.block_on(async {
-        let _ = docker.stop_container(&handle.container_name, None).await;
+    let container_err = runtime
+        .block_on(async {
+            let _ = docker.stop_container(&handle.container_name, None).await;
 
-        docker
-            .remove_container(&handle.container_name, None)
-            .await
-            .map(|_| ())
-            .map_err(|e| Box::new(e) as Box<dyn Error + Send>)
-    })?;
+            docker
+                .remove_container(&handle.container_name, None)
+                .await
+                .map_err(|e| Box::new(e) as Box<dyn Error + Send>)
+        })
+        .err();
 
-    // Remove image
+    // Remove image (always attempt, even if container removal failed)
     println!("  Removing image {}", handle.image_ref);
-    runtime.block_on(async {
-        docker
-            .remove_image(
-                &handle.image_ref,
-                None::<bollard::query_parameters::RemoveImageOptions>,
-                None::<bollard::auth::DockerCredentials>,
-            )
-            .await
-            .map(|_| ())
-            .map_err(|e| Box::new(e) as Box<dyn Error + Send>)
-    })?;
+    let image_err = runtime
+        .block_on(async {
+            docker
+                .remove_image(
+                    &handle.image_ref,
+                    None::<bollard::query_parameters::RemoveImageOptions>,
+                    None::<bollard::auth::DockerCredentials>,
+                )
+                .await
+                .map_err(|e| Box::new(e) as Box<dyn Error + Send>)
+        })
+        .err();
 
-    Ok(())
+    // Return combined error if either step failed
+    match (container_err, image_err) {
+        (Some(e), None) => Err(e),
+        (None, Some(e)) => Err(e),
+        (Some(e1), Some(e2)) => Err(Box::new(std::io::Error::other(format!(
+            "Container cleanup failed: {e1}; Image cleanup failed: {e2}"
+        ))) as Box<dyn Error + Send>),
+        (None, None) => Ok(()),
+    }
 }
 
 #[cfg(test)]
