@@ -1050,7 +1050,10 @@ pub(crate) fn execute_and_unpack(
         .build()
         .map_err(|e| Box::new(e) as Box<dyn Error + Send>)?;
 
-    let endpoint = format!("{coordinator_endpoint}/executor/{session_id}");
+    let endpoint = format!(
+        "{}/executor/{session_id}",
+        coordinator_endpoint.trim_end_matches('/')
+    );
     let response = http_client
         .post(endpoint)
         .json(&build_req)

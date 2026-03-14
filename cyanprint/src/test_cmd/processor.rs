@@ -503,16 +503,16 @@ fn run_single_processor_test_case(
                         ));
                     }
 
-                    failure_message = Some(format!(
-                        "Snapshot comparison failed:\n{}",
-                        messages.join("\n")
-                    ));
-
                     // Update snapshots if requested
                     if update_snapshots {
                         println!("  Updating snapshot...");
                         copy_to_snapshot(&test_output_dir, &expected_path)?;
                         println!("  Snapshot updated");
+                    } else {
+                        failure_message = Some(format!(
+                            "Snapshot comparison failed:\n{}",
+                            messages.join("\n")
+                        ));
                     }
                 } else {
                     println!("  Snapshot matched");

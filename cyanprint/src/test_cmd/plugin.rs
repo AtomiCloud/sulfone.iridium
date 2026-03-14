@@ -417,11 +417,80 @@ fn run_single_plugin_test_case(
         }
     }
 
-    // If no API error, run validation and compare snapshots
+    // If no API error, compare snapshots first, then run validation
     if failure_message.is_none() {
         let test_output_dir = tmp_output_dir.join(&test_case.name);
 
-        // Run validate commands if specified
+        // Compare with expected snapshot first
+        if let ExpectedOutput::Snapshot { ref path } = test_case.expected {
+            let expected_path = if path.starts_with('/') {
+                // Absolute path
+                PathBuf::from(path)
+            } else {
+                // Relative to plugin directory
+                PathBuf::from(plugin_path).join(path)
+            };
+
+            if test_output_dir.exists() {
+                println!(
+                    "  Comparing with expected snapshot at {}...",
+                    expected_path.display()
+                );
+
+                let comparison = compare_directories(
+                    test_output_dir.to_str().unwrap(),
+                    expected_path.to_str().unwrap(),
+                )?;
+
+                if !comparison.matched {
+                    let mut messages = Vec::new();
+
+                    for file in &comparison.mismatched_files {
+                        messages.push(format!(
+                            "File '{}' mismatched: {}",
+                            file.path,
+                            file.details.as_deref().unwrap_or("unknown error")
+                        ));
+                    }
+
+                    for file in &comparison.extra_files {
+                        messages.push(format!("Extra file: {file}"));
+                    }
+
+                    for file in &comparison.missing_files {
+                        messages.push(format!("Missing file: {file}"));
+                    }
+
+                    if !comparison.skipped_binary_files.is_empty() {
+                        messages.push(format!(
+                            "Skipped {} binary files",
+                            comparison.skipped_binary_files.len()
+                        ));
+                    }
+
+                    // Update snapshots if requested
+                    if update_snapshots {
+                        println!("  Updating snapshot...");
+                        copy_to_snapshot(&test_output_dir, &expected_path)?;
+                        println!("  Snapshot updated");
+                    } else {
+                        failure_message = Some(format!(
+                            "Snapshot comparison failed:\n{}",
+                            messages.join("\n")
+                        ));
+                    }
+                } else {
+                    println!("  Snapshot matched");
+                }
+            } else {
+                failure_message = Some(format!(
+                    "Output directory not found: {}",
+                    test_output_dir.display()
+                ));
+            }
+        }
+
+        // Run validate commands if specified (always run, regardless of snapshot result)
         if !test_case.validate.is_empty() {
             println!("  Running validate commands...");
             if test_output_dir.exists() {
@@ -439,81 +508,12 @@ fn run_single_plugin_test_case(
                             result.command, result.stderr
                         ));
                     }
-                    failure_message = Some(format!(
-                        "Validate commands failed:\n{}",
-                        messages.join("\n")
-                    ));
-                }
-            }
-        }
-
-        // Compare with expected snapshot if no validate failures
-        if failure_message.is_none() {
-            if let ExpectedOutput::Snapshot { ref path } = test_case.expected {
-                let expected_path = if path.starts_with('/') {
-                    // Absolute path
-                    PathBuf::from(path)
-                } else {
-                    // Relative to plugin directory
-                    PathBuf::from(plugin_path).join(path)
-                };
-
-                if test_output_dir.exists() {
-                    println!(
-                        "  Comparing with expected snapshot at {}...",
-                        expected_path.display()
-                    );
-
-                    let comparison = compare_directories(
-                        test_output_dir.to_str().unwrap(),
-                        expected_path.to_str().unwrap(),
-                    )?;
-
-                    if !comparison.matched {
-                        let mut messages = Vec::new();
-
-                        for file in &comparison.mismatched_files {
-                            messages.push(format!(
-                                "File '{}' mismatched: {}",
-                                file.path,
-                                file.details.as_deref().unwrap_or("unknown error")
-                            ));
-                        }
-
-                        for file in &comparison.extra_files {
-                            messages.push(format!("Extra file: {file}"));
-                        }
-
-                        for file in &comparison.missing_files {
-                            messages.push(format!("Missing file: {file}"));
-                        }
-
-                        if !comparison.skipped_binary_files.is_empty() {
-                            messages.push(format!(
-                                "Skipped {} binary files",
-                                comparison.skipped_binary_files.len()
-                            ));
-                        }
-
-                        // Update snapshots if requested
-                        if update_snapshots {
-                            println!("  Updating snapshot...");
-                            copy_to_snapshot(&test_output_dir, &expected_path)?;
-                            println!("  Snapshot updated");
-                        } else {
-                            failure_message = Some(format!(
-                                "Snapshot comparison failed:\n{}",
-                                messages.join("\n")
-                            ));
-                        }
-                    } else {
-                        println!("  Snapshot matched");
-                    }
-                } else {
-                    failure_message = Some(format!(
-                        "Output directory not found: {}",
-                        test_output_dir.display()
-                    ));
+                    let validate_msg =
+                        format!("Validate commands failed:\n{}", messages.join("\n"));
+                    failure_message = Some(match failure_message {
+                        Some(existing) => format!("{existing}\n{validate_msg}"),
+                        None => validate_msg,
+                    });
                 }
             }
         }
