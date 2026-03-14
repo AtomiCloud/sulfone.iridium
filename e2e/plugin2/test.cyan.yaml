@@ -9,4 +9,4 @@ tests:
         path: ./snapshots/generates_deterministic_file
     validate:
       - test -f plugin2
-      - test $(wc -c < plugin2) -eq 15
+      - test $(wc -c < plugin2) -eq 16

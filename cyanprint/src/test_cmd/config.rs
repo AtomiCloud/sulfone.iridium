@@ -20,9 +20,12 @@ use serde::{Deserialize, Serialize};
 /// tests:
 ///   - name: basic_template
 ///     expected:
-///       path: ./snapshots/basic_template
+///       type: snapshot
+///       value:
+///         path: ./snapshots/basic_template
 ///     answer_state:
-///       - type: String
+///       question_id_1:
+///         type: String
 ///         value: "my-project"
 ///     deterministic_state:
 ///       projectName: "my-project"

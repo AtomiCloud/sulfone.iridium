@@ -9,6 +9,7 @@ pub struct Semaphore {
 
 impl Semaphore {
     pub fn new(permits: usize) -> Self {
+        assert!(permits > 0, "Semaphore requires at least one permit");
         Semaphore {
             permits: Arc::new(Mutex::new(permits)),
             condvar: Arc::new(Condvar::new()),
@@ -34,5 +35,16 @@ impl<'a> Drop for SemaphorePermit<'a> {
         let mut available = self.semaphore.permits.lock().unwrap();
         *available += 1;
         self.semaphore.condvar.notify_one();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    #[should_panic(expected = "Semaphore requires at least one permit")]
+    fn test_semaphore_zero_permits_panics() {
+        Semaphore::new(0);
     }
 }

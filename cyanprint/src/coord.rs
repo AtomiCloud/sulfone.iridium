@@ -23,7 +23,17 @@ pub async fn stop_coordinator(docker: Docker, port: u16) -> Result<(), Box<dyn E
     let cleanup_result = tokio::task::spawn_blocking(move || client.cleanup()).await;
     match cleanup_result {
         Ok(Ok(res)) => {
-            println!("✅ Cleanup completed");
+            // Check for error/non-ok status before claiming success
+            let has_error = res.error.as_deref().map(|e| !e.is_empty()).unwrap_or(false);
+            let is_ok_status = res.status.as_deref() == Some("ok");
+            if has_error || !is_ok_status {
+                eprintln!(
+                    "⚠️ Cleanup returned non-ok status: {:?}, error: {:?}",
+                    res.status, res.error
+                );
+            } else {
+                println!("✅ Cleanup completed");
+            }
             if let Some(ref containers) = res.containers_removed {
                 if !containers.is_empty() {
                     println!("   Removed containers: {containers:?}");

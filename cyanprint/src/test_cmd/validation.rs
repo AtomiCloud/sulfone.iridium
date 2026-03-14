@@ -322,7 +322,12 @@ pub fn compare_directories(
                 let expected_content = fs::read_to_string(&expected_file)
                     .map_err(|e| Box::new(e) as Box<dyn Error + Send>)?;
 
-                let comparison = compare_strings(&actual_content, &expected_content);
+                // Dispatch by file extension - use JSON comparison for .json files
+                let comparison = if path.ends_with(".json") {
+                    compare_json(&actual_content, &expected_content)
+                } else {
+                    compare_strings(&actual_content, &expected_content)
+                };
 
                 if comparison.0 {
                     matched_files.push(path.clone());
@@ -447,7 +452,6 @@ fn is_binary_file(path: &Path) -> bool {
 /// Compare two JSON strings for deep equality.
 ///
 /// Returns (matched, mismatch_type, details).
-#[cfg(test)]
 fn compare_json(actual: &str, expected: &str) -> (bool, String, String) {
     let actual_value: serde_json::Value = match serde_json::from_str(actual) {
         Ok(v) => v,
