@@ -433,6 +433,11 @@ pub fn read_build_config(config_path: String) -> Result<BuildConfig, Box<dyn Err
             as Box<dyn Error + Send>
     })?;
 
+    // Substitute environment variables before validation
+    let build_config = build_config
+        .substitute_env()
+        .map_err(|e| Box::new(e) as Box<dyn Error + Send>)?;
+
     build_config_mapper(&build_config)
 }
 
@@ -852,6 +857,170 @@ mod tests {
         assert_eq!(config.template_url, "http://localhost:8080");
         assert_eq!(config.blob_path, "./blob");
     }
+
+    // ===== Environment Variable Substitution Tests =====
+
+    #[test]
+    fn test_read_build_config_with_env_vars() {
+        // Set environment variables
+        std::env::set_var("CYAN_ITEST_REGISTRY", "ghcr.io/atomicloud");
+        std::env::set_var("CYAN_ITEST_IMAGE", "my-template");
+
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+        let config_path = temp_dir.path().join("cyan.yaml");
+        let mut config_file = std::fs::File::create(&config_path).expect("Failed to create config");
+        config_file
+            .write_all(
+                r#"build:
+  registry: ${CYAN_ITEST_REGISTRY}
+  images:
+    template:
+      image: ${CYAN_ITEST_IMAGE}
+      dockerfile: Dockerfile
+      context: .
+"#
+                .as_bytes(),
+            )
+            .expect("Failed to write config");
+
+        let result = read_build_config(config_path.to_string_lossy().to_string());
+        assert!(result.is_ok(), "Should succeed with env var substitution");
+
+        let config = result.unwrap();
+        assert_eq!(config.registry, Some("ghcr.io/atomicloud".to_string()));
+        let images = config.images.unwrap();
+        let template = images.template.unwrap();
+        assert_eq!(template.image, Some("my-template".to_string()));
+
+        // Cleanup
+        std::env::remove_var("CYAN_ITEST_REGISTRY");
+        std::env::remove_var("CYAN_ITEST_IMAGE");
+    }
+
+    #[test]
+    fn test_read_build_config_env_var_with_default() {
+        std::env::remove_var("CYAN_ITEST_MISSING_REGISTRY");
+
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+        let config_path = temp_dir.path().join("cyan.yaml");
+        let mut config_file = std::fs::File::create(&config_path).expect("Failed to create config");
+        config_file
+            .write_all(
+                r#"build:
+  registry: ${CYAN_ITEST_MISSING_REGISTRY:-ghcr.io/default}
+  images:
+    template:
+      image: my-template
+      dockerfile: Dockerfile
+      context: .
+"#
+                .as_bytes(),
+            )
+            .expect("Failed to write config");
+
+        let result = read_build_config(config_path.to_string_lossy().to_string());
+        assert!(result.is_ok(), "Should use default value");
+
+        let config = result.unwrap();
+        assert_eq!(config.registry, Some("ghcr.io/default".to_string()));
+    }
+
+    #[test]
+    fn test_read_build_config_missing_env_var() {
+        std::env::remove_var("CYAN_ITEST_UNDEF_REGISTRY");
+
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+        let config_path = temp_dir.path().join("cyan.yaml");
+        let mut config_file = std::fs::File::create(&config_path).expect("Failed to create config");
+        config_file
+            .write_all(
+                r#"build:
+  registry: ${CYAN_ITEST_UNDEF_REGISTRY}
+  images:
+    template:
+      image: my-template
+      dockerfile: Dockerfile
+      context: .
+"#
+                .as_bytes(),
+            )
+            .expect("Failed to write config");
+
+        let result = read_build_config(config_path.to_string_lossy().to_string());
+        assert!(result.is_err(), "Should fail for missing env var");
+
+        let err = result.unwrap_err();
+        let err_msg = err.to_string();
+        assert!(
+            err_msg.contains("CYAN_ITEST_UNDEF_REGISTRY"),
+            "Error should mention the missing variable, got: {err_msg}"
+        );
+    }
+
+    #[test]
+    fn test_read_dev_config_with_env_vars() {
+        std::env::set_var("CYAN_ITEST_TEMPLATE_URL", "http://localhost:9999");
+        std::env::set_var("CYAN_ITEST_BLOB_PATH", "/custom/blob");
+
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+        let config_path = temp_dir.path().join("cyan.yaml");
+        let mut config_file = std::fs::File::create(&config_path).expect("Failed to create config");
+        config_file
+            .write_all(
+                r#"dev:
+  template_url: ${CYAN_ITEST_TEMPLATE_URL}
+  blob_path: ${CYAN_ITEST_BLOB_PATH}
+"#
+                .as_bytes(),
+            )
+            .expect("Failed to write config");
+
+        let result = read_dev_config(config_path.to_string_lossy().to_string());
+        assert!(result.is_ok(), "Should succeed with env var substitution");
+
+        let config = result.unwrap();
+        assert_eq!(config.template_url, "http://localhost:9999");
+        assert_eq!(config.blob_path, "/custom/blob");
+
+        // Cleanup
+        std::env::remove_var("CYAN_ITEST_TEMPLATE_URL");
+        std::env::remove_var("CYAN_ITEST_BLOB_PATH");
+    }
+
+    #[test]
+    fn test_read_dev_config_env_var_empty_after_substitution() {
+        std::env::set_var("CYAN_ITEST_EMPTY_URL", "");
+
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+        let config_path = temp_dir.path().join("cyan.yaml");
+        let mut config_file = std::fs::File::create(&config_path).expect("Failed to create config");
+        config_file
+            .write_all(
+                r#"dev:
+  template_url: ${CYAN_ITEST_EMPTY_URL}
+  blob_path: ./blob
+"#
+                .as_bytes(),
+            )
+            .expect("Failed to write config");
+
+        let result = read_dev_config(config_path.to_string_lossy().to_string());
+        assert!(
+            result.is_err(),
+            "Should fail for empty env var without default"
+        );
+
+        let err = result.unwrap_err();
+        let err_msg = err.to_string();
+        // When an env var is empty without a default, the substitution itself fails
+        assert!(
+            err_msg.contains("CYAN_ITEST_EMPTY_URL"),
+            "Error should mention the environment variable, got: {err_msg}"
+        );
+
+        // Cleanup
+        std::env::remove_var("CYAN_ITEST_EMPTY_URL");
+    }
 }
 
 /// File configuration wrapper for dev section
@@ -871,6 +1040,11 @@ pub fn read_dev_config(config_path: String) -> Result<DevConfig, Box<dyn Error +
     let dev_config = file_config.dev.ok_or_else(|| {
         Box::new(ParsingError::MissingDevSection(Some(config_path))) as Box<dyn Error + Send>
     })?;
+
+    // Substitute environment variables before validation
+    let dev_config = dev_config
+        .substitute_env()
+        .map_err(|e| Box::new(e) as Box<dyn Error + Send>)?;
 
     let mut dev_config = dev_config;
     dev_config.template_url = dev_config.template_url.trim().to_string();

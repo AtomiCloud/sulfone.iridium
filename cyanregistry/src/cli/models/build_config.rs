@@ -1,3 +1,4 @@
+use crate::cli::env_subst::{EnvSubstError, substitute_env_vars};
 use serde::{Deserialize, Serialize};
 
 /// Build section configuration from cyan.yaml
@@ -54,6 +55,56 @@ pub struct ImageConfig {
 
     /// Build context directory
     pub context: String,
+}
+
+impl BuildConfig {
+    /// Substitutes environment variables in all string fields.
+    ///
+    /// Walks through `registry`, `platforms`, and each `ImageConfig`'s
+    /// `image`, `dockerfile`, and `context` fields.
+    ///
+    /// # Errors
+    ///
+    /// Returns `EnvSubstError` if any required environment variable is missing
+    /// and no default value is provided.
+    pub fn substitute_env(self) -> Result<Self, EnvSubstError> {
+        Ok(BuildConfig {
+            registry: self.registry.map(|r| substitute_env_vars(&r)).transpose()?,
+            platforms: self
+                .platforms
+                .map(|p| {
+                    p.into_iter()
+                        .map(|s| substitute_env_vars(&s))
+                        .collect::<Result<Vec<_>, _>>()
+                })
+                .transpose()?,
+            images: self.images.map(|i| i.substitute_env()).transpose()?,
+        })
+    }
+}
+
+impl ImagesConfig {
+    /// Substitutes environment variables in all nested ImageConfig fields.
+    pub fn substitute_env(self) -> Result<Self, EnvSubstError> {
+        Ok(ImagesConfig {
+            template: self.template.map(|t| t.substitute_env()).transpose()?,
+            blob: self.blob.map(|b| b.substitute_env()).transpose()?,
+            processor: self.processor.map(|p| p.substitute_env()).transpose()?,
+            plugin: self.plugin.map(|p| p.substitute_env()).transpose()?,
+            resolver: self.resolver.map(|r| r.substitute_env()).transpose()?,
+        })
+    }
+}
+
+impl ImageConfig {
+    /// Substitutes environment variables in all string fields.
+    pub fn substitute_env(self) -> Result<Self, EnvSubstError> {
+        Ok(ImageConfig {
+            image: self.image.map(|i| substitute_env_vars(&i)).transpose()?,
+            dockerfile: substitute_env_vars(&self.dockerfile)?,
+            context: substitute_env_vars(&self.context)?,
+        })
+    }
 }
 
 #[cfg(test)]
