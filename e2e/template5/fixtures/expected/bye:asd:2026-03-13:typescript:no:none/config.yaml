@@ -1,0 +1,6 @@
+projectName: bye
+apiKey: asd
+startDate: 2026-03-13
+language: TypeScript
+useDocker: false
+features:

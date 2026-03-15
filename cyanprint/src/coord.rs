@@ -23,15 +23,34 @@ pub async fn stop_coordinator(docker: Docker, port: u16) -> Result<(), Box<dyn E
     let cleanup_result = tokio::task::spawn_blocking(move || client.cleanup()).await;
     match cleanup_result {
         Ok(Ok(res)) => {
-            println!("✅ Cleanup completed");
-            if !res.removed_containers.is_empty() {
-                println!("   Removed containers: {:?}", res.removed_containers);
+            // Check for error/non-ok status before claiming success
+            let has_error = res.error.as_deref().map(|e| !e.is_empty()).unwrap_or(false);
+            let is_ok_status = res
+                .status
+                .as_deref()
+                .is_some_and(|s| s.eq_ignore_ascii_case("ok"));
+            if has_error || !is_ok_status {
+                eprintln!(
+                    "⚠️ Cleanup returned non-ok status: {:?}, error: {:?}",
+                    res.status, res.error
+                );
+            } else {
+                println!("✅ Cleanup completed");
             }
-            if !res.removed_images.is_empty() {
-                println!("   Removed images: {:?}", res.removed_images);
+            if let Some(ref containers) = res.containers_removed {
+                if !containers.is_empty() {
+                    println!("   Removed containers: {containers:?}");
+                }
             }
-            if !res.removed_volumes.is_empty() {
-                println!("   Removed volumes: {:?}", res.removed_volumes);
+            if let Some(ref images) = res.images_removed {
+                if !images.is_empty() {
+                    println!("   Removed images: {images:?}");
+                }
+            }
+            if let Some(ref volumes) = res.volumes_removed {
+                if !volumes.is_empty() {
+                    println!("   Removed volumes: {volumes:?}");
+                }
             }
         }
         Ok(Err(e)) => {

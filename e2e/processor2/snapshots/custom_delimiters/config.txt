@@ -1,0 +1,3 @@
+Project: custom_test
+Value: 42
+This uses custom delimiters.

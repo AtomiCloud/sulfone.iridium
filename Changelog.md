@@ -1,3 +1,26 @@
+## [2.14.0](https://github.com/AtomiCloud/sulfone.iridium/compare/v2.13.0...v2.14.0) (2026-03-15)
+
+
+### 📜 Documentation 📜
+
+* add docs reqs and critical fixes to plans ([09745f0](https://github.com/AtomiCloud/sulfone.iridium/commit/09745f0530c191edc3ed40d644a8d7e6f9853ce6))
+* add implementation plans for CU-86ewvp51k v1 ([a523d0b](https://github.com/AtomiCloud/sulfone.iridium/commit/a523d0b36ce5f0126ac9058716bf74e757ddbc0b))
+* add task spec for CU-86ewvp51k [Ir] Test Command ([744d66a](https://github.com/AtomiCloud/sulfone.iridium/commit/744d66a8e6980aa0f7cef96c667d7d9746a2e5fa))
+
+
+### ✨ Features ✨
+
+* **cyanprint:** add processor/plugin/resolver tests [CU-86ewvp51k] ([e7ddd2c](https://github.com/AtomiCloud/sulfone.iridium/commit/e7ddd2c2f4fda28fac1a82a9804fffd1203599ab))
+* **cyanprint:** add test init tree walk [CU-86ewvp51k] ([a440cbe](https://github.com/AtomiCloud/sulfone.iridium/commit/a440cbee53b2208c00d53ec8ab93cdcbf35cee02))
+* **cyanprint:** add test template command [CU-86ewvp51k] ([99b3ba8](https://github.com/AtomiCloud/sulfone.iridium/commit/99b3ba8d7ca12ba1a84a17a894dcd0eecae7ed76))
+
+
+### 🐛 Bug Fixes 🐛
+
+* address all CodeRabbit review findings [CU-86ewvp51k] ([329a624](https://github.com/AtomiCloud/sulfone.iridium/commit/329a624eacbcb212ae51e6f4debdc038cec1a6cb))
+* address CodeRabbit review round 6 findings [CU-86ewvp51k] ([cf1b1fe](https://github.com/AtomiCloud/sulfone.iridium/commit/cf1b1febbb1aa158a328954bf178b25bb49ff0b4))
+* address prereview findings [CU-86ewvp51k] ([be1f64e](https://github.com/AtomiCloud/sulfone.iridium/commit/be1f64e10c366d18c96d2a649bf88d3de03fa099))
+
 ## [2.13.0](https://github.com/AtomiCloud/sulfone.iridium/compare/v2.12.0...v2.13.0) (2026-03-12)
 
 

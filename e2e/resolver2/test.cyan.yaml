@@ -1,0 +1,52 @@
+# Test configuration for resolver2
+# Resolver2 is a line merger that joins file contents with newlines
+# It sorts by layer index and template name before merging
+
+tests:
+  - name: basic_line_merge
+    expected:
+      type: snapshot
+      value:
+        path: ./snapshots/basic_line_merge
+    config: {}
+    resolver_inputs:
+      - path: ./inputs/basic_line_merge/template-a
+        origin:
+          template: template-a
+          layer: 0
+      - path: ./inputs/basic_line_merge/template-b
+        origin:
+          template: template-b
+          layer: 1
+
+  - name: multiple_files_same_path
+    expected:
+      type: snapshot
+      value:
+        path: ./snapshots/multiple_files_same_path
+    config: {}
+    resolver_inputs:
+      - path: ./inputs/multiple_files_same_path/template-a
+        origin:
+          template: template-a
+          layer: 1
+      - path: ./inputs/multiple_files_same_path/template-b
+        origin:
+          template: template-b
+          layer: 0
+      - path: ./inputs/multiple_files_same_path/template-c
+        origin:
+          template: template-c
+          layer: 2
+
+  - name: single_file
+    expected:
+      type: snapshot
+      value:
+        path: ./snapshots/single_file
+    config: {}
+    resolver_inputs:
+      - path: ./inputs/single_file/solo-template
+        origin:
+          template: solo-template
+          layer: 0

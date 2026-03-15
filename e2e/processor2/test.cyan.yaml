@@ -1,0 +1,42 @@
+# Test configuration for processor2
+# Processor2 is a template variable replacement processor using Eta templating
+# It replaces var__...__ variables with values from config
+
+tests:
+  - name: basic_variable_replacement
+    expected:
+      type: snapshot
+      value:
+        path: ./snapshots/basic_variable_replacement
+    input: ./inputs/basic
+    config:
+      vars:
+        name: 'World'
+        processor: 'processor2'
+
+  - name: multiple_variables
+    expected:
+      type: snapshot
+      value:
+        path: ./snapshots/multiple_variables
+    input: ./inputs/multiple
+    config:
+      vars:
+        name: 'test-project'
+        version: '1.0.0'
+        description: 'A test project'
+        author: 'Test Author'
+
+  - name: custom_delimiters
+    expected:
+      type: snapshot
+      value:
+        path: ./snapshots/custom_delimiters
+    input: ./inputs/custom
+    config:
+      vars:
+        name: 'custom_test'
+        value: '42'
+      parser:
+        varSyntax:
+          - ['[[', ']]']
