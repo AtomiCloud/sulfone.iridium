@@ -55,7 +55,7 @@ pub fn is_git_dirty(path: &Path) -> Result<bool, GitError> {
     if !output.status.success() {
         // Not a git repository or git error - return specific error
         let stderr = String::from_utf8_lossy(&output.stderr);
-        if stderr.contains("not a git repository") || stderr.contains("not a git repository") {
+        if stderr.contains("not a git repository") {
             return Err(GitError::NotAGitRepository);
         }
         return Err(GitError::CommandFailed(stderr.to_string()));
@@ -100,7 +100,7 @@ mod tests {
         match result {
             Ok(is_dirty) => {
                 // Test passed - we got a boolean result
-                assert!(is_dirty == true || is_dirty == false);
+                assert!(is_dirty || !is_dirty);
             }
             Err(GitError::NotAGitRepository) => {
                 // Also valid if we're not in a git repo

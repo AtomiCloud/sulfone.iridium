@@ -1,0 +1,6 @@
+projectName: var__projectName__
+apiKey: var__apiKey__
+startDate: var__startDate__
+language: var__language__
+useDocker: var__useDocker__
+features: var__features__

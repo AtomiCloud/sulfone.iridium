@@ -1,0 +1,30 @@
+username: cyane2e
+name: template5
+description: Template5 - All Question Types
+project: https://google.com
+source: https://google.com
+email: cyane2e@atomi.cloud
+tags: []
+readme: cyan/README.MD
+processors: ['cyane2e/processor2']
+plugins: ['cyane2e/plugin2']
+templates: []
+resolvers: []
+
+dev:
+  template_url: http://localhost:5550
+  blob_path: .
+
+build:
+  registry: kirinnee
+  platforms:
+    - linux/amd64
+  images:
+    template:
+      image: template5
+      dockerfile: cyan/Dockerfile
+      context: ./cyan
+    blob:
+      image: blob5
+      dockerfile: blob.Dockerfile
+      context: .

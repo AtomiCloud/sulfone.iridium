@@ -222,8 +222,8 @@ pub fn execute_try_command(
         build_result.as_ref(),
     )?;
 
-    // Step 9: Setup try session with Boron
-    println!("🔧 Setting up try session with Boron...");
+    // Step 9: Setup try environment with Boron (blob volume, images, resolvers)
+    println!("🔧 Setting up try environment with Boron...");
     let coord_client = CyanCoordinatorClient::new(coordinator_endpoint.clone());
 
     // Use template image for image_ref in normal mode (not blob image)
@@ -234,13 +234,15 @@ pub fn execute_try_command(
     let try_setup_req = if dev_mode {
         let dev_config = read_dev_config(cyan_yaml_path.to_string_lossy().to_string())?;
 
-        let blob_full_path = template_path_abs.join(&dev_config.blob_path);
-        if !blob_full_path.exists() {
-            return Err(Box::new(std::io::Error::new(
-                std::io::ErrorKind::NotFound,
-                format!("Blob path does not exist: {}", blob_full_path.display()),
-            )) as Box<dyn Error + Send>);
-        }
+        let blob_full_path = template_path_abs
+            .join(&dev_config.blob_path)
+            .canonicalize()
+            .map_err(|e| {
+                Box::new(std::io::Error::other(format!(
+                    "Failed to resolve blob path '{}': {e}",
+                    dev_config.blob_path
+                ))) as Box<dyn Error + Send>
+            })?;
 
         TrySetupReq {
             session_id: session_id.clone(),
@@ -272,7 +274,7 @@ pub fn execute_try_command(
         }
     };
 
-    let try_setup_res = coord_client.try_setup(&try_setup_req)?;
+    coord_client.try_setup(&try_setup_req)?;
 
     // Step 10: Start template container (normal mode only)
     let template_container_name = if let Some(port) = allocated_port {
@@ -292,6 +294,7 @@ pub fn execute_try_command(
             container_image_ref,
             port,
             &coordinator_endpoint,
+            "cyanprint.dev",
         )?;
 
         health_check_template_container(port, 60, 1)?;
@@ -308,21 +311,14 @@ pub fn execute_try_command(
     let (cyan, answers, states) =
         run_qa_loop(dev_mode, &template_config, &cyan_yaml_path, allocated_port)?;
 
-    // Step 12: Bootstrap executor with StartExecutorReq
-    println!("🚀 Bootstrapping executor...");
-    // Use session_volume from try_setup_res for write_vol_reference
-    let start_executor_req = StartExecutorReq {
-        session_id: session_id.clone(),
-        template: synthetic_template.clone(),
-        write_vol_reference: cyancoordinator::models::req::DockerVolumeReferenceReq {
-            cyan_id: try_setup_res.session_volume.cyan_id,
-            session_id: try_setup_res.session_volume.session_id,
-        },
-        merger: MergerReq {
-            merger_id: merger_id.clone(),
-        },
-    };
+    // Step 12: Warm executor session (creates session volume)
+    println!("🔧 Warming executor session...");
+    let warm_res = coord_client.warn_executor(session_id.clone(), &synthetic_template)?;
 
+    // Step 13: Bootstrap executor with StartExecutorReq
+    println!("🚀 Bootstrapping executor...");
+    let start_executor_req =
+        build_bootstrap_req(&session_id, &synthetic_template, &warm_res, &merger_id);
     coord_client.bootstrap(&start_executor_req)?;
 
     // Step 13: Execute and stream output using BuildReq with Cyan from Q&A
@@ -360,7 +356,7 @@ pub fn execute_try_command(
     })
 }
 
-fn split_image_ref(image_ref: &str) -> (String, String) {
+pub(crate) fn split_image_ref(image_ref: &str) -> (String, String) {
     if let Some(last_colon) = image_ref.rfind(':') {
         let potential_tag = &image_ref[last_colon + 1..];
         // Check if the colon is part of host:port (contains a slash in the potential tag)
@@ -378,7 +374,10 @@ fn split_image_ref(image_ref: &str) -> (String, String) {
     }
 }
 
-fn pre_flight_validation(template_path: &str, dev_mode: bool) -> Result<(), Box<dyn Error + Send>> {
+pub(crate) fn pre_flight_validation(
+    template_path: &str,
+    dev_mode: bool,
+) -> Result<(), Box<dyn Error + Send>> {
     println!("🔍 Running pre-flight checks...");
     BuildxBuilder::check_docker().map_err(|e| {
         Box::new(std::io::Error::other(format!("Docker check failed: {e}")))
@@ -445,7 +444,7 @@ fn pre_flight_validation(template_path: &str, dev_mode: bool) -> Result<(), Box<
     Ok(())
 }
 
-fn ensure_daemon_running(
+pub(crate) fn ensure_daemon_running(
     docker: &Docker,
     disable_autostart: bool,
     coordinator_endpoint: &str,
@@ -535,13 +534,11 @@ fn health_check_daemon(coordinator_endpoint: &str) -> Result<(), Box<dyn Error +
         std::thread::sleep(std::time::Duration::from_secs(1));
     }
 
-    Err(Box::new(std::io::Error::other(
-        "Daemon health check failed after 60 attempts",
-    )) as Box<dyn Error + Send>)
+    unreachable!("Loop should have returned by attempt 60")
 }
 
 #[derive(Debug, Clone, Default)]
-struct PinnedDependencies {
+pub(crate) struct PinnedDependencies {
     pub processors: Vec<ProcessorVersionPrincipalRes>,
     pub plugins: Vec<PluginVersionPrincipalRes>,
     pub templates: Vec<TemplateVersionPrincipalRes>,
@@ -554,7 +551,7 @@ impl PinnedDependencies {
     }
 }
 
-fn resolve_and_pin_dependencies(
+pub(crate) fn resolve_and_pin_dependencies(
     registry: &CyanRegistryClient,
     config: &CyanTemplateFileConfig,
 ) -> Result<PinnedDependencies, Box<dyn Error + Send>> {
@@ -653,7 +650,7 @@ fn resolve_and_pin_dependencies(
     })
 }
 
-fn build_synthetic_template(
+pub(crate) fn build_synthetic_template(
     local_template_id: &str,
     config: &CyanTemplateFileConfig,
     pinned: &PinnedDependencies,
@@ -706,7 +703,7 @@ fn build_synthetic_template(
     })
 }
 
-fn build_image(
+pub(crate) fn build_image(
     builder: &BuildxBuilder,
     registry: &str,
     image_name: &str,
@@ -728,12 +725,13 @@ fn build_image(
     })
 }
 
-fn start_template_container(
+pub(crate) fn start_template_container(
     docker: &Docker,
     container_name: &str,
     image_ref: &str,
     host_port: u16,
     _coordinator_endpoint: &str,
+    label: &str,
 ) -> Result<(), Box<dyn Error + Send>> {
     let mut port_bindings = HashMap::new();
     port_bindings.insert(
@@ -760,7 +758,7 @@ fn start_template_container(
         host_config: Some(host_config),
         labels: Some({
             let mut labels = HashMap::new();
-            labels.insert("cyanprint.dev".to_string(), "true".to_string());
+            labels.insert(label.to_string(), "true".to_string());
             labels
         }),
         exposed_ports: Some(vec!["5550/tcp".to_string()]),
@@ -792,7 +790,7 @@ fn start_template_container(
     })
 }
 
-fn health_check_template_container(
+pub(crate) fn health_check_template_container(
     port: u16,
     max_attempts: u32,
     interval_secs: u64,
@@ -834,7 +832,7 @@ fn health_check_template_container(
         std::thread::sleep(std::time::Duration::from_secs(interval_secs));
     }
 
-    Ok(())
+    unreachable!("Loop should have returned by max_attempts")
 }
 
 fn run_qa_loop(
@@ -1010,52 +1008,57 @@ fn verify_qa_applied_to_configs(
     Ok(())
 }
 
-#[allow(clippy::too_many_arguments)]
-fn execute_and_stream_output(
-    coord_client: &CyanCoordinatorClient,
+/// Build a StartExecutorReq from executor warm response data.
+pub(crate) fn build_bootstrap_req(
+    session_id: &str,
+    template: &TemplateVersionRes,
+    warm_res: &cyancoordinator::models::res::ExecutorWarmRes,
+    merger_id: &str,
+) -> StartExecutorReq {
+    StartExecutorReq {
+        session_id: session_id.to_string(),
+        template: template.clone(),
+        write_vol_reference: cyancoordinator::models::req::DockerVolumeReferenceReq {
+            cyan_id: warm_res.vol_ref.cyan_id.clone(),
+            session_id: warm_res.vol_ref.session_id.clone(),
+        },
+        merger: MergerReq {
+            merger_id: merger_id.to_string(),
+        },
+    }
+}
+
+/// Execute template via coordinator and unpack tar.gz output to a directory.
+pub(crate) fn execute_and_unpack(
+    coordinator_endpoint: &str,
     session_id: &str,
     output_path: &str,
     template: &TemplateVersionRes,
     cyan: Cyan,
-    answers: HashMap<String, Answer>,
-    states: HashMap<String, String>,
-    merger_id: String,
+    merger_id: &str,
 ) -> Result<(), Box<dyn Error + Send>> {
-    // Verify that the Cyan object's configs were populated with Q&A answers
-    verify_qa_applied_to_configs(&cyan, &answers, &states)?;
-
     let cyan_req = cyan_req_mapper(cyan);
-
-    println!(
-        "  Q&A data collected: {} answers and {} deterministic states",
-        answers.len(),
-        states.len()
-    );
-
-    println!(
-        "  Execution payload contains {} processors and {} plugins",
-        cyan_req.processors.len(),
-        cyan_req.plugins.len()
-    );
 
     let build_req = BuildReq {
         template: template.clone(),
         cyan: cyan_req,
-        merger_id,
+        merger_id: merger_id.to_string(),
     };
 
-    let host = coord_client.endpoint.clone();
-    let endpoint = format!("{host}/executor/{session_id}");
     let http_client = reqwest::blocking::Client::builder()
         .timeout(std::time::Duration::from_secs(600))
         .build()
         .map_err(|e| Box::new(e) as Box<dyn Error + Send>)?;
 
+    let endpoint = format!(
+        "{}/executor/{session_id}",
+        coordinator_endpoint.trim_end_matches('/')
+    );
     let response = http_client
         .post(endpoint)
         .json(&build_req)
         .send()
-        .map_err(|x| Box::new(x) as Box<dyn Error + Send>)?;
+        .map_err(|e| Box::new(e) as Box<dyn Error + Send>)?;
 
     if !response.status().is_success() {
         let err_text = response
@@ -1066,8 +1069,6 @@ fn execute_and_stream_output(
         ))) as Box<dyn Error + Send>);
     }
 
-    // Unpack tar.gz to output directory (stream directly from response)
-    println!("  Unpacking output to {output_path}...");
     fs::create_dir_all(output_path).map_err(|e| Box::new(e) as Box<dyn Error + Send>)?;
 
     let tar = flate2::read::GzDecoder::new(response);
@@ -1075,6 +1076,38 @@ fn execute_and_stream_output(
     archive
         .unpack(output_path)
         .map_err(|e| Box::new(e) as Box<dyn Error + Send>)?;
+
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn execute_and_stream_output(
+    coord_client: &CyanCoordinatorClient,
+    session_id: &str,
+    output_path: &str,
+    template: &TemplateVersionRes,
+    cyan: Cyan,
+    answers: HashMap<String, Answer>,
+    states: HashMap<String, String>,
+    merger_id: String,
+) -> Result<(), Box<dyn Error + Send>> {
+    verify_qa_applied_to_configs(&cyan, &answers, &states)?;
+
+    println!(
+        "  Q&A data collected: {} answers and {} deterministic states",
+        answers.len(),
+        states.len()
+    );
+
+    println!("  Unpacking output to {output_path}...");
+    execute_and_unpack(
+        &coord_client.endpoint,
+        session_id,
+        output_path,
+        template,
+        cyan,
+        &merger_id,
+    )?;
 
     println!("  ✓ Output unpacked successfully");
 

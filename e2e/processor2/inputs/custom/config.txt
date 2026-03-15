@@ -1,0 +1,3 @@
+Project: [[name]]
+Value: [[value]]
+This uses custom delimiters.
