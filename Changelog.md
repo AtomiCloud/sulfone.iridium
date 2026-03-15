@@ -1,3 +1,15 @@
+## [2.15.0](https://github.com/AtomiCloud/sulfone.iridium/compare/v2.14.0...v2.15.0) (2026-03-15)
+
+
+### 📜 Documentation 📜
+
+* add task spec for CU-86ewy2qyy ([fbb22ef](https://github.com/AtomiCloud/sulfone.iridium/commit/fbb22ef6e863623b59877a51df048df1c9a3343e))
+
+
+### ✨ Features ✨
+
+* **cyanregistry:** add env var substitution for configs [CU-86ewy2qyy] ([2dc828e](https://github.com/AtomiCloud/sulfone.iridium/commit/2dc828ee50bb2a64ac244a4486fb3088cfcd886d))
+
 ## [2.14.0](https://github.com/AtomiCloud/sulfone.iridium/compare/v2.13.0...v2.14.0) (2026-03-15)
 
 
