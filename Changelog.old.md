@@ -1,3 +1,24 @@
+## [2.13.0](https://github.com/AtomiCloud/sulfone.iridium/compare/v2.12.0...v2.13.0) (2026-03-12)
+
+
+### 📜 Documentation 📜
+
+* add implementation plan for CU-86ewvp51j v1 ([76da333](https://github.com/AtomiCloud/sulfone.iridium/commit/76da333e45bab9b2c13eaa97b389093dda00ddbc))
+
+
+### ✨ Features ✨
+
+* **cyanprint:** add try group subcommand [CU-86ewvp51j] ([4a43972](https://github.com/AtomiCloud/sulfone.iridium/commit/4a43972bba548ffc5b906647075e00dae0c35833))
+* **cyanprint:** implement try command [CU-86ewvp51j] ([aebbe9f](https://github.com/AtomiCloud/sulfone.iridium/commit/aebbe9f6717a14619eef8ded2d82e9aeefc88499))
+
+
+### 🐛 Bug Fixes 🐛
+
+* **cyanprint:** address coderabbit local review findings [CU-86ewvp51j] ([30713f9](https://github.com/AtomiCloud/sulfone.iridium/commit/30713f9df92b6c6bc097941fd15217b5674e8493))
+* **cyanprint:** address CodeRabbit review feedback [CU-86ewvp51j] ([c9dd4ab](https://github.com/AtomiCloud/sulfone.iridium/commit/c9dd4abaac663ab65e716088e41de1687b81fac7))
+* **cyanprint:** address CodeRabbit review feedback [CU-86ewvp51j] ([ef32b7f](https://github.com/AtomiCloud/sulfone.iridium/commit/ef32b7f65378beee736818c51d2ac2e61b5d2eb9))
+* **cyanprint:** address CodeRabbit round 3 [CU-86ewvp51j] ([e8567f0](https://github.com/AtomiCloud/sulfone.iridium/commit/e8567f05baea4a13ea0a5b44e63159ce42d29d87))
+
 ## [2.12.0](https://github.com/AtomiCloud/sulfone.iridium/compare/v2.11.0...v2.12.0) (2026-03-11)
 
 
