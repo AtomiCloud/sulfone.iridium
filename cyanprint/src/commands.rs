@@ -150,7 +150,7 @@ pub enum TryCommands {
             short,
             long,
             value_name = "COORDINATOR_ENDPOINT",
-            default_value = "http://coord.cyanprint.dev:9000",
+            default_value = "http://localhost:9000",
             env = "CYANPRINT_COORDINATOR"
         )]
         coordinator_endpoint: String,
@@ -169,7 +169,7 @@ pub enum TryCommands {
             short,
             long,
             value_name = "COORDINATOR_ENDPOINT",
-            default_value = "http://coord.cyanprint.dev:9000",
+            default_value = "http://localhost:9000",
             env = "CYANPRINT_COORDINATOR"
         )]
         coordinator_endpoint: String,
@@ -214,7 +214,7 @@ pub enum TestCommands {
             short = 'c',
             long,
             value_name = "COORDINATOR_ENDPOINT",
-            default_value = "http://coord.cyanprint.dev:9000",
+            default_value = "http://localhost:9000",
             env = "CYANPRINT_COORDINATOR"
         )]
         coordinator_endpoint: String,
@@ -259,7 +259,7 @@ pub enum TestCommands {
             short = 'c',
             long,
             value_name = "COORDINATOR_ENDPOINT",
-            default_value = "http://coord.cyanprint.dev:9000",
+            default_value = "http://localhost:9000",
             env = "CYANPRINT_COORDINATOR"
         )]
         coordinator_endpoint: String,
@@ -300,7 +300,7 @@ pub enum TestCommands {
             short = 'c',
             long,
             value_name = "COORDINATOR_ENDPOINT",
-            default_value = "http://coord.cyanprint.dev:9000",
+            default_value = "http://localhost:9000",
             env = "CYANPRINT_COORDINATOR"
         )]
         coordinator_endpoint: String,
@@ -345,7 +345,7 @@ pub enum TestCommands {
             short = 'c',
             long,
             value_name = "COORDINATOR_ENDPOINT",
-            default_value = "http://coord.cyanprint.dev:9000",
+            default_value = "http://localhost:9000",
             env = "CYANPRINT_COORDINATOR"
         )]
         coordinator_endpoint: String,
@@ -398,7 +398,7 @@ pub enum TestCommands {
             short = 'c',
             long,
             value_name = "COORDINATOR_ENDPOINT",
-            default_value = "http://coord.cyanprint.dev:9000",
+            default_value = "http://localhost:9000",
             env = "CYANPRINT_COORDINATOR"
         )]
         coordinator_endpoint: String,
