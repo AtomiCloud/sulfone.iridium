@@ -362,22 +362,6 @@ fn template_warmup(
 
     println!("Synthetic template created");
 
-    // Setup try environment with Boron (blob volume, images, resolvers — once)
-    println!("Setting up try environment with Boron...");
-    let coord_client = CyanCoordinatorClient::new(coordinator_endpoint.to_string());
-    let (reference, tag) = split_image_ref(&template_docker_ref);
-    let try_setup_req = cyancoordinator::models::req::TrySetupReq {
-        session_id: String::new(), // unused, kept for Boron backward compat
-        local_template_id: local_template_id.clone(),
-        source: "image".to_string(),
-        image_ref: Some(cyancoordinator::models::req::DockerImageReference { reference, tag }),
-        path: None,
-        template: template.clone(),
-        merger_id: String::new(), // unused, kept for Boron backward compat
-    };
-    coord_client.try_setup(&try_setup_req)?;
-    println!("Try environment ready");
-
     // Find available port and start template container
     println!("Starting template container...");
     let port = find_available_port(5600, 5900).ok_or_else(|| {
@@ -607,9 +591,30 @@ fn run_single_test_case(
     let session_id = id_gen.generate();
     let merger_id = uuid::Uuid::new_v4().to_string();
 
+    // Setup try environment with Boron (blob volume, images, resolvers)
+    println!("  Setting up try environment...");
+    let coord_client = CyanCoordinatorClient::new(coordinator_endpoint.to_string());
+
+    let image_ref = warmup.template_image_ref.as_ref().ok_or_else(|| {
+        Box::new(std::io::Error::other("Template image reference required"))
+            as Box<dyn Error + Send>
+    })?;
+    let (reference, tag) = split_image_ref(image_ref);
+    let try_setup_req = cyancoordinator::models::req::TrySetupReq {
+        session_id: session_id.clone(),
+        local_template_id: warmup.local_template_id.clone(),
+        source: "image".to_string(),
+        image_ref: Some(cyancoordinator::models::req::DockerImageReference { reference, tag }),
+        path: None,
+        template: warmup.template.clone(),
+        merger_id: merger_id.clone(),
+    };
+    coord_client.try_setup(&try_setup_req)?;
+
+    println!("  Try environment ready");
+
     // Warm executor session (creates session volume)
     println!("  Warming executor session...");
-    let coord_client = CyanCoordinatorClient::new(coordinator_endpoint.to_string());
     let warm_res = coord_client.warn_executor(session_id.clone(), &warmup.template)?;
 
     println!("  Executor session warmed");
