@@ -21,7 +21,7 @@ use std::time::{Duration, Instant};
 use reqwest::blocking::Client;
 
 use crate::test_cmd::config::{ExpectedOutput, read_test_config};
-use crate::test_cmd::container::{build_and_start_container, cleanup_container};
+use crate::test_cmd::container::{RunGuard, build_and_start_container, cleanup_container};
 use crate::test_cmd::report::TestResult;
 use crate::test_cmd::validation::compare_directories;
 
@@ -105,6 +105,11 @@ pub fn run_resolver_tests(
 
     println!("Found {} test case(s) to run", test_cases.len());
 
+    // Generate a run-scoped UUID for container ownership and cleanup.
+    let run_id = uuid::Uuid::new_v4().to_string();
+    let _run_guard = RunGuard::new(run_id.clone());
+    println!("Run ID: {run_id}");
+
     // Pre-flight validation: ensure Docker daemon is running and the cyanprint
     // network exists (build_and_start_container uses network_mode: "cyanprint")
     println!("Running pre-flight validation...");
@@ -115,7 +120,7 @@ pub fn run_resolver_tests(
 
     // Warm up resolver
     println!("\nWarming up resolver...");
-    let container = resolver_warmup(resolver_path)?;
+    let container = resolver_warmup(resolver_path, &run_id)?;
     println!("Resolver warmed up successfully");
 
     // Run tests (parallel or sequential based on parallel count)
@@ -175,6 +180,7 @@ pub fn run_resolver_tests(
 /// Warm up the resolver for testing.
 fn resolver_warmup(
     resolver_path: &str,
+    run_id: &str,
 ) -> Result<crate::test_cmd::container::ContainerHandle, Box<dyn Error + Send>> {
     // Build and start container with no bind mounts (API-only)
     // Resolver listens on internal port 5553
@@ -183,6 +189,7 @@ fn resolver_warmup(
         "resolver",
         None, // No bind mounts needed for resolver
         5553, // Internal port
+        Some(run_id),
     )?;
 
     println!("Resolver container started on port {}", container.host_port);

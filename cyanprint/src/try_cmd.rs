@@ -295,6 +295,7 @@ pub fn execute_try_command(
             port,
             &coordinator_endpoint,
             "cyanprint.dev",
+            None,
         )?;
 
         health_check_template_container(port, 60, 1)?;
@@ -732,6 +733,7 @@ pub(crate) fn start_template_container(
     host_port: u16,
     _coordinator_endpoint: &str,
     label: &str,
+    run_id: Option<&str>,
 ) -> Result<(), Box<dyn Error + Send>> {
     let mut port_bindings = HashMap::new();
     port_bindings.insert(
@@ -759,6 +761,9 @@ pub(crate) fn start_template_container(
         labels: Some({
             let mut labels = HashMap::new();
             labels.insert(label.to_string(), "true".to_string());
+            if let Some(run_id) = run_id {
+                labels.insert("cyanprint.test.run".to_string(), run_id.to_string());
+            }
             labels
         }),
         exposed_ports: Some(vec!["5550/tcp".to_string()]),

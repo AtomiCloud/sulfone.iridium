@@ -155,6 +155,19 @@ pub fn cyan_update(
 | `create` | Create project from template                       |
 | `update` | Update templates to latest versions                |
 | `daemon` | Start coordinator service                          |
+| `test`   | Run template/processor/plugin/resolver tests       |
+
+### Test Command — Container Lifecycle
+
+All test commands (`template`, `plugin`, `processor`, `resolver`) use **run-scoped container ownership** via a shared `RunGuard` (RAII Drop guard in `container.rs`):
+
+1. A **run UUID** (`uuid::Uuid::new_v4()`) is generated at the start of each test entry point (`run_template_tests()`, `run_plugin_tests()`, `run_processor_tests()`, `run_resolver_tests()`)
+2. All containers created during the run are labeled with `cyanprint.test.run=<uuid>`
+3. On scope exit (normal return, error, or panic), the `RunGuard::drop()` removes all containers matching its run UUID
+
+This approach prevents nested test runs from killing parent containers — each run owns only its own containers.
+
+**Key File**: `cyanprint/src/test_cmd/container.rs` (`RunGuard` struct)
 
 ## Related
 
