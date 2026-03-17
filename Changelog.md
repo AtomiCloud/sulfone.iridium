@@ -1,3 +1,16 @@
+## [2.17.0](https://github.com/AtomiCloud/sulfone.iridium/compare/v2.16.0...v2.17.0) (2026-03-17)
+
+
+### 📜 Documentation 📜
+
+* add implementation plans for CU-86ewynyxu v1 ([ec9705e](https://github.com/AtomiCloud/sulfone.iridium/commit/ec9705e8b460d7c822336c154f56bcf9be1a1e7d))
+* add task spec for CU-86ewynyxu ([c8c0d36](https://github.com/AtomiCloud/sulfone.iridium/commit/c8c0d364dbb03948ff9d77a0ab6fe803e8597835))
+
+
+### ✨ Features ✨
+
+* **cyanprint:** implement run-scoped container ownership ([f82ac36](https://github.com/AtomiCloud/sulfone.iridium/commit/f82ac36f2dfe2f3f76076a0dc816c8f5b5273b88))
+
 ## [2.16.0](https://github.com/AtomiCloud/sulfone.iridium/compare/v2.15.1...v2.16.0) (2026-03-17)
 
 
