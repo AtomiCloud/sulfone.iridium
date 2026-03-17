@@ -18,7 +18,9 @@ use std::time::{Duration, Instant};
 use reqwest::blocking::Client;
 
 use crate::test_cmd::config::{ExpectedOutput, TestCase, read_test_config};
-use crate::test_cmd::container::{ContainerHandle, build_and_start_container, cleanup_container};
+use crate::test_cmd::container::{
+    ContainerHandle, RunGuard, build_and_start_container, cleanup_container,
+};
 use crate::test_cmd::report::TestResult;
 use crate::test_cmd::validation::{compare_directories, run_validate_commands};
 use crate::try_cmd::ensure_daemon_running;
@@ -101,6 +103,11 @@ pub fn run_plugin_tests(
 
     println!("Found {} test case(s) to run", test_cases.len());
 
+    // Generate a run-scoped UUID for container ownership and cleanup.
+    let run_id = uuid::Uuid::new_v4().to_string();
+    let _run_guard = RunGuard::new(run_id.clone());
+    println!("Run ID: {run_id}");
+
     // Pre-flight validation
     println!("Running pre-flight validation...");
     let docker = bollard::Docker::connect_with_local_defaults()
@@ -165,7 +172,7 @@ pub fn run_plugin_tests(
 
     // Warm up plugin
     println!("\nWarming up plugin...");
-    let container = plugin_warmup(plugin_path, bind_mounts)?;
+    let container = plugin_warmup(plugin_path, bind_mounts, &run_id)?;
     println!("Plugin warmed up successfully");
 
     // Run tests (parallel or sequential based on parallel count)
@@ -246,6 +253,7 @@ pub fn run_plugin_tests(
 fn plugin_warmup(
     plugin_path: &str,
     bind_mounts: Vec<(String, String, bool)>,
+    run_id: &str,
 ) -> Result<ContainerHandle, Box<dyn Error + Send>> {
     // Build and start container with bind mounts
     // Plugin listens on internal port 5552
@@ -254,6 +262,7 @@ fn plugin_warmup(
         "plugin",
         Some(bind_mounts),
         5552, // Internal port
+        Some(run_id),
     )?;
 
     println!("Plugin container started on port {}", container.host_port);

@@ -4,7 +4,7 @@
 //! - Template warm-up (Docker validation, building images, starting container)
 //! - Non-interactive Q&A loop (bypassing TemplateEngine.start_with)
 //! - Per-test-case execution with snapshot comparison
-//! - Cleanup of temporary resources
+//! - Run-scoped container ownership via `RunGuard` (Drop-based cleanup)
 
 use std::collections::HashMap;
 use std::error::Error;
@@ -38,6 +38,7 @@ use crate::docker::buildx::BuildxBuilder;
 use crate::port::find_available_port;
 use crate::test_cmd::config::ExpectedOutput;
 use crate::test_cmd::config::{AnswerStateEntry, TestCase, read_test_config};
+use crate::test_cmd::container::RunGuard;
 use crate::test_cmd::report::TestResult;
 use crate::test_cmd::validation::{ValidateResult, compare_directories, run_validate_commands};
 use crate::try_cmd::{ensure_daemon_running, split_image_ref};
@@ -85,6 +86,9 @@ struct TemplateWarmup {
     /// Local template ID
     local_template_id: String,
 
+    /// Run-scoped UUID for container labeling and cleanup
+    run_id: String,
+
     /// Template container name
     container_name: Option<String>,
 
@@ -114,6 +118,7 @@ impl Clone for TemplateWarmup {
         Self {
             template: self.template.clone(),
             local_template_id: self.local_template_id.clone(),
+            run_id: self.run_id.clone(),
             container_name: self.container_name.clone(),
             template_image_ref: self.template_image_ref.clone(),
             port: self.port,
@@ -198,11 +203,12 @@ pub fn run_template_tests(
 
     println!("Found {} test case(s) to run", test_cases.len());
 
-    // Clean up stale containers from previous runs BEFORE warmup.
-    // This MUST happen before warmup so we don't remove the container we just started.
-    println!("\nCleaning up stale sessions...");
-    cleanup_stale_test_containers();
-    println!("Stale sessions cleaned up");
+    // Generate a run-scoped UUID for container ownership and cleanup.
+    // All containers created during this run will be labeled with this UUID,
+    // and the RunGuard will clean them up when it drops (even on panic).
+    let run_id = uuid::Uuid::new_v4().to_string();
+    let _run_guard = RunGuard::new(run_id.clone());
+    println!("Run ID: {run_id}");
 
     // Warm up template
     println!("\nWarming up template...");
@@ -212,6 +218,7 @@ pub fn run_template_tests(
         coordinator_endpoint,
         disable_daemon_autostart,
         registry_client,
+        &run_id,
     )?;
 
     println!("Template warmed up successfully");
@@ -292,6 +299,7 @@ fn template_warmup(
     coordinator_endpoint: &str,
     disable_daemon_autostart: bool,
     registry_client: &CyanRegistryClient,
+    run_id: &str,
 ) -> Result<TemplateWarmup, Box<dyn Error + Send>> {
     // Template tests always use build mode (dev_mode=false)
     let _dev_mode = false;
@@ -386,6 +394,7 @@ fn template_warmup(
         port,
         coordinator_endpoint,
         "cyanprint.test",
+        Some(run_id),
     )?;
 
     println!("Template container started on port {port}");
@@ -397,6 +406,7 @@ fn template_warmup(
     Ok(TemplateWarmup {
         template,
         local_template_id,
+        run_id: run_id.to_string(),
         container_name,
         template_image_ref: Some(image_ref),
         port: Some(port),
@@ -980,51 +990,4 @@ fn cleanup_warmup(warmup: &TemplateWarmup) -> Result<(), Box<dyn Error + Send>> 
     }
 
     Ok(())
-}
-
-/// Remove stale containers via Docker API before tests.
-///
-/// Removes all containers labeled `cyanprint.dev=true` (Boron-managed)
-/// or `cyanprint.test=true` (test containers).
-fn cleanup_stale_test_containers() {
-    let Ok(docker) = Docker::connect_with_local_defaults() else {
-        return;
-    };
-    let Ok(rt) = tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .build()
-    else {
-        return;
-    };
-    rt.block_on(async {
-        use bollard::query_parameters::ListContainersOptions;
-
-        // Remove ALL cyanprint.dev containers directly (bypasses Boron's name parser)
-        // This catches stale unzip, plugin, processor, resolver containers from Boron
-        for label in ["cyanprint.dev=true", "cyanprint.test=true"] {
-            let mut filters = HashMap::new();
-            filters.insert("label".to_string(), vec![label.to_string()]);
-
-            let options = ListContainersOptions {
-                all: true,
-                filters: Some(filters),
-                ..Default::default()
-            };
-            if let Ok(containers) = docker.list_containers(Some(options)).await {
-                for container in containers {
-                    if let Some(id) = &container.id {
-                        let name = container
-                            .names
-                            .as_ref()
-                            .and_then(|n| n.first())
-                            .map(|n| n.trim_start_matches('/').to_string())
-                            .unwrap_or_else(|| id.clone());
-                        println!("  Removing stale container: {name}");
-                        let _ = docker.stop_container(id, None).await;
-                        let _ = docker.remove_container(id, None).await;
-                    }
-                }
-            }
-        }
-    });
 }

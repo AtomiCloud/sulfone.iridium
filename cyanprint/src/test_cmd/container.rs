@@ -14,12 +14,71 @@ use std::time::Duration;
 
 use bollard::Docker;
 use bollard::models::{ContainerCreateBody, HostConfig, PortBinding};
-use bollard::query_parameters::CreateContainerOptions;
+use bollard::query_parameters::{CreateContainerOptions, ListContainersOptions};
+use tokio::runtime::Builder;
 
 use cyanregistry::cli::mapper::read_build_config;
 
 use crate::docker::buildx::{BuildOptions, BuildOutput, BuildxBuilder};
 use crate::port::find_available_port;
+
+/// RAII guard that ensures all containers created during a test run are cleaned up.
+///
+/// On drop, removes all Docker containers labeled with `cyanprint.test.run=<run_id>`.
+/// This guarantees cleanup even on panics or early returns.
+///
+/// Used uniformly across all test entry points (template, plugin, processor, resolver).
+pub(crate) struct RunGuard {
+    run_id: String,
+}
+
+impl RunGuard {
+    pub(crate) fn new(run_id: String) -> Self {
+        Self { run_id }
+    }
+}
+
+impl Drop for RunGuard {
+    fn drop(&mut self) {
+        let Ok(docker) = Docker::connect_with_local_defaults() else {
+            return;
+        };
+        let Ok(rt) = Builder::new_multi_thread().enable_all().build() else {
+            return;
+        };
+
+        let run_id = self.run_id.clone();
+        rt.block_on(async {
+            let mut filters = HashMap::new();
+            filters.insert(
+                "label".to_string(),
+                vec![format!("cyanprint.test.run={run_id}")],
+            );
+
+            let options = ListContainersOptions {
+                all: true,
+                filters: Some(filters),
+                ..Default::default()
+            };
+
+            if let Ok(containers) = docker.list_containers(Some(options)).await {
+                for container in containers {
+                    if let Some(id) = &container.id {
+                        let name = container
+                            .names
+                            .as_ref()
+                            .and_then(|n| n.first())
+                            .map(|n| n.trim_start_matches('/').to_string())
+                            .unwrap_or_else(|| id.clone());
+                        println!("  RunGuard: removing container: {name}");
+                        let _ = docker.stop_container(id, None).await;
+                        let _ = docker.remove_container(id, None).await;
+                    }
+                }
+            }
+        });
+    }
+}
 
 /// Container handle for running containers.
 ///
@@ -86,6 +145,7 @@ pub fn build_and_start_container(
     artifact_type: &str,
     bind_mounts: Option<Vec<(String, String, bool)>>,
     internal_port: u16,
+    run_id: Option<&str>,
 ) -> Result<ContainerHandle, Box<dyn Error + Send>> {
     // Read the build configuration
     let config_path = PathBuf::from(artifact_path).join("cyan.yaml");
@@ -248,6 +308,9 @@ pub fn build_and_start_container(
             labels: Some({
                 let mut labels = HashMap::new();
                 labels.insert("cyanprint.test".to_string(), "true".to_string());
+                if let Some(run_id) = run_id {
+                    labels.insert("cyanprint.test.run".to_string(), run_id.to_string());
+                }
                 labels
             }),
             host_config: Some(HostConfig {

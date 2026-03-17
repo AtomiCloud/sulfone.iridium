@@ -1212,6 +1212,7 @@ fn qa_warmup(
         port,
         coordinator_endpoint,
         "cyanprint.test",
+        None,
     )?;
 
     println!("Template container started on port {port}");

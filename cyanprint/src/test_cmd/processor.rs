@@ -17,7 +17,9 @@ use std::time::{Duration, Instant};
 use reqwest::blocking::Client;
 
 use crate::test_cmd::config::{ExpectedOutput, TestCase, read_test_config};
-use crate::test_cmd::container::{ContainerHandle, build_and_start_container, cleanup_container};
+use crate::test_cmd::container::{
+    ContainerHandle, RunGuard, build_and_start_container, cleanup_container,
+};
 use crate::test_cmd::report::TestResult;
 use crate::test_cmd::validation::{compare_directories, run_validate_commands};
 
@@ -99,6 +101,11 @@ pub fn run_processor_tests(
 
     println!("Found {} test case(s) to run", test_cases.len());
 
+    // Generate a run-scoped UUID for container ownership and cleanup.
+    let run_id = uuid::Uuid::new_v4().to_string();
+    let _run_guard = RunGuard::new(run_id.clone());
+    println!("Run ID: {run_id}");
+
     // Pre-flight validation: ensure Docker daemon is running and the cyanprint
     // network exists (build_and_start_container uses network_mode: "cyanprint")
     println!("Running pre-flight validation...");
@@ -173,7 +180,7 @@ pub fn run_processor_tests(
 
     // Warm up processor
     println!("\nWarming up processor...");
-    let container = processor_warmup(processor_path, bind_mounts)?;
+    let container = processor_warmup(processor_path, bind_mounts, &run_id)?;
     println!("Processor warmed up successfully");
 
     // Run tests, ensuring cleanup happens even on failure
@@ -256,6 +263,7 @@ pub fn run_processor_tests(
 fn processor_warmup(
     processor_path: &str,
     bind_mounts: Vec<(String, String, bool)>,
+    run_id: &str,
 ) -> Result<ContainerHandle, Box<dyn Error + Send>> {
     // Build and start container with bind mounts
     // Processor listens on internal port 5551
@@ -264,6 +272,7 @@ fn processor_warmup(
         "processor",
         Some(bind_mounts),
         5551, // Internal port
+        Some(run_id),
     )?;
 
     println!(
