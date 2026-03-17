@@ -1,3 +1,10 @@
+## [2.15.1](https://github.com/AtomiCloud/sulfone.iridium/compare/v2.15.0...v2.15.1) (2026-03-16)
+
+
+### 🐛 Bug Fixes 🐛
+
+* **cyanprint:** move try_setup back to per-test-case flow [CU-86ewy8vg8] ([903db77](https://github.com/AtomiCloud/sulfone.iridium/commit/903db7755c625e39a1cc69c3b316567c53c3bafa))
+
 ## [2.15.0](https://github.com/AtomiCloud/sulfone.iridium/compare/v2.14.0...v2.15.0) (2026-03-15)
 
 

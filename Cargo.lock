@@ -376,7 +376,7 @@ dependencies = [
 
 [[package]]
 name = "cyanprint"
-version = "2.15.1"
+version = "2.16.0"
 dependencies = [
  "bollard",
  "chrono",
