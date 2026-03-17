@@ -1,3 +1,16 @@
+## [2.16.0](https://github.com/AtomiCloud/sulfone.iridium/compare/v2.15.1...v2.16.0) (2026-03-17)
+
+
+### 📜 Documentation 📜
+
+* add implementation plans for CU-86ewyng87 v1 ([891815a](https://github.com/AtomiCloud/sulfone.iridium/commit/891815a7e25eec684173a4792ca9f65f69794449))
+* add task spec for CU-86ewyng87 ([6c93c0c](https://github.com/AtomiCloud/sulfone.iridium/commit/6c93c0ceeaa6b95c1f3c3e5dc25ede7814a748e0))
+
+
+### ✨ Features ✨
+
+* **commands:** update coordinator endpoint for test/try commands ([ce37040](https://github.com/AtomiCloud/sulfone.iridium/commit/ce37040f1c3cd559a5cba669637ec76c1e96b40b))
+
 ## [2.15.1](https://github.com/AtomiCloud/sulfone.iridium/compare/v2.15.0...v2.15.1) (2026-03-16)
 
 
