@@ -29,7 +29,7 @@ use cyanregistry::cli::models::template_config::CyanTemplateFileConfig;
 use cyanregistry::http::client::CyanRegistryClient;
 
 use crate::docker::buildx::BuildxBuilder;
-use crate::port::find_available_port;
+use crate::port::{TEMPLATE_TEST, TEMPLATE_TEST_END, allocate_port};
 use crate::test_cmd::config::{AnswerStateEntry, ExpectedOutput, TestCase, TestConfig};
 use crate::test_cmd::template::run_template_tests;
 use crate::try_cmd::{ensure_daemon_running, pre_flight_validation};
@@ -1197,23 +1197,42 @@ fn qa_warmup(
 
     // Start template container for Q&A walking
     println!("Starting template container...");
-    let port = find_available_port(5600, 5900).ok_or_else(|| {
-        Box::new(std::io::Error::other(
-            "No available port in range 5600-5900",
-        )) as Box<dyn Error + Send>
-    })?;
-
     let container_name = format!("cyan-template-{}", local_template_id.replace('-', ""));
+    let mut port: u16 = 0;
+    let mut last_err: Option<Box<dyn Error + Send>> = None;
 
-    crate::try_cmd::start_template_container(
-        &docker,
-        &container_name,
-        &template_docker_ref,
-        port,
-        coordinator_endpoint,
-        "cyanprint.test",
-        None,
-    )?;
+    for _ in 0..3 {
+        let Some(port_alloc) = allocate_port(TEMPLATE_TEST, TEMPLATE_TEST_END) else {
+            last_err = Some(Box::new(std::io::Error::other(format!(
+                "No available port found in range {TEMPLATE_TEST}-{TEMPLATE_TEST_END} after 3 retries"
+            ))) as Box<dyn Error + Send>);
+            continue;
+        };
+        port = port_alloc.release();
+
+        match crate::try_cmd::start_template_container(
+            &docker,
+            &container_name,
+            &template_docker_ref,
+            port,
+            coordinator_endpoint,
+            "cyanprint.test",
+            None,
+        ) {
+            Ok(()) => {
+                last_err = None;
+                break;
+            }
+            Err(e) => {
+                // Clean up any partially created container before retrying
+                crate::try_cmd::stop_and_remove_container(&docker, &container_name);
+                last_err = Some(e);
+            }
+        }
+    }
+    if let Some(e) = last_err {
+        return Err(e);
+    }
 
     println!("Template container started on port {port}");
 

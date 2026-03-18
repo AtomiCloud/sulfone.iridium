@@ -20,7 +20,10 @@ use tokio::runtime::Builder;
 use cyanregistry::cli::mapper::read_build_config;
 
 use crate::docker::buildx::{BuildOptions, BuildOutput, BuildxBuilder};
-use crate::port::find_available_port;
+use crate::port::{
+    PLUGIN_TEST, PLUGIN_TEST_END, PROCESSOR_TEST, PROCESSOR_TEST_END, RESOLVER_TEST,
+    RESOLVER_TEST_END, allocate_port,
+};
 
 /// RAII guard that ensures all containers created during a test run are cleaned up.
 ///
@@ -253,97 +256,115 @@ pub fn build_and_start_container(
 
     // Find an available port
     let (port_range_start, port_range_end) = match artifact_type {
-        "processor" => (5500, 5599),
-        "plugin" => (5600, 5699),
-        "resolver" => (5700, 5799),
-        _ => (5500, 5599),
+        "processor" => (PROCESSOR_TEST, PROCESSOR_TEST_END),
+        "plugin" => (PLUGIN_TEST, PLUGIN_TEST_END),
+        "resolver" => (RESOLVER_TEST, RESOLVER_TEST_END),
+        _ => (PROCESSOR_TEST, PROCESSOR_TEST_END),
     };
-    let host_port = match find_available_port(port_range_start, port_range_end) {
-        Some(port) => port,
-        None => {
-            cleanup_image(&docker, &image_ref);
-            return Err(Box::new(std::io::Error::other(format!(
-                "No available port in range {port_range_start}-{port_range_end}"
+
+    let mut host_port: u16 = 0;
+    let mut container_name = String::new();
+    let mut last_err: Option<Box<dyn Error + Send>> = None;
+    for _ in 0..3 {
+        let Some(port_alloc) = allocate_port(port_range_start, port_range_end) else {
+            last_err = Some(Box::new(std::io::Error::other(format!(
+                "No available port found in range {port_range_start}-{port_range_end} after 3 retries"
             ))) as Box<dyn Error + Send>);
+            continue;
+        };
+        host_port = port_alloc.release();
+
+        // Try to create and start the container with this port
+        let id = uuid::Uuid::new_v4().to_string().replace('-', "");
+        container_name = format!("cyan-{artifact_type}-{id}-test");
+
+        // Build bind mounts
+        let mut binds_vec = Vec::new();
+        if let Some(ref mounts) = bind_mounts {
+            for (host_path, container_path, read_only) in mounts {
+                let ro_suffix = if *read_only { ":ro" } else { "" };
+                binds_vec.push(format!("{host_path}:{container_path}{ro_suffix}"));
+            }
         }
-    };
 
-    let id = uuid::Uuid::new_v4().to_string().replace('-', "");
-    let container_name = format!("cyan-{artifact_type}-{id}-test");
+        // Create port binding
+        let port_binding = format!("{internal_port}/tcp");
+        let mut port_bindings_map = HashMap::new();
+        port_bindings_map.insert(
+            port_binding.clone(),
+            Some(vec![PortBinding {
+                host_ip: None,
+                host_port: Some(host_port.to_string()),
+            }]),
+        );
 
-    // Build bind mounts
-    let mut binds_vec = Vec::new();
-    if let Some(mounts) = bind_mounts {
-        for (host_path, container_path, read_only) in mounts {
-            let ro_suffix = if read_only { ":ro" } else { "" };
-            binds_vec.push(format!("{host_path}:{container_path}{ro_suffix}"));
+        let runtime = match tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+        {
+            Ok(rt) => rt,
+            Err(e) => {
+                last_err = Some(Box::new(e) as Box<dyn Error + Send>);
+                continue;
+            }
+        };
+
+        let container_result = runtime.block_on(async {
+            println!("  Creating container {container_name}...");
+            let config = ContainerCreateBody {
+                image: Some(image_ref.clone()),
+                exposed_ports: Some(vec![port_binding.clone()]),
+                labels: Some({
+                    let mut labels = HashMap::new();
+                    labels.insert("cyanprint.test".to_string(), "true".to_string());
+                    if let Some(run_id) = run_id {
+                        labels.insert("cyanprint.test.run".to_string(), run_id.to_string());
+                    }
+                    labels
+                }),
+                host_config: Some(HostConfig {
+                    port_bindings: Some(port_bindings_map),
+                    binds: Some(binds_vec),
+                    network_mode: Some("cyanprint".to_string()),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            };
+
+            let options = Some(CreateContainerOptions {
+                name: Some(container_name.clone()),
+                ..Default::default()
+            });
+
+            docker
+                .create_container(options, config)
+                .await
+                .map_err(|e| Box::new(e) as Box<dyn Error + Send>)?;
+
+            // Start container
+            println!("  Starting container...");
+            docker
+                .start_container(&container_name, None)
+                .await
+                .map_err(|e| Box::new(e) as Box<dyn Error + Send>)?;
+
+            Result::<(), Box<dyn Error + Send>>::Ok(())
+        });
+
+        match container_result {
+            Ok(()) => {
+                last_err = None;
+                break;
+            }
+            Err(e) => {
+                // Clean up any partially created container before retrying
+                cleanup_partial_container(&docker, &container_name);
+                last_err = Some(e);
+            }
         }
     }
 
-    // Create port binding
-    let port_binding = format!("{internal_port}/tcp");
-    let mut port_bindings_map = HashMap::new();
-    port_bindings_map.insert(
-        port_binding.clone(),
-        Some(vec![PortBinding {
-            host_ip: None,
-            host_port: Some(host_port.to_string()),
-        }]),
-    );
-
-    let runtime = tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .build()
-        .map_err(|e| {
-            cleanup_image(&docker, &image_ref);
-            Box::new(e) as Box<dyn Error + Send>
-        })?;
-
-    let container_created = runtime.block_on(async {
-        // Image already built, create container
-        println!("  Creating container {container_name}...");
-        let config = ContainerCreateBody {
-            image: Some(image_ref.clone()),
-            exposed_ports: Some(vec![port_binding.clone()]),
-            labels: Some({
-                let mut labels = HashMap::new();
-                labels.insert("cyanprint.test".to_string(), "true".to_string());
-                if let Some(run_id) = run_id {
-                    labels.insert("cyanprint.test.run".to_string(), run_id.to_string());
-                }
-                labels
-            }),
-            host_config: Some(HostConfig {
-                port_bindings: Some(port_bindings_map),
-                binds: Some(binds_vec),
-                network_mode: Some("cyanprint".to_string()),
-                ..Default::default()
-            }),
-            ..Default::default()
-        };
-
-        let options = Some(CreateContainerOptions {
-            name: Some(container_name.clone()),
-            ..Default::default()
-        });
-
-        docker
-            .create_container(options, config)
-            .await
-            .map_err(|e| Box::new(e) as Box<dyn Error + Send>)?;
-
-        // Start container
-        println!("  Starting container...");
-        docker
-            .start_container(&container_name, None)
-            .await
-            .map_err(|e| Box::new(e) as Box<dyn Error + Send>)?;
-
-        Result::<(), Box<dyn Error + Send>>::Ok(())
-    });
-
-    if let Err(e) = container_created {
-        cleanup_partial_container(&docker, &container_name);
+    if let Some(e) = last_err {
         cleanup_image(&docker, &image_ref);
         return Err(e);
     }
