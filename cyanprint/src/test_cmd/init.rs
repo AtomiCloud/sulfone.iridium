@@ -1197,11 +1197,15 @@ fn qa_warmup(
 
     // Start template container for Q&A walking
     println!("Starting template container...");
-    let container_name = format!("cyan-template-{}", local_template_id.replace('-', ""));
     let mut port: u16 = 0;
     let mut last_err: Option<Box<dyn Error + Send>> = None;
+    let mut container_name = String::new();
 
     for _ in 0..3 {
+        container_name = format!(
+            "cyan-template-{}",
+            uuid::Uuid::new_v4().to_string().replace('-', "")
+        );
         let Some(port_alloc) = allocate_port(TEMPLATE_TEST, TEMPLATE_TEST_END) else {
             last_err = Some(Box::new(std::io::Error::other(format!(
                 "No available port found in range {TEMPLATE_TEST}-{TEMPLATE_TEST_END} after 3 retries"
