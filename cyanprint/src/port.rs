@@ -162,10 +162,13 @@ mod tests {
 
     #[test]
     fn test_allocate_port_random_then_sequential_fallback() {
-        // Bind all ports in a small range except one to force sequential fallback
-        let start: u16 = 40000;
-        let end: u16 = 40009;
-        let skip_port: u16 = 40005; // leave this port free
+        // Bind all ports in a small range except one to force sequential fallback.
+        // Use a PID-based offset to minimize collisions between parallel test processes.
+        let pid = std::process::id() as u16;
+        let base: u16 = 42000 + (pid % 3000);
+        let start: u16 = base;
+        let end: u16 = base + 9;
+        let skip_port: u16 = base + 5; // leave this port free
         let mut listeners = Vec::new();
 
         for port in start..=end {
