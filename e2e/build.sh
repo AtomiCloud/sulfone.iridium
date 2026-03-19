@@ -47,6 +47,11 @@ cyanprint push --folder ./e2e/template2 template --build "$tag"
 tag=$(openssl rand -hex 5)
 cyanprint push --folder ./e2e/template5 template --build "$tag"
 
+# template6 uses new build format
+echo "🔍 Publishing template6..."
+tag=$(openssl rand -hex 5)
+cyanprint push --folder ./e2e/template6 template --build "$tag"
+
 ./e2e/publish-template.sh ./e2e/test-batch-a-v1 test-batch-a push
 ./e2e/publish-template.sh ./e2e/test-batch-a-v2 test-batch-a push
 ./e2e/publish-template.sh ./e2e/test-batch-b-v1 test-batch-b push

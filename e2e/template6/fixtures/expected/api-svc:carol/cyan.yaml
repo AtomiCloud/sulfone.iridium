@@ -1,0 +1,26 @@
+username: cyane2e
+name: api-svc
+description: Generated template - api-svc
+project: https://google.com
+source: https://google.com
+email: carol@atomi.cloud
+tags: []
+readme: cyan/README.MD
+processors: ['cyane2e/processor2']
+plugins: ['cyane2e/plugin2']
+templates: []
+resolvers: []
+
+build:
+  registry: kirinnee
+  platforms:
+    - linux/amd64
+  images:
+    template:
+      image: api-svc
+      dockerfile: cyan/Dockerfile
+      context: ./cyan
+    blob:
+      image: api-svc-blob
+      dockerfile: blob.Dockerfile
+      context: .

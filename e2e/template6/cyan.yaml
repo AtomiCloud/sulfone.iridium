@@ -1,0 +1,26 @@
+username: cyane2e
+name: template6
+description: Template6 - Nested template generator
+project: https://google.com
+source: https://google.com
+email: cyane2e@atomi.cloud
+tags: []
+readme: cyan/README.MD
+processors: ['cyane2e/processor2']
+plugins: ['cyane2e/plugin2']
+templates: []
+resolvers: []
+
+build:
+  registry: kirinnee
+  platforms:
+    - linux/amd64
+  images:
+    template:
+      image: template6
+      dockerfile: cyan/Dockerfile
+      context: ./cyan
+    blob:
+      image: blob6
+      dockerfile: blob.Dockerfile
+      context: .
