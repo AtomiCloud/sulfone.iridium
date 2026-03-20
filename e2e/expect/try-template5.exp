@@ -1,0 +1,36 @@
+#!/usr/bin/expect -f
+
+set timeout 120
+
+spawn cyanprint try template ./e2e/template5 /tmp/e2e-try-template5-output --disable-daemon-autostart
+
+expect -re {.*project.*name.*}
+send "my-project\r"
+
+expect -re {.*api.*key.*}
+send "sk-test-123\r"
+
+expect -re {.*start.*date.*}
+send "2026-01-15\r"
+
+expect -re {.*language.*}
+send "\r"
+
+expect -re {.*docker.*}
+send "n\r"
+
+# MultiSelect: space to toggle first option (logging), space for second (tracing), enter to confirm
+expect -re {.*features.*}
+send " "
+send " "
+send "\r"
+
+expect eof
+
+# Verify output directory exists
+if {[file isdirectory /tmp/e2e-try-template5-output]} {
+    exit 0
+} else {
+    puts "ERROR: Output directory /tmp/e2e-try-template5-output does not exist"
+    exit 1
+}

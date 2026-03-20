@@ -1,0 +1,18 @@
+#!/usr/bin/expect -f
+
+set timeout 180
+
+spawn cyanprint test init ./e2e/template5 --text-seed "hello" --password-seed "pass123" --date-seed "2026-03-13" --output /tmp/e2e-test-init-output --disable-daemon-autostart
+
+expect "Delete backup?"
+send "n\r"
+
+expect eof
+
+# Verify test.cyan.yaml exists in output dir
+if {[file exists /tmp/e2e-test-init-output/test.cyan.yaml]} {
+    exit 0
+} else {
+    puts "ERROR: /tmp/e2e-test-init-output/test.cyan.yaml does not exist"
+    exit 1
+}
