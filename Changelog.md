@@ -1,3 +1,31 @@
+## [2.18.0](https://github.com/AtomiCloud/sulfone.iridium/compare/v2.17.0...v2.18.0) (2026-03-23)
+
+
+### 📜 Documentation 📜
+
+* **CU-86ewz23zw:** add v2 spec and plans for e2e test expansion ([861da7a](https://github.com/AtomiCloud/sulfone.iridium/commit/861da7a11d5d92a852680630c871c29366a32190))
+
+
+### ✨ Features ✨
+
+* **e2e:** add template6 nested template generator ([1b54593](https://github.com/AtomiCloud/sulfone.iridium/commit/1b54593a03634228924aa4fe1dd021d444cf8cb6))
+* add test specs for port allocation race condition fix ([a7f8ec9](https://github.com/AtomiCloud/sulfone.iridium/commit/a7f8ec9094b8283c528a2c0daf31cea0730cd78d))
+* fix port allocation race condition across all testtry commands ([f78e823](https://github.com/AtomiCloud/sulfone.iridium/commit/f78e823ba0dbaf83bd59ee2e77a0305044ce311f))
+* **e2e:** fix snapshot mismatches and finalize local/full test phases ([19f7ada](https://github.com/AtomiCloud/sulfone.iridium/commit/19f7adab9804584ceac578a947b80830bd16b3d7))
+* **e2e:** populate full.sh with create/upgrade/conflict/resolver tests ([2bffca7](https://github.com/AtomiCloud/sulfone.iridium/commit/2bffca73e5667b255f3abd3ccd3292a029727503))
+* **e2e:** populate local.sh with test/try/stress commands ([b384412](https://github.com/AtomiCloud/sulfone.iridium/commit/b3844124228975a9dbe1891af4a0646647c0423b))
+* **e2e:** split e2e.sh into build/local/full phases ([9ad4c66](https://github.com/AtomiCloud/sulfone.iridium/commit/9ad4c66c570d100bcc0290139af8382e69288afa))
+
+
+### 🐛 Bug Fixes 🐛
+
+* address CodeRabbit review feedback ([080a7c3](https://github.com/AtomiCloud/sulfone.iridium/commit/080a7c3b1f362b5d41e36ffa983d57bcd4d4adea))
+* **e2e:** disable SC1090 shellcheck warning for dynamic source ([4ccdf46](https://github.com/AtomiCloud/sulfone.iridium/commit/4ccdf46027cbb7e8fea854a555fbe530273590f2))
+* **pre-commit:** exclude e2e fixture files from treefmt ([874d298](https://github.com/AtomiCloud/sulfone.iridium/commit/874d298122369d3b901bf9c9d34d45aa02567a8f))
+* **cyanprint:** generate fresh container name per retry attempt ([89aab96](https://github.com/AtomiCloud/sulfone.iridium/commit/89aab96e1a8c4c50081c043ffbe6fabf9efe2588))
+* **e2e:** update test.cyan.yaml with correct snapshot paths ([3dad3a4](https://github.com/AtomiCloud/sulfone.iridium/commit/3dad3a4f9f62b12dbc4ce82c8cfb5abbc126524e))
+* **test:** use dynamic port range in random_then_sequential test ([827fd82](https://github.com/AtomiCloud/sulfone.iridium/commit/827fd82e1c2cb6e475c07bed989813006865ffc3))
+
 ## [2.17.0](https://github.com/AtomiCloud/sulfone.iridium/compare/v2.16.0...v2.17.0) (2026-03-17)
 
 
