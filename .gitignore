@@ -28,3 +28,6 @@ IncrementalChangelog.md
 TODO.MD
 .kagent/
 .kagent
+/tmp/
+.cyan_output/
+.cyan_backup*/

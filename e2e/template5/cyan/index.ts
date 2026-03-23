@@ -1,4 +1,4 @@
-import { GlobType, StartTemplateWithLambda } from '@atomicloud/cyan-sdk';
+import { GlobType, StartTemplateWithLambda, QuestionType } from '@atomicloud/cyan-sdk';
 import { IInquirer, IDeterminism } from '@atomicloud/cyan-sdk';
 
 StartTemplateWithLambda(async (i: IInquirer, d: IDeterminism) => {
@@ -9,7 +9,12 @@ StartTemplateWithLambda(async (i: IInquirer, d: IDeterminism) => {
   const apiKey = await i.password('Enter your API key:', 'cyane2e/template5/apiKey');
 
   // Date question
-  const startDate = await i.dateSelect('When does the project start?', 'cyane2e/template5/startDate');
+  const startDate = await i.dateSelect({
+    type: QuestionType.DateSelect,
+    id: 'cyane2e/template5/startDate',
+    message: 'When does the project start?',
+    default: new Date('2026-03-13'),
+  });
 
   // Select question
   const language = await i.select(

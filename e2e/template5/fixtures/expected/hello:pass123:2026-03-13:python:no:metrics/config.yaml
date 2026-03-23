@@ -1,6 +1,6 @@
 projectName: hello
-apiKey: asd
+apiKey: pass123
 startDate: 2026-03-13
-language: TypeScript
+language: Python
 useDocker: false
-features:
+features: metrics
