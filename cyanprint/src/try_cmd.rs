@@ -37,7 +37,7 @@ use cyancoordinator::template::DefaultTemplateExecutor;
 
 use crate::coord::start_coordinator;
 use crate::docker::buildx::{BuildOptions, BuildOutput, BuildxBuilder};
-use crate::port::find_available_port;
+use crate::port::{TEMPLATE_TRY, TEMPLATE_TRY_END, allocate_port};
 use crate::util::parse_ref;
 
 /// Type alias for Q&A loop result to reduce type complexity
@@ -83,19 +83,6 @@ pub fn execute_try_command(
 
     // Step 1: Pre-flight validation (mode-aware)
     pre_flight_validation(&template_path, dev_mode)?;
-
-    // Step 2: Allocate port for template container (normal mode only)
-    let allocated_port = if !dev_mode {
-        let port = find_available_port(5600, 5900).ok_or_else(|| {
-            Box::new(std::io::Error::other(
-                "No available port found in range 5600-5900",
-            )) as Box<dyn Error + Send>
-        })?;
-        println!("  Allocated port: {port}");
-        Some(port)
-    } else {
-        None
-    };
 
     // Step 3: Ensure daemon is running with health check
     let docker =
@@ -277,10 +264,7 @@ pub fn execute_try_command(
     coord_client.try_setup(&try_setup_req)?;
 
     // Step 10: Start template container (normal mode only)
-    let template_container_name = if let Some(port) = allocated_port {
-        println!("🐳 Starting template container on port {port}...");
-        let container_name = format!("cyan-template-{}", local_template_id.replace('-', ""));
-
+    let (template_container_name, allocated_port) = if !dev_mode {
         // Use template image (not blob) for container startup
         let container_image_ref = image_ref.as_ref().ok_or_else(|| {
             Box::new(std::io::Error::other(
@@ -288,21 +272,53 @@ pub fn execute_try_command(
             )) as Box<dyn Error + Send>
         })?;
 
-        start_template_container(
-            &docker,
-            &container_name,
-            container_image_ref,
-            port,
-            &coordinator_endpoint,
-            "cyanprint.dev",
-            None,
-        )?;
+        let mut last_err: Option<Box<dyn Error + Send>> = None;
+        let mut bound_port: Option<u16> = None;
+        let mut container_name = String::new();
 
-        health_check_template_container(port, 60, 1)?;
+        for _ in 0..3 {
+            container_name = format!(
+                "cyan-template-{}",
+                uuid::Uuid::new_v4().to_string().replace('-', "")
+            );
+            let Some(port_alloc) = allocate_port(TEMPLATE_TRY, TEMPLATE_TRY_END) else {
+                last_err = Some(Box::new(std::io::Error::other(format!(
+                    "No available port found in range {TEMPLATE_TRY}-{TEMPLATE_TRY_END} after 3 retries"
+                ))) as Box<dyn Error + Send>);
+                continue;
+            };
+            let port = port_alloc.release();
 
-        Some(container_name)
+            println!("🐳 Starting template container on port {port}...");
+            match start_template_container(
+                &docker,
+                &container_name,
+                container_image_ref,
+                port,
+                &coordinator_endpoint,
+                "cyanprint.dev",
+                None,
+            ) {
+                Ok(()) => {
+                    health_check_template_container(port, 60, 1)?;
+                    bound_port = Some(port);
+                    last_err = None;
+                    break;
+                }
+                Err(e) => {
+                    // Clean up any partially created container before retrying
+                    stop_and_remove_container(&docker, &container_name);
+                    last_err = Some(e);
+                }
+            }
+        }
+
+        if let Some(e) = last_err {
+            return Err(e);
+        }
+        (Some(container_name), bound_port)
     } else {
-        None
+        (None, None)
     };
 
     // Step 11: Run Q&A loop and collect cyan, answers, and states
@@ -724,6 +740,24 @@ pub(crate) fn build_image(
         dry_run: false,
         output: BuildOutput::Load,
     })
+}
+
+/// Best-effort stop and remove of a Docker container.
+///
+/// Used to clean up partially created containers before retrying.
+/// Errors are silently ignored since this is a cleanup operation.
+pub(crate) fn stop_and_remove_container(docker: &Docker, container_name: &str) {
+    let rt = match tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+    {
+        Ok(rt) => rt,
+        Err(_) => return,
+    };
+    rt.block_on(async {
+        let _ = docker.stop_container(container_name, None).await;
+        let _ = docker.remove_container(container_name, None).await;
+    });
 }
 
 pub(crate) fn start_template_container(

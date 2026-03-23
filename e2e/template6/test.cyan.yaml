@@ -1,0 +1,71 @@
+tests:
+  - name: my-lib:alice
+    expected:
+      type: snapshot
+      value:
+        path: fixtures/expected/my-lib:alice
+    answer_state:
+      cyane2e/template6/templateName:
+        type: String
+        value: my-lib
+      cyane2e/template6/authorName:
+        type: String
+        value: alice
+    deterministic_state: {}
+    validate: []
+  - name: my-app:bob
+    expected:
+      type: snapshot
+      value:
+        path: fixtures/expected/my-app:bob
+    answer_state:
+      cyane2e/template6/templateName:
+        type: String
+        value: my-app
+      cyane2e/template6/authorName:
+        type: String
+        value: bob
+    deterministic_state: {}
+    validate: []
+  - name: api-svc:carol
+    expected:
+      type: snapshot
+      value:
+        path: fixtures/expected/api-svc:carol
+    answer_state:
+      cyane2e/template6/templateName:
+        type: String
+        value: api-svc
+      cyane2e/template6/authorName:
+        type: String
+        value: carol
+    deterministic_state: {}
+    validate: []
+  - name: cli-tool:dave
+    expected:
+      type: snapshot
+      value:
+        path: fixtures/expected/cli-tool:dave
+    answer_state:
+      cyane2e/template6/templateName:
+        type: String
+        value: cli-tool
+      cyane2e/template6/authorName:
+        type: String
+        value: dave
+    deterministic_state: {}
+    validate: []
+  - name: web-app:eve
+    expected:
+      type: snapshot
+      value:
+        path: fixtures/expected/web-app:eve
+    answer_state:
+      cyane2e/template6/templateName:
+        type: String
+        value: web-app
+      cyane2e/template6/authorName:
+        type: String
+        value: eve
+    deterministic_state: {}
+    validate: []

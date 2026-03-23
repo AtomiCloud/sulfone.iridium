@@ -1,0 +1,27 @@
+#!/usr/bin/expect -f
+
+set timeout 180
+
+# test init writes test.cyan.yaml and fixtures/expected/ in the template directory
+# --output is a temp dir that gets cleaned up after snapshot generation
+spawn cyanprint test init ./e2e/template5 --text-seed "hello" --password-seed "pass123" --date-seed "2026-03-13" --output /tmp/e2e-test-init-output --disable-daemon-autostart
+
+expect "Delete backup?"
+send "n\r"
+
+expect eof
+
+# Verify test.cyan.yaml was generated
+if {[file isfile ./e2e/template5/test.cyan.yaml]} {
+    # Verify at least one snapshot was created
+    set snapshots [glob -nocomplain ./e2e/template5/fixtures/expected/*]
+    if {[llength $snapshots] > 0} {
+        exit 0
+    } else {
+        puts "ERROR: No snapshots created in fixtures/expected/"
+        exit 1
+    }
+} else {
+    puts "ERROR: test.cyan.yaml was not generated"
+    exit 1
+}

@@ -25,6 +25,20 @@ tasks:
     cmds:
       - infisical run --env lapras -- ./e2e/setup.sh
   e2e:
-    desc: 'Run the e2e tests'
+    desc: 'Run the e2e tests (build → local → full)'
     cmds:
-      - ./e2e/e2e.sh
+      - ./e2e/e2e.sh build
+      - ./e2e/e2e.sh local
+      - ./e2e/e2e.sh full
+  e2e:build:
+    desc: 'Build and publish all e2e test artifacts'
+    cmds:
+      - ./e2e/e2e.sh build
+  e2e:local:
+    desc: 'Run local tests (requires build artifacts)'
+    cmds:
+      - ./e2e/e2e.sh local
+  e2e:full:
+    desc: 'Run full-cycle tests (requires build artifacts)'
+    cmds:
+      - ./e2e/e2e.sh full

@@ -1,0 +1,26 @@
+username: cyane2e
+name: cli-tool
+description: Generated template - cli-tool
+project: https://google.com
+source: https://google.com
+email: dave@atomi.cloud
+tags: []
+readme: cyan/README.MD
+processors: ['cyane2e/processor2']
+plugins: ['cyane2e/plugin2']
+templates: []
+resolvers: []
+
+build:
+  registry: kirinnee
+  platforms:
+    - linux/amd64
+  images:
+    template:
+      image: cli-tool
+      dockerfile: cyan/Dockerfile
+      context: ./cyan
+    blob:
+      image: cli-tool-blob
+      dockerfile: blob.Dockerfile
+      context: .

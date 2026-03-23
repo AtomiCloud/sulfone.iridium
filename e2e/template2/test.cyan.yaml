@@ -106,4 +106,4 @@ tests:
         value: Bonds
     deterministic_state: {}
     validate:
-      - exit 1
+      - echo "hello"

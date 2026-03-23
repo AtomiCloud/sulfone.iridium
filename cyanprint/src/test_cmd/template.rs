@@ -35,7 +35,7 @@ use cyanregistry::http::models::template_res::TemplateVersionRes;
 use tokio::runtime::Builder;
 
 use crate::docker::buildx::BuildxBuilder;
-use crate::port::find_available_port;
+use crate::port::{TEMPLATE_TEST, TEMPLATE_TEST_END, allocate_port};
 use crate::test_cmd::config::ExpectedOutput;
 use crate::test_cmd::config::{AnswerStateEntry, TestCase, read_test_config};
 use crate::test_cmd::container::RunGuard;
@@ -372,30 +372,47 @@ fn template_warmup(
 
     // Find available port and start template container
     println!("Starting template container...");
-    let port = find_available_port(5600, 5900).ok_or_else(|| {
-        Box::new(std::io::Error::other(
-            "No available port in range 5600-5900",
-        )) as Box<dyn Error + Send>
-    })?;
-
-    let docker =
-        Docker::connect_with_local_defaults().map_err(|e| Box::new(e) as Box<dyn Error + Send>)?;
-
-    let container_name = Some(format!(
-        "cyan-template-{}",
-        local_template_id.replace('-', "")
-    ));
     let image_ref = template_docker_ref;
+    let mut port: u16 = 0;
+    let mut last_err: Option<Box<dyn Error + Send>> = None;
+    let mut container_name = String::new();
 
-    crate::try_cmd::start_template_container(
-        &docker,
-        &container_name.clone().unwrap(),
-        &image_ref,
-        port,
-        coordinator_endpoint,
-        "cyanprint.test",
-        Some(run_id),
-    )?;
+    for _ in 0..3 {
+        container_name = format!(
+            "cyan-template-{}",
+            uuid::Uuid::new_v4().to_string().replace('-', "")
+        );
+        let Some(port_alloc) = allocate_port(TEMPLATE_TEST, TEMPLATE_TEST_END) else {
+            last_err = Some(Box::new(std::io::Error::other(format!(
+                "No available port found in range {TEMPLATE_TEST}-{TEMPLATE_TEST_END} after 3 retries"
+            ))) as Box<dyn Error + Send>);
+            continue;
+        };
+        port = port_alloc.release();
+
+        match crate::try_cmd::start_template_container(
+            &docker,
+            &container_name,
+            &image_ref,
+            port,
+            coordinator_endpoint,
+            "cyanprint.test",
+            Some(run_id),
+        ) {
+            Ok(()) => {
+                last_err = None;
+                break;
+            }
+            Err(e) => {
+                // Clean up any partially created container before retrying
+                crate::try_cmd::stop_and_remove_container(&docker, &container_name);
+                last_err = Some(e);
+            }
+        }
+    }
+    if let Some(e) = last_err {
+        return Err(e);
+    }
 
     println!("Template container started on port {port}");
 
@@ -407,7 +424,7 @@ fn template_warmup(
         template,
         local_template_id,
         run_id: run_id.to_string(),
-        container_name,
+        container_name: Some(container_name),
         template_image_ref: Some(image_ref),
         port: Some(port),
         blob_image_ref: Some(blob_docker_ref),

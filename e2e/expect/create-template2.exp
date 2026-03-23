@@ -1,0 +1,33 @@
+#!/usr/bin/expect -f
+
+set timeout 120
+
+spawn cyanprint create cyane2e/template2 /tmp/e2e-create-t2-output
+
+expect -re {.*name.*}
+send "hello\r"
+
+expect -re {.*investment.*}
+send "\r"
+
+expect -re {.*risk.*}
+send "\r"
+
+expect -re {.*financial.*goal.*}
+send "\r"
+
+expect -re {.*horizon.*}
+send "\r"
+
+expect -re {.*income.*}
+send "\r"
+
+expect eof
+
+# Verify output directory exists
+if {[file isdirectory /tmp/e2e-create-t2-output]} {
+    exit 0
+} else {
+    puts "ERROR: Output directory /tmp/e2e-create-t2-output does not exist"
+    exit 1
+}

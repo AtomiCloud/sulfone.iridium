@@ -1,0 +1,6 @@
+projectName: hello
+apiKey: pass123
+startDate: 2026-03-13
+language: Python
+useDocker: true
+features: logging,metrics,tracing

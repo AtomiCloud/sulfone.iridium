@@ -1,0 +1,26 @@
+username: cyane2e
+name: my-lib
+description: Generated template - my-lib
+project: https://google.com
+source: https://google.com
+email: alice@atomi.cloud
+tags: []
+readme: cyan/README.MD
+processors: ['cyane2e/processor2']
+plugins: ['cyane2e/plugin2']
+templates: []
+resolvers: []
+
+build:
+  registry: kirinnee
+  platforms:
+    - linux/amd64
+  images:
+    template:
+      image: my-lib
+      dockerfile: cyan/Dockerfile
+      context: ./cyan
+    blob:
+      image: my-lib-blob
+      dockerfile: blob.Dockerfile
+      context: .

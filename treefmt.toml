@@ -1,0 +1,9 @@
+[treefmt]
+  excludes = [
+    "e2e/template5/fixtures/**",
+    "e2e/template2/fixtures/**",
+    "e2e/template6/fixtures/**",
+    "e2e/plugin2/**",
+    "e2e/processor2/**",
+    "e2e/resolver2/**",
+  ]

@@ -1,0 +1,36 @@
+#!/usr/bin/expect -f
+
+set timeout 180
+
+# template4 is a group: template2 → template1 → template3 → template4
+# only template2 has interactive questions
+spawn cyanprint create cyane2e/template4 /tmp/e2e-create-group-output
+
+# template2 questions (same as create-template2.exp)
+expect -re {.*name.*}
+send "hello\r"
+
+expect -re {.*investment.*}
+send "\r"
+
+expect -re {.*risk.*}
+send "\r"
+
+expect -re {.*financial.*goal.*}
+send "\r"
+
+expect -re {.*horizon.*}
+send "\r"
+
+expect -re {.*income.*}
+send "\r"
+
+expect eof
+
+# Verify output directory exists
+if {[file isdirectory /tmp/e2e-create-group-output]} {
+    exit 0
+} else {
+    puts "ERROR: Output directory /tmp/e2e-create-group-output does not exist"
+    exit 1
+}
