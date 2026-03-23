@@ -65,11 +65,11 @@ impl PortAllocation {
 /// assert!(alloc.is_some());
 /// ```
 pub fn allocate_port(range_start: u16, range_end: u16) -> Option<PortAllocation> {
-    if range_start > range_end {
+    if range_start == 0 || range_start > range_end {
         return None;
     }
 
-    let range_size = (range_end - range_start + 1) as usize;
+    let range_size = usize::from(range_end) - usize::from(range_start) + 1;
     let mut tried: HashSet<u16> = HashSet::new();
     let mut rng = rand::rng();
 

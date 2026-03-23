@@ -17,12 +17,12 @@ generate() {
   local src="$2"
   local dst="$TMP_DIR/$name"
 
+  rm -rf "$dst"
+
   if [ ! -d "$src" ]; then
     echo "  SKIP $name: $src does not exist (run the try command first)"
     return 0
   fi
-
-  rm -rf "$dst"
   cp -r "$src" "$dst"
   # Remove .lockb binary files from snapshots
   find "$dst" -name "*.lockb" -delete
@@ -41,6 +41,7 @@ try-group)
   ;;
 test-init)
   # Only capture test.cyan.yaml, not the full template output
+  rm -rf "$TMP_DIR/test-init"
   mkdir -p "$TMP_DIR/test-init"
   if [ -f /tmp/e2e-test-init-output/test.cyan.yaml ]; then
     cp /tmp/e2e-test-init-output/test.cyan.yaml "$TMP_DIR/test-init/"
@@ -55,6 +56,7 @@ all)
   generate try-template5 /tmp/e2e-try-template5-output
   generate try-group /tmp/e2e-try-group-output
   # test-init
+  rm -rf "$TMP_DIR/test-init"
   mkdir -p "$TMP_DIR/test-init"
   if [ -f /tmp/e2e-test-init-output/test.cyan.yaml ]; then
     cp /tmp/e2e-test-init-output/test.cyan.yaml "$TMP_DIR/test-init/"

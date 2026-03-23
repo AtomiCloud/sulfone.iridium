@@ -13,7 +13,7 @@ StartTemplateWithLambda(async (i: IInquirer, d: IDeterminism) => {
     type: QuestionType.DateSelect,
     id: 'cyane2e/template5/startDate',
     message: 'When does the project start?',
-    default: new Date('2026-03-13'),
+    default: new Date(2026, 2, 13),
   });
 
   // Select question
