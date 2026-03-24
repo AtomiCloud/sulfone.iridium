@@ -1413,7 +1413,10 @@ mod tests {
     #[test]
     fn test_default_resolver_skips_cyclic_dependencies() {
         // Build: A -> [B -> [A]] (cyclic: A references B, B references A)
-        // Expected: B is added once, then when we recurse into A and see B again, we skip it.
+        // flatten_dependencies_with_fetcher(&template_b, ...):
+        //   template_b's deps: [A] -> process A -> visited={A} -> recurse into A's deps: [B]
+        //   -> process B -> visited={A,B} -> recurse into B's deps: [A] -> A already visited, skip
+        //   -> push B -> push A -> result: [B, A]
 
         let a_ref = TemplateVersionTemplateRefRes {
             id: "A".to_string(),
@@ -1452,22 +1455,14 @@ mod tests {
         .expect("flatten_dependencies_with_fetcher should succeed");
 
         // Should have 2 entries: B, A (post-order traversal)
-        // The cycle A -> B -> A should cause B to be skipped when encountered the second time
-        // We start at B (passed as root), recurse into A (B's dep), then when A's dep on B is
-        // encountered, B is already visited so it's skipped.
-        // The order is B first, A second because the starting template (B) is added after its
-        // recursive call returns, and the recursion into A skips B (already visited) and adds A.
         assert_eq!(result.len(), 2, "Should have 2 entries (cycle prevented)");
-
-        // Actual traversal order: starting template B is processed, recurses into A,
-        // A's dep B is skipped (visited), A is added, then B is added after recursion returns
         assert_eq!(
             result[0].template.principal.id, "B",
-            "First should be B (starting template, added after recursing into A)"
+            "First should be B (leaf in traversal, pushed before A)"
         );
         assert_eq!(
             result[1].template.principal.id, "A",
-            "Second should be A (processed as dep of B, then added)"
+            "Second should be A (pushed after recursion into its deps returns)"
         );
     }
 
