@@ -44,6 +44,7 @@ pub struct CyanTemplateRef {
     pub username: String,
     pub name: String,
     pub version: Option<i64>,
+    pub preset_answers: std::collections::HashMap<String, serde_json::Value>,
 }
 
 /// Resolver reference in domain layer

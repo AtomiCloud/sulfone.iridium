@@ -1,4 +1,19 @@
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+
+/// Template reference in cyan.yaml — accepts both plain strings and extended objects
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum CyanTemplateFileRef {
+    /// Simple reference: "username/name" or "username/name:version"
+    Simple(String),
+    /// Extended reference with preset answers
+    Extended {
+        template: String,
+        #[serde(default)]
+        preset_answers: HashMap<String, serde_json::Value>,
+    },
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CyanTemplateFileConfig {
@@ -22,7 +37,7 @@ pub struct CyanTemplateFileConfig {
 
     pub plugins: Vec<String>,
 
-    pub templates: Vec<String>,
+    pub templates: Vec<CyanTemplateFileRef>,
 
     #[serde(default)]
     pub resolvers: Vec<CyanResolverRefFileConfig>,

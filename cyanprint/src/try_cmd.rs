@@ -19,13 +19,13 @@ use cyanprompt::domain::services::template::states::TemplateState;
 use cyanprompt::http::client::CyanClient;
 use cyanprompt::http::mapper::cyan_req_mapper;
 use cyanregistry::cli::mapper::{read_build_config, read_dev_config};
-use cyanregistry::cli::models::template_config::CyanTemplateFileConfig;
+use cyanregistry::cli::models::template_config::{CyanTemplateFileConfig, CyanTemplateFileRef};
 use cyanregistry::http::client::CyanRegistryClient;
 use cyanregistry::http::models::plugin_res::PluginVersionPrincipalRes;
 use cyanregistry::http::models::processor_res::ProcessorVersionPrincipalRes;
 use cyanregistry::http::models::template_res::{
     TemplatePrincipalRes, TemplatePropertyRes, TemplateVersionPrincipalRes, TemplateVersionRes,
-    TemplateVersionResolverRes,
+    TemplateVersionResolverRes, TemplateVersionTemplateRefRes,
 };
 
 use cyancoordinator::fs::{
@@ -558,7 +558,7 @@ fn health_check_daemon(coordinator_endpoint: &str) -> Result<(), Box<dyn Error +
 pub(crate) struct PinnedDependencies {
     pub processors: Vec<ProcessorVersionPrincipalRes>,
     pub plugins: Vec<PluginVersionPrincipalRes>,
-    pub templates: Vec<TemplateVersionPrincipalRes>,
+    pub templates: Vec<TemplateVersionTemplateRefRes>,
     pub resolvers: Vec<TemplateVersionResolverRes>,
 }
 
@@ -616,13 +616,25 @@ pub(crate) fn resolve_and_pin_dependencies(
     }
 
     for tmpl_ref in &config.templates {
-        match parse_ref(tmpl_ref.clone()) {
+        let ref_string = match tmpl_ref {
+            CyanTemplateFileRef::Simple(s) => s.clone(),
+            CyanTemplateFileRef::Extended { template, .. } => template.clone(),
+        };
+        let preset_answers = match tmpl_ref {
+            CyanTemplateFileRef::Simple(_) => std::collections::HashMap::new(),
+            CyanTemplateFileRef::Extended { preset_answers, .. } => preset_answers.clone(),
+        };
+        match parse_ref(ref_string.clone()) {
             Ok((username, name, version)) => {
                 let tmpl = registry.get_template(username, name, version)?;
-                templates.push(tmpl.principal.clone());
+                templates.push(TemplateVersionTemplateRefRes {
+                    id: tmpl.principal.id.clone(),
+                    version: tmpl.principal.version,
+                    preset_answers,
+                });
             }
             Err(e) => {
-                eprintln!("  Warning: Failed to parse template reference '{tmpl_ref}': {e}");
+                eprintln!("  Warning: Failed to parse template reference '{ref_string}': {e}");
             }
         }
     }

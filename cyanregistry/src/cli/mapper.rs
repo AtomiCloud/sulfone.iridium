@@ -8,7 +8,9 @@ use std::fs::File;
 use std::{fmt, fs};
 
 use crate::cli::models::processor_config::CyanProcessorFileConfig;
-use crate::cli::models::template_config::{CyanResolverRefFileConfig, CyanTemplateFileConfig};
+use crate::cli::models::template_config::{
+    CyanResolverRefFileConfig, CyanTemplateFileConfig, CyanTemplateFileRef,
+};
 use crate::domain::config::plugin_config::CyanPluginConfig;
 use crate::domain::config::processor_config::CyanProcessorConfig;
 use crate::domain::config::resolver_config::CyanResolverConfig;
@@ -62,7 +64,15 @@ pub fn plugin_reference_mapper(s: String) -> Option<CyanPluginRef> {
     })
 }
 
-pub fn template_reference_mapper(s: String) -> Option<CyanTemplateRef> {
+pub fn template_reference_mapper(t: &CyanTemplateFileRef) -> Option<CyanTemplateRef> {
+    let (s, preset_answers) = match t {
+        CyanTemplateFileRef::Simple(s) => (s.clone(), std::collections::HashMap::new()),
+        CyanTemplateFileRef::Extended {
+            template,
+            preset_answers,
+        } => (template.clone(), preset_answers.clone()),
+    };
+
     let mut parts = s.splitn(2, '/');
     let username = parts.next()?.to_string();
     let rest = parts.next()?;
@@ -82,6 +92,7 @@ pub fn template_reference_mapper(s: String) -> Option<CyanTemplateRef> {
         username,
         name,
         version,
+        preset_answers,
     })
 }
 
@@ -236,7 +247,7 @@ pub fn template_config_mapper(
     let temp: Result<Vec<CyanTemplateRef>, Box<dyn Error + Send>> = r
         .templates
         .iter()
-        .map(|t| template_reference_mapper(t.clone()))
+        .map(template_reference_mapper)
         .map(|opt| {
             opt.ok_or(ParsingError::FailedParsingTemplateReference(
                 "unknown".to_string(),

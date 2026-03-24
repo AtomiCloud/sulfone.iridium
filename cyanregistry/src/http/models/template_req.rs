@@ -52,12 +52,16 @@ pub struct ProcessorRefReq {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct TemplateRefReq {
     pub username: String,
 
     pub name: String,
 
     pub version: i64,
+
+    #[serde(default)]
+    pub preset_answers: std::collections::HashMap<String, serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
