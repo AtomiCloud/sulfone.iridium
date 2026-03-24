@@ -5,12 +5,9 @@ tests:
       value:
         path: fixtures/expected/hello:pass123:2026-03-13:typescript:yes:none
     answer_state:
-      cyane2e/template5/features:
-        type: StringArray
-        value: []
-      cyane2e/template5/projectName:
+      cyane2e/template5/language:
         type: String
-        value: hello
+        value: TypeScript
       cyane2e/template5/startDate:
         type: String
         value: 2026-03-13
@@ -20,9 +17,12 @@ tests:
       cyane2e/template5/apiKey:
         type: String
         value: pass123
-      cyane2e/template5/language:
+      cyane2e/template5/projectName:
         type: String
-        value: TypeScript
+        value: hello
+      cyane2e/template5/features:
+        type: StringArray
+        value: []
     deterministic_state: {}
     validate: []
   - name: hello:pass123:2026-03-13:typescript:yes:logging
@@ -31,9 +31,6 @@ tests:
       value:
         path: fixtures/expected/hello:pass123:2026-03-13:typescript:yes:logging
     answer_state:
-      cyane2e/template5/projectName:
-        type: String
-        value: hello
       cyane2e/template5/startDate:
         type: String
         value: 2026-03-13
@@ -47,6 +44,9 @@ tests:
       cyane2e/template5/language:
         type: String
         value: TypeScript
+      cyane2e/template5/projectName:
+        type: String
+        value: hello
       cyane2e/template5/apiKey:
         type: String
         value: pass123
@@ -58,25 +58,25 @@ tests:
       value:
         path: fixtures/expected/hello:pass123:2026-03-13:typescript:yes:metrics
     answer_state:
-      cyane2e/template5/projectName:
+      cyane2e/template5/apiKey:
         type: String
-        value: hello
+        value: pass123
       cyane2e/template5/startDate:
         type: String
         value: 2026-03-13
-      cyane2e/template5/language:
-        type: String
-        value: TypeScript
-      cyane2e/template5/useDocker:
-        type: Bool
-        value: true
       cyane2e/template5/features:
         type: StringArray
         value:
           - metrics
-      cyane2e/template5/apiKey:
+      cyane2e/template5/useDocker:
+        type: Bool
+        value: true
+      cyane2e/template5/language:
         type: String
-        value: pass123
+        value: TypeScript
+      cyane2e/template5/projectName:
+        type: String
+        value: hello
     deterministic_state: {}
     validate: []
   - name: hello:pass123:2026-03-13:typescript:yes:tracing
@@ -88,22 +88,22 @@ tests:
       cyane2e/template5/startDate:
         type: String
         value: 2026-03-13
+      cyane2e/template5/apiKey:
+        type: String
+        value: pass123
       cyane2e/template5/features:
         type: StringArray
         value:
           - tracing
-      cyane2e/template5/projectName:
-        type: String
-        value: hello
       cyane2e/template5/language:
         type: String
         value: TypeScript
+      cyane2e/template5/projectName:
+        type: String
+        value: hello
       cyane2e/template5/useDocker:
         type: Bool
         value: true
-      cyane2e/template5/apiKey:
-        type: String
-        value: pass123
     deterministic_state: {}
     validate: []
   - name: hello:pass123:2026-03-13:typescript:yes:all
@@ -112,27 +112,27 @@ tests:
       value:
         path: fixtures/expected/hello:pass123:2026-03-13:typescript:yes:all
     answer_state:
-      cyane2e/template5/features:
-        type: StringArray
-        value:
-          - logging
-          - metrics
-          - tracing
-      cyane2e/template5/startDate:
-        type: String
-        value: 2026-03-13
       cyane2e/template5/useDocker:
         type: Bool
         value: true
-      cyane2e/template5/language:
-        type: String
-        value: TypeScript
       cyane2e/template5/apiKey:
         type: String
         value: pass123
       cyane2e/template5/projectName:
         type: String
         value: hello
+      cyane2e/template5/startDate:
+        type: String
+        value: 2026-03-13
+      cyane2e/template5/language:
+        type: String
+        value: TypeScript
+      cyane2e/template5/features:
+        type: StringArray
+        value:
+          - logging
+          - metrics
+          - tracing
     deterministic_state: {}
     validate: []
   - name: hello:pass123:2026-03-13:typescript:no:none
@@ -141,24 +141,24 @@ tests:
       value:
         path: fixtures/expected/hello:pass123:2026-03-13:typescript:no:none
     answer_state:
-      cyane2e/template5/startDate:
-        type: String
-        value: 2026-03-13
       cyane2e/template5/projectName:
         type: String
         value: hello
-      cyane2e/template5/apiKey:
-        type: String
-        value: pass123
-      cyane2e/template5/useDocker:
-        type: Bool
-        value: false
-      cyane2e/template5/language:
-        type: String
-        value: TypeScript
       cyane2e/template5/features:
         type: StringArray
         value: []
+      cyane2e/template5/apiKey:
+        type: String
+        value: pass123
+      cyane2e/template5/startDate:
+        type: String
+        value: 2026-03-13
+      cyane2e/template5/language:
+        type: String
+        value: TypeScript
+      cyane2e/template5/useDocker:
+        type: Bool
+        value: false
     deterministic_state: {}
     validate: []
   - name: hello:pass123:2026-03-13:typescript:no:logging
@@ -171,15 +171,15 @@ tests:
         type: StringArray
         value:
           - logging
-      cyane2e/template5/startDate:
-        type: String
-        value: 2026-03-13
-      cyane2e/template5/apiKey:
-        type: String
-        value: pass123
       cyane2e/template5/language:
         type: String
         value: TypeScript
+      cyane2e/template5/apiKey:
+        type: String
+        value: pass123
+      cyane2e/template5/startDate:
+        type: String
+        value: 2026-03-13
       cyane2e/template5/projectName:
         type: String
         value: hello
@@ -194,25 +194,25 @@ tests:
       value:
         path: fixtures/expected/hello:pass123:2026-03-13:typescript:no:metrics
     answer_state:
+      cyane2e/template5/useDocker:
+        type: Bool
+        value: false
+      cyane2e/template5/startDate:
+        type: String
+        value: 2026-03-13
       cyane2e/template5/language:
         type: String
         value: TypeScript
-      cyane2e/template5/apiKey:
+      cyane2e/template5/projectName:
         type: String
-        value: pass123
+        value: hello
       cyane2e/template5/features:
         type: StringArray
         value:
           - metrics
-      cyane2e/template5/projectName:
+      cyane2e/template5/apiKey:
         type: String
-        value: hello
-      cyane2e/template5/startDate:
-        type: String
-        value: 2026-03-13
-      cyane2e/template5/useDocker:
-        type: Bool
-        value: false
+        value: pass123
     deterministic_state: {}
     validate: []
   - name: hello:pass123:2026-03-13:typescript:no:tracing
@@ -221,25 +221,25 @@ tests:
       value:
         path: fixtures/expected/hello:pass123:2026-03-13:typescript:no:tracing
     answer_state:
+      cyane2e/template5/projectName:
+        type: String
+        value: hello
+      cyane2e/template5/apiKey:
+        type: String
+        value: pass123
       cyane2e/template5/features:
         type: StringArray
         value:
           - tracing
-      cyane2e/template5/projectName:
-        type: String
-        value: hello
       cyane2e/template5/language:
         type: String
         value: TypeScript
-      cyane2e/template5/startDate:
-        type: String
-        value: 2026-03-13
-      cyane2e/template5/apiKey:
-        type: String
-        value: pass123
       cyane2e/template5/useDocker:
         type: Bool
         value: false
+      cyane2e/template5/startDate:
+        type: String
+        value: 2026-03-13
     deterministic_state: {}
     validate: []
   - name: hello:pass123:2026-03-13:typescript:no:all
@@ -248,27 +248,27 @@ tests:
       value:
         path: fixtures/expected/hello:pass123:2026-03-13:typescript:no:all
     answer_state:
-      cyane2e/template5/startDate:
-        type: String
-        value: 2026-03-13
-      cyane2e/template5/language:
-        type: String
-        value: TypeScript
-      cyane2e/template5/apiKey:
-        type: String
-        value: pass123
-      cyane2e/template5/projectName:
-        type: String
-        value: hello
-      cyane2e/template5/useDocker:
-        type: Bool
-        value: false
       cyane2e/template5/features:
         type: StringArray
         value:
           - logging
           - metrics
           - tracing
+      cyane2e/template5/language:
+        type: String
+        value: TypeScript
+      cyane2e/template5/projectName:
+        type: String
+        value: hello
+      cyane2e/template5/apiKey:
+        type: String
+        value: pass123
+      cyane2e/template5/startDate:
+        type: String
+        value: 2026-03-13
+      cyane2e/template5/useDocker:
+        type: Bool
+        value: false
     deterministic_state: {}
     validate: []
   - name: hello:pass123:2026-03-13:python:yes:none
@@ -280,15 +280,15 @@ tests:
       cyane2e/template5/projectName:
         type: String
         value: hello
-      cyane2e/template5/useDocker:
-        type: Bool
-        value: true
       cyane2e/template5/startDate:
         type: String
         value: 2026-03-13
       cyane2e/template5/apiKey:
         type: String
         value: pass123
+      cyane2e/template5/useDocker:
+        type: Bool
+        value: true
       cyane2e/template5/features:
         type: StringArray
         value: []
@@ -303,25 +303,25 @@ tests:
       value:
         path: fixtures/expected/hello:pass123:2026-03-13:python:yes:logging
     answer_state:
-      cyane2e/template5/useDocker:
-        type: Bool
-        value: true
-      cyane2e/template5/language:
-        type: String
-        value: Python
       cyane2e/template5/projectName:
         type: String
         value: hello
       cyane2e/template5/apiKey:
         type: String
         value: pass123
+      cyane2e/template5/startDate:
+        type: String
+        value: 2026-03-13
+      cyane2e/template5/useDocker:
+        type: Bool
+        value: true
       cyane2e/template5/features:
         type: StringArray
         value:
           - logging
-      cyane2e/template5/startDate:
+      cyane2e/template5/language:
         type: String
-        value: 2026-03-13
+        value: Python
     deterministic_state: {}
     validate: []
   - name: hello:pass123:2026-03-13:python:yes:metrics
@@ -330,25 +330,25 @@ tests:
       value:
         path: fixtures/expected/hello:pass123:2026-03-13:python:yes:metrics
     answer_state:
-      cyane2e/template5/useDocker:
-        type: Bool
-        value: true
-      cyane2e/template5/language:
-        type: String
-        value: Python
       cyane2e/template5/features:
         type: StringArray
         value:
           - metrics
-      cyane2e/template5/apiKey:
-        type: String
-        value: pass123
+      cyane2e/template5/useDocker:
+        type: Bool
+        value: true
       cyane2e/template5/projectName:
         type: String
         value: hello
       cyane2e/template5/startDate:
         type: String
         value: 2026-03-13
+      cyane2e/template5/language:
+        type: String
+        value: Python
+      cyane2e/template5/apiKey:
+        type: String
+        value: pass123
     deterministic_state: {}
     validate: []
   - name: hello:pass123:2026-03-13:python:yes:tracing
@@ -357,25 +357,25 @@ tests:
       value:
         path: fixtures/expected/hello:pass123:2026-03-13:python:yes:tracing
     answer_state:
-      cyane2e/template5/useDocker:
-        type: Bool
-        value: true
       cyane2e/template5/apiKey:
         type: String
         value: pass123
-      cyane2e/template5/language:
-        type: String
-        value: Python
-      cyane2e/template5/features:
-        type: StringArray
-        value:
-          - tracing
       cyane2e/template5/projectName:
         type: String
         value: hello
       cyane2e/template5/startDate:
         type: String
         value: 2026-03-13
+      cyane2e/template5/useDocker:
+        type: Bool
+        value: true
+      cyane2e/template5/features:
+        type: StringArray
+        value:
+          - tracing
+      cyane2e/template5/language:
+        type: String
+        value: Python
     deterministic_state: {}
     validate: []
   - name: hello:pass123:2026-03-13:python:yes:all
@@ -384,6 +384,18 @@ tests:
       value:
         path: fixtures/expected/hello:pass123:2026-03-13:python:yes:all
     answer_state:
+      cyane2e/template5/language:
+        type: String
+        value: Python
+      cyane2e/template5/startDate:
+        type: String
+        value: 2026-03-13
+      cyane2e/template5/features:
+        type: StringArray
+        value:
+          - logging
+          - metrics
+          - tracing
       cyane2e/template5/apiKey:
         type: String
         value: pass123
@@ -393,18 +405,6 @@ tests:
       cyane2e/template5/useDocker:
         type: Bool
         value: true
-      cyane2e/template5/features:
-        type: StringArray
-        value:
-          - logging
-          - metrics
-          - tracing
-      cyane2e/template5/startDate:
-        type: String
-        value: 2026-03-13
-      cyane2e/template5/language:
-        type: String
-        value: Python
     deterministic_state: {}
     validate: []
   - name: hello:pass123:2026-03-13:python:no:none
@@ -413,24 +413,24 @@ tests:
       value:
         path: fixtures/expected/hello:pass123:2026-03-13:python:no:none
     answer_state:
-      cyane2e/template5/features:
-        type: StringArray
-        value: []
+      cyane2e/template5/useDocker:
+        type: Bool
+        value: false
       cyane2e/template5/projectName:
         type: String
         value: hello
+      cyane2e/template5/apiKey:
+        type: String
+        value: pass123
+      cyane2e/template5/features:
+        type: StringArray
+        value: []
       cyane2e/template5/language:
         type: String
         value: Python
       cyane2e/template5/startDate:
         type: String
         value: 2026-03-13
-      cyane2e/template5/useDocker:
-        type: Bool
-        value: false
-      cyane2e/template5/apiKey:
-        type: String
-        value: pass123
     deterministic_state: {}
     validate: []
   - name: hello:pass123:2026-03-13:python:no:logging
@@ -439,25 +439,25 @@ tests:
       value:
         path: fixtures/expected/hello:pass123:2026-03-13:python:no:logging
     answer_state:
-      cyane2e/template5/projectName:
-        type: String
-        value: hello
       cyane2e/template5/startDate:
         type: String
         value: 2026-03-13
-      cyane2e/template5/language:
+      cyane2e/template5/projectName:
         type: String
-        value: Python
+        value: hello
       cyane2e/template5/features:
         type: StringArray
         value:
           - logging
-      cyane2e/template5/apiKey:
+      cyane2e/template5/language:
         type: String
-        value: pass123
+        value: Python
       cyane2e/template5/useDocker:
         type: Bool
         value: false
+      cyane2e/template5/apiKey:
+        type: String
+        value: pass123
     deterministic_state: {}
     validate: []
   - name: hello:pass123:2026-03-13:python:no:metrics
@@ -466,25 +466,25 @@ tests:
       value:
         path: fixtures/expected/hello:pass123:2026-03-13:python:no:metrics
     answer_state:
-      cyane2e/template5/features:
-        type: StringArray
-        value:
-          - metrics
-      cyane2e/template5/projectName:
-        type: String
-        value: hello
-      cyane2e/template5/useDocker:
-        type: Bool
-        value: false
-      cyane2e/template5/apiKey:
-        type: String
-        value: pass123
       cyane2e/template5/language:
         type: String
         value: Python
       cyane2e/template5/startDate:
         type: String
         value: 2026-03-13
+      cyane2e/template5/apiKey:
+        type: String
+        value: pass123
+      cyane2e/template5/projectName:
+        type: String
+        value: hello
+      cyane2e/template5/useDocker:
+        type: Bool
+        value: false
+      cyane2e/template5/features:
+        type: StringArray
+        value:
+          - metrics
     deterministic_state: {}
     validate: []
   - name: hello:pass123:2026-03-13:python:no:tracing
@@ -493,25 +493,25 @@ tests:
       value:
         path: fixtures/expected/hello:pass123:2026-03-13:python:no:tracing
     answer_state:
-      cyane2e/template5/useDocker:
-        type: Bool
-        value: false
-      cyane2e/template5/language:
-        type: String
-        value: Python
       cyane2e/template5/features:
         type: StringArray
         value:
           - tracing
+      cyane2e/template5/projectName:
+        type: String
+        value: hello
+      cyane2e/template5/useDocker:
+        type: Bool
+        value: false
       cyane2e/template5/apiKey:
         type: String
         value: pass123
       cyane2e/template5/startDate:
         type: String
         value: 2026-03-13
-      cyane2e/template5/projectName:
+      cyane2e/template5/language:
         type: String
-        value: hello
+        value: Python
     deterministic_state: {}
     validate: []
   - name: hello:pass123:2026-03-13:python:no:all
@@ -520,27 +520,27 @@ tests:
       value:
         path: fixtures/expected/hello:pass123:2026-03-13:python:no:all
     answer_state:
-      cyane2e/template5/language:
+      cyane2e/template5/startDate:
         type: String
-        value: Python
-      cyane2e/template5/features:
-        type: StringArray
-        value:
-          - logging
-          - metrics
-          - tracing
+        value: 2026-03-13
       cyane2e/template5/apiKey:
         type: String
         value: pass123
       cyane2e/template5/projectName:
         type: String
         value: hello
-      cyane2e/template5/startDate:
-        type: String
-        value: 2026-03-13
       cyane2e/template5/useDocker:
         type: Bool
         value: false
+      cyane2e/template5/features:
+        type: StringArray
+        value:
+          - logging
+          - metrics
+          - tracing
+      cyane2e/template5/language:
+        type: String
+        value: Python
     deterministic_state: {}
     validate: []
   - name: hello:pass123:2026-03-13:rust:yes:none
@@ -549,24 +549,24 @@ tests:
       value:
         path: fixtures/expected/hello:pass123:2026-03-13:rust:yes:none
     answer_state:
-      cyane2e/template5/features:
-        type: StringArray
-        value: []
-      cyane2e/template5/apiKey:
-        type: String
-        value: pass123
-      cyane2e/template5/language:
-        type: String
-        value: Rust
       cyane2e/template5/projectName:
         type: String
         value: hello
-      cyane2e/template5/startDate:
-        type: String
-        value: 2026-03-13
       cyane2e/template5/useDocker:
         type: Bool
         value: true
+      cyane2e/template5/startDate:
+        type: String
+        value: 2026-03-13
+      cyane2e/template5/apiKey:
+        type: String
+        value: pass123
+      cyane2e/template5/features:
+        type: StringArray
+        value: []
+      cyane2e/template5/language:
+        type: String
+        value: Rust
     deterministic_state: {}
     validate: []
   - name: hello:pass123:2026-03-13:rust:yes:logging
@@ -575,6 +575,15 @@ tests:
       value:
         path: fixtures/expected/hello:pass123:2026-03-13:rust:yes:logging
     answer_state:
+      cyane2e/template5/projectName:
+        type: String
+        value: hello
+      cyane2e/template5/apiKey:
+        type: String
+        value: pass123
+      cyane2e/template5/startDate:
+        type: String
+        value: 2026-03-13
       cyane2e/template5/useDocker:
         type: Bool
         value: true
@@ -582,18 +591,9 @@ tests:
         type: StringArray
         value:
           - logging
-      cyane2e/template5/apiKey:
-        type: String
-        value: pass123
       cyane2e/template5/language:
         type: String
         value: Rust
-      cyane2e/template5/projectName:
-        type: String
-        value: hello
-      cyane2e/template5/startDate:
-        type: String
-        value: 2026-03-13
     deterministic_state: {}
     validate: []
   - name: hello:pass123:2026-03-13:rust:yes:metrics
@@ -602,25 +602,25 @@ tests:
       value:
         path: fixtures/expected/hello:pass123:2026-03-13:rust:yes:metrics
     answer_state:
-      cyane2e/template5/language:
-        type: String
-        value: Rust
-      cyane2e/template5/apiKey:
-        type: String
-        value: pass123
-      cyane2e/template5/startDate:
-        type: String
-        value: 2026-03-13
-      cyane2e/template5/useDocker:
-        type: Bool
-        value: true
       cyane2e/template5/features:
         type: StringArray
         value:
           - metrics
+      cyane2e/template5/startDate:
+        type: String
+        value: 2026-03-13
+      cyane2e/template5/apiKey:
+        type: String
+        value: pass123
+      cyane2e/template5/useDocker:
+        type: Bool
+        value: true
       cyane2e/template5/projectName:
         type: String
         value: hello
+      cyane2e/template5/language:
+        type: String
+        value: Rust
     deterministic_state: {}
     validate: []
   - name: hello:pass123:2026-03-13:rust:yes:tracing
@@ -629,22 +629,22 @@ tests:
       value:
         path: fixtures/expected/hello:pass123:2026-03-13:rust:yes:tracing
     answer_state:
-      cyane2e/template5/apiKey:
-        type: String
-        value: pass123
       cyane2e/template5/features:
         type: StringArray
         value:
           - tracing
+      cyane2e/template5/projectName:
+        type: String
+        value: hello
+      cyane2e/template5/apiKey:
+        type: String
+        value: pass123
       cyane2e/template5/startDate:
         type: String
         value: 2026-03-13
       cyane2e/template5/useDocker:
         type: Bool
         value: true
-      cyane2e/template5/projectName:
-        type: String
-        value: hello
       cyane2e/template5/language:
         type: String
         value: Rust
@@ -659,24 +659,24 @@ tests:
       cyane2e/template5/apiKey:
         type: String
         value: pass123
-      cyane2e/template5/projectName:
-        type: String
-        value: hello
-      cyane2e/template5/startDate:
-        type: String
-        value: 2026-03-13
       cyane2e/template5/useDocker:
         type: Bool
         value: true
-      cyane2e/template5/language:
-        type: String
-        value: Rust
       cyane2e/template5/features:
         type: StringArray
         value:
           - logging
           - metrics
           - tracing
+      cyane2e/template5/projectName:
+        type: String
+        value: hello
+      cyane2e/template5/startDate:
+        type: String
+        value: 2026-03-13
+      cyane2e/template5/language:
+        type: String
+        value: Rust
     deterministic_state: {}
     validate: []
   - name: hello:pass123:2026-03-13:rust:no:none
@@ -685,18 +685,18 @@ tests:
       value:
         path: fixtures/expected/hello:pass123:2026-03-13:rust:no:none
     answer_state:
-      cyane2e/template5/useDocker:
-        type: Bool
-        value: false
       cyane2e/template5/startDate:
         type: String
         value: 2026-03-13
-      cyane2e/template5/features:
-        type: StringArray
-        value: []
       cyane2e/template5/apiKey:
         type: String
         value: pass123
+      cyane2e/template5/features:
+        type: StringArray
+        value: []
+      cyane2e/template5/useDocker:
+        type: Bool
+        value: false
       cyane2e/template5/projectName:
         type: String
         value: hello
@@ -711,12 +711,6 @@ tests:
       value:
         path: fixtures/expected/hello:pass123:2026-03-13:rust:no:logging
     answer_state:
-      cyane2e/template5/projectName:
-        type: String
-        value: hello
-      cyane2e/template5/useDocker:
-        type: Bool
-        value: false
       cyane2e/template5/startDate:
         type: String
         value: 2026-03-13
@@ -724,12 +718,18 @@ tests:
         type: StringArray
         value:
           - logging
-      cyane2e/template5/apiKey:
+      cyane2e/template5/projectName:
         type: String
-        value: pass123
+        value: hello
       cyane2e/template5/language:
         type: String
         value: Rust
+      cyane2e/template5/apiKey:
+        type: String
+        value: pass123
+      cyane2e/template5/useDocker:
+        type: Bool
+        value: false
     deterministic_state: {}
     validate: []
   - name: hello:pass123:2026-03-13:rust:no:metrics
@@ -738,25 +738,25 @@ tests:
       value:
         path: fixtures/expected/hello:pass123:2026-03-13:rust:no:metrics
     answer_state:
+      cyane2e/template5/language:
+        type: String
+        value: Rust
+      cyane2e/template5/useDocker:
+        type: Bool
+        value: false
+      cyane2e/template5/apiKey:
+        type: String
+        value: pass123
       cyane2e/template5/features:
         type: StringArray
         value:
           - metrics
-      cyane2e/template5/apiKey:
-        type: String
-        value: pass123
       cyane2e/template5/projectName:
         type: String
         value: hello
-      cyane2e/template5/useDocker:
-        type: Bool
-        value: false
       cyane2e/template5/startDate:
         type: String
         value: 2026-03-13
-      cyane2e/template5/language:
-        type: String
-        value: Rust
     deterministic_state: {}
     validate: []
   - name: hello:pass123:2026-03-13:rust:no:tracing
@@ -765,12 +765,6 @@ tests:
       value:
         path: fixtures/expected/hello:pass123:2026-03-13:rust:no:tracing
     answer_state:
-      cyane2e/template5/apiKey:
-        type: String
-        value: pass123
-      cyane2e/template5/startDate:
-        type: String
-        value: 2026-03-13
       cyane2e/template5/features:
         type: StringArray
         value:
@@ -778,12 +772,18 @@ tests:
       cyane2e/template5/projectName:
         type: String
         value: hello
+      cyane2e/template5/apiKey:
+        type: String
+        value: pass123
       cyane2e/template5/useDocker:
         type: Bool
         value: false
       cyane2e/template5/language:
         type: String
         value: Rust
+      cyane2e/template5/startDate:
+        type: String
+        value: 2026-03-13
     deterministic_state: {}
     validate: []
   - name: hello:pass123:2026-03-13:rust:no:all
@@ -792,24 +792,24 @@ tests:
       value:
         path: fixtures/expected/hello:pass123:2026-03-13:rust:no:all
     answer_state:
-      cyane2e/template5/useDocker:
-        type: Bool
-        value: false
       cyane2e/template5/projectName:
         type: String
         value: hello
       cyane2e/template5/apiKey:
         type: String
         value: pass123
+      cyane2e/template5/useDocker:
+        type: Bool
+        value: false
+      cyane2e/template5/language:
+        type: String
+        value: Rust
       cyane2e/template5/features:
         type: StringArray
         value:
           - logging
           - metrics
           - tracing
-      cyane2e/template5/language:
-        type: String
-        value: Rust
       cyane2e/template5/startDate:
         type: String
         value: 2026-03-13
