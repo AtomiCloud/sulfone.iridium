@@ -11,4 +11,5 @@ FROM base
 LABEL cyanprint.dev=true
 COPY --from=build /cyanprint/artifact/cyan.tar.gz  /cyanprint/artifact/cyan.tar.gz
 WORKDIR /workspace
+RUN mkdir -p /workspace/cyanprint
 CMD [ "tar",  "-xzf",  "/cyanprint/artifact/cyan.tar.gz", "-C", "/workspace/cyanprint", "--strip-components=1" ]
