@@ -23,6 +23,8 @@ pub struct CyanTemplateConfig {
     pub readme: String,
 
     pub resolvers: Vec<CyanResolverRef>,
+
+    pub commands: Vec<String>,
 }
 
 #[derive(Debug, Clone)]

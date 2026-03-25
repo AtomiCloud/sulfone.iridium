@@ -729,6 +729,7 @@ pub(crate) fn build_synthetic_template(
         plugins: pinned.plugins.clone(),
         templates: pinned.templates.clone(),
         resolvers: pinned.resolvers.clone(),
+        commands: vec![],
     })
 }
 
@@ -1459,6 +1460,7 @@ mod tests {
             plugins: vec![],
             templates: vec![],
             resolvers: vec![],
+            commands: vec![],
         };
 
         let blob_ref = Some("ghcr.io/test/blob:v1.0.0".to_string());
@@ -1495,6 +1497,7 @@ mod tests {
             plugins: vec![],
             templates: vec![],
             resolvers: vec![],
+            commands: vec![],
         };
 
         let result = build_synthetic_template("local-test", &config, &pinned, true, None);

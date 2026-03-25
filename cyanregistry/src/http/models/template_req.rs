@@ -31,6 +31,9 @@ pub struct TemplateReq {
 
     #[serde(default)]
     pub resolvers: Vec<ResolverRefReq>,
+
+    #[serde(default)]
+    pub commands: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

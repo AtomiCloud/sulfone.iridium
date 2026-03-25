@@ -837,6 +837,7 @@ mod tests {
             processors: vec![],
             templates,
             resolvers: vec![],
+            commands: vec![],
         }
     }
 
