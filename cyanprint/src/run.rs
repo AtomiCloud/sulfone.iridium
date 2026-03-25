@@ -68,7 +68,7 @@ pub fn batch_process(
             spec.template_name.clone(),
             Some(spec.version),
         )?;
-        let (vfs, _final_state, session_ids) =
+        let (vfs, _final_state, session_ids, _commands) =
             operator.execute_template(&template_res, &spec.answers, &spec.deterministic_states)?;
         prev_vfs_list.push(vfs);
         prev_session_ids.extend(session_ids);
@@ -89,7 +89,7 @@ pub fn batch_process(
             spec.template_name.clone(),
             Some(spec.version),
         )?;
-        let (vfs, final_state, session_ids) =
+        let (vfs, final_state, session_ids, _commands) =
             operator.execute_template(&template_res, &spec.answers, &spec.deterministic_states)?;
         curr_vfs_list.push(vfs);
         curr_session_ids.extend(session_ids);
@@ -477,8 +477,21 @@ pub fn cyan_run(
             "\n⚡ Executing {} post-template command(s)...",
             commands.len()
         );
-        let exec_result = CommandExecutor::execute_commands(&commands, target_dir)?;
+        let exec_result = match CommandExecutor::execute_commands(&commands, target_dir) {
+            Ok(result) => result,
+            Err(err) => {
+                // Clean up coordinator sessions before propagating the error
+                for sid in &session_ids {
+                    let _ = coord_client.clean(sid.clone());
+                }
+                return Err(err);
+            }
+        };
         if exec_result.aborted {
+            // Clean up coordinator sessions before returning on abort
+            for sid in &session_ids {
+                let _ = coord_client.clean(sid.clone());
+            }
             return Err(Box::new(std::io::Error::other(format!(
                 "Command execution aborted: {}/{} succeeded, {}/{} failed before abort",
                 exec_result.succeeded, exec_result.total, exec_result.failed, exec_result.total

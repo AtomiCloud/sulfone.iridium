@@ -212,16 +212,26 @@ impl CompositionOperator {
     // Unified Batch Processing Methods (v2/v3 spec)
     // =========================================================================
 
-    /// Execute a single template spec and return VFS + final state + session IDs.
+    /// Execute a single template spec and return VFS + final state + session IDs + commands.
     /// This is the core primitive - pure function, no side effects.
     /// Dependencies are resolved in post-order and layered internally.
-    /// Returns the final CompositionState which contains answers after Q&A.
+    /// Returns the final CompositionState which contains answers after Q&A,
+    /// and commands collected from all resolved dependencies in post-order.
+    #[allow(clippy::type_complexity)]
     pub fn execute_template(
         &mut self,
         template: &cyanregistry::http::models::template_res::TemplateVersionRes,
         answers: &HashMap<String, Answer>,
         deterministic_states: &HashMap<String, String>,
-    ) -> Result<(VirtualFileSystem, CompositionState, Vec<String>), Box<dyn Error + Send>> {
+    ) -> Result<
+        (
+            VirtualFileSystem,
+            CompositionState,
+            Vec<String>,
+            Vec<String>,
+        ),
+        Box<dyn Error + Send>,
+    > {
         let dependencies = self.dependency_resolver.resolve_dependencies(template)?;
 
         let shared_state = CompositionState {
@@ -232,7 +242,8 @@ impl CompositionOperator {
 
         let (vfs, final_state, session_ids) =
             self.execute_composition(&dependencies, &shared_state)?;
-        Ok((vfs, final_state, session_ids))
+        let commands = Self::collect_commands(&dependencies);
+        Ok((vfs, final_state, session_ids, commands))
     }
 
     /// Layer merge a list of VFS into one (LWW semantics).

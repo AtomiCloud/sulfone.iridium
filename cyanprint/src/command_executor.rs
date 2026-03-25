@@ -47,13 +47,22 @@ impl CommandExecutor {
         commands: &[String],
         working_dir: &Path,
     ) -> Result<CommandExecutionResult, Box<dyn Error + Send>> {
+        // Filter out blank/whitespace-only commands as a safety net.
+        // The registry mapper strips these on push, but `cyanprint try`
+        // feeds local cyan.yaml entries directly into this executor.
+        let commands: Vec<&str> = commands
+            .iter()
+            .map(String::as_str)
+            .filter(|cmd| !cmd.trim().is_empty())
+            .collect();
+
         if commands.is_empty() {
             return Ok(CommandExecutionResult::new(0));
         }
 
         // Approval prompt
         println!("\n⚠️  {} command(s) will be executed:", commands.len());
-        for (i, cmd) in commands.iter().enumerate() {
+        for (i, cmd) in commands.iter().copied().enumerate() {
             println!("  {}. {}", i + 1, cmd);
         }
 
@@ -73,7 +82,7 @@ impl CommandExecutor {
 
         let mut result = CommandExecutionResult::new(commands.len());
 
-        for (i, cmd) in commands.iter().enumerate() {
+        for (i, cmd) in commands.iter().copied().enumerate() {
             print!("  Running command {}/{}: ", i + 1, commands.len());
             println!("{cmd}");
 
