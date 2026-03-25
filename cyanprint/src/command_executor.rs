@@ -135,6 +135,46 @@ impl CommandExecutor {
 
         Ok(result)
     }
+
+    /// Execute commands non-interactively (no approval prompt, fail immediately on error).
+    ///
+    /// Used by the test runner where commands should always execute without user interaction.
+    pub fn execute_commands_non_interactive(
+        commands: &[String],
+        working_dir: &Path,
+    ) -> Result<CommandExecutionResult, Box<dyn Error + Send>> {
+        let commands: Vec<&str> = commands
+            .iter()
+            .map(String::as_str)
+            .filter(|cmd| !cmd.trim().is_empty())
+            .collect();
+
+        if commands.is_empty() {
+            return Ok(CommandExecutionResult::new(0));
+        }
+
+        let mut result = CommandExecutionResult::new(commands.len());
+
+        for (i, cmd) in commands.iter().copied().enumerate() {
+            let exit_status = Command::new("sh")
+                .arg("-c")
+                .arg(cmd)
+                .current_dir(working_dir)
+                .spawn()
+                .map_err(|e| Box::new(e) as Box<dyn Error + Send>)?
+                .wait()
+                .map_err(|e| Box::new(e) as Box<dyn Error + Send>)?;
+
+            if exit_status.success() {
+                result.succeeded += 1;
+            } else {
+                result.failed += 1;
+                result.failed_indices.push(i);
+            }
+        }
+
+        Ok(result)
+    }
 }
 
 #[cfg(test)]

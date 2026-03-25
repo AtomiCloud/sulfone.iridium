@@ -34,6 +34,7 @@ use cyanregistry::http::client::CyanRegistryClient;
 use cyanregistry::http::models::template_res::TemplateVersionRes;
 use tokio::runtime::Builder;
 
+use crate::command_executor::CommandExecutor;
 use crate::docker::buildx::BuildxBuilder;
 use crate::port::{TEMPLATE_TEST, TEMPLATE_TEST_END, allocate_port};
 use crate::test_cmd::config::ExpectedOutput;
@@ -42,6 +43,9 @@ use crate::test_cmd::container::RunGuard;
 use crate::test_cmd::report::TestResult;
 use crate::test_cmd::validation::{ValidateResult, compare_directories, run_validate_commands};
 use crate::try_cmd::{ensure_daemon_running, split_image_ref};
+use cyancoordinator::operations::composition::DependencyResolver;
+use cyancoordinator::operations::composition::operator::CompositionOperator;
+use cyancoordinator::operations::composition::resolver::DefaultDependencyResolver;
 
 /// RAII guard that ensures coordinator session cleanup is always called.
 ///
@@ -236,6 +240,7 @@ pub fn run_template_tests(
             update_snapshots,
             coordinator_endpoint,
             parallel,
+            registry_client,
         )
     } else {
         run_tests_sequential(
@@ -245,6 +250,7 @@ pub fn run_template_tests(
             output_dir,
             update_snapshots,
             coordinator_endpoint,
+            registry_client,
         )
     };
 
@@ -507,6 +513,7 @@ fn run_tests_sequential(
     output_dir: &str,
     update_snapshots: bool,
     coordinator_endpoint: &str,
+    registry_client: &CyanRegistryClient,
 ) -> Result<Vec<TestResult>, Box<dyn Error + Send>> {
     let mut results = Vec::new();
 
@@ -518,6 +525,7 @@ fn run_tests_sequential(
             output_dir,
             update_snapshots,
             coordinator_endpoint,
+            registry_client,
         )?;
         results.push(result);
     }
@@ -525,6 +533,7 @@ fn run_tests_sequential(
     Ok(results)
 }
 
+#[allow(clippy::too_many_arguments)]
 /// Run test cases in parallel.
 fn run_tests_parallel(
     test_cases: Vec<&TestCase>,
@@ -534,11 +543,14 @@ fn run_tests_parallel(
     update_snapshots: bool,
     coordinator_endpoint: &str,
     parallel_count: usize,
+    registry_client: &CyanRegistryClient,
 ) -> Result<Vec<TestResult>, Box<dyn Error + Send>> {
     // Use a semaphore to limit concurrency
     let semaphore = Arc::new(Semaphore::new(parallel_count));
     let results_mutex = Arc::new(Mutex::new(Vec::new()));
     let mut handles = Vec::new();
+    let registry_endpoint = Arc::new(registry_client.endpoint.clone());
+    let registry_version = Arc::new(registry_client.version.clone());
 
     for test_case in test_cases {
         let test_case = test_case.clone();
@@ -548,10 +560,19 @@ fn run_tests_parallel(
         let coordinator_endpoint = coordinator_endpoint.to_string();
         let semaphore = Arc::clone(&semaphore);
         let results_mutex = Arc::clone(&results_mutex);
+        let registry_endpoint = Arc::clone(&registry_endpoint);
+        let registry_version = Arc::clone(&registry_version);
 
         let handle = thread::spawn(move || {
             // Acquire semaphore
             let _permit = semaphore.acquire();
+
+            // Create a per-thread registry client
+            let thread_registry = CyanRegistryClient {
+                endpoint: (*registry_endpoint).clone(),
+                version: (*registry_version).clone(),
+                client: Rc::new(reqwest::blocking::Client::builder().build().unwrap()),
+            };
 
             let result = run_single_test_case(
                 &test_case,
@@ -560,6 +581,7 @@ fn run_tests_parallel(
                 &output_dir,
                 update_snapshots,
                 &coordinator_endpoint,
+                &thread_registry,
             );
 
             // Store result
@@ -609,6 +631,7 @@ fn run_single_test_case(
     output_dir: &str,
     update_snapshots: bool,
     coordinator_endpoint: &str,
+    registry_client: &CyanRegistryClient,
 ) -> Result<TestResult, Box<dyn Error + Send>> {
     let start_time = Instant::now();
     println!("Running test case: {}", test_case.name);
@@ -725,6 +748,40 @@ fn run_single_test_case(
     )?;
 
     println!("  Output unpacked successfully");
+
+    // Execute post-template commands (resolved from dependency tree)
+    let rc_registry = Rc::new(CyanRegistryClient {
+        endpoint: registry_client.endpoint.clone(),
+        version: registry_client.version.clone(),
+        client: Rc::clone(&registry_client.client),
+    });
+    let resolver = DefaultDependencyResolver::new(rc_registry);
+    let resolved_commands: Vec<String> = match resolver.resolve_dependencies(&warmup.template) {
+        Ok(deps) => CompositionOperator::collect_commands(&deps),
+        Err(_) => warmup.template.commands.clone(),
+    };
+    if !resolved_commands.is_empty() {
+        println!(
+            "  Executing {} post-template command(s)...",
+            resolved_commands.len()
+        );
+        let exec_result = CommandExecutor::execute_commands_non_interactive(
+            &resolved_commands,
+            &test_output_dir,
+        )?;
+        if !exec_result.all_succeeded() {
+            let cmd_msg = format!(
+                "Command execution failed: {}/{} succeeded, {}/{} failed",
+                exec_result.succeeded, exec_result.total, exec_result.failed, exec_result.total
+            );
+            return Ok(TestResult {
+                name: test_case.name.clone(),
+                passed: false,
+                duration: start_time.elapsed(),
+                failure_message: Some(cmd_msg),
+            });
+        }
+    }
 
     // Compare with expected snapshot first
     let mut failure_message: Option<String> = None;

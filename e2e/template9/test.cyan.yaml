@@ -1,1 +1,16 @@
-tests: []
+tests:
+  - name: commands-in-order
+    expected:
+      type: inline
+      value: null
+    answer_state:
+      template9/greeting:
+        type: String
+        value: hi
+    deterministic_state: {}
+    validate:
+      - 'test -f order.txt'
+      - 'grep -q "step1-t9" order.txt'
+      - 'grep -q "step2-t9" order.txt'
+      - 'test "$(head -1 order.txt)" = "step1-t9"'
+      - 'test "$(sed -n 2p order.txt)" = "step2-t9"'
