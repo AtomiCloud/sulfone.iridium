@@ -80,6 +80,16 @@ cyanprint push --folder ./e2e/template8 template --build "$tag"
 ./e2e/publish-template.sh ./e2e/template-resolver-1-v1 template-resolver-1 push
 ./e2e/publish-template.sh ./e2e/template-resolver-2-v1 template-resolver-2 push
 
+# template9 uses new build format with commands
+echo "🔍 Publishing template9..."
+tag=$(openssl rand -hex 5)
+cyanprint push --folder ./e2e/template9 template --build "$tag"
+
+# template10 depends on template9, also has commands
+echo "🔍 Publishing template10..."
+tag=$(openssl rand -hex 5)
+cyanprint push --folder ./e2e/template10 template --build "$tag"
+
 echo "🔍 Publishing group..."
 ./e2e/publish-group.sh ./e2e/template4 template4 push
 

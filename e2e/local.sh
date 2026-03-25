@@ -42,6 +42,11 @@ echo "🔍 Running try commands..."
 ./e2e/run-interactive.sh try-template5 e2e/expect/try-template5.exp \
   e2e/template5/fixtures/expected/hello:pass123:2026-03-13:typescript:no:logging
 
+# --- command execution tests ---
+echo "🔍 Running command execution tests..."
+./e2e/run-interactive.sh try-template9 e2e/expect/try-template9.exp
+./e2e/run-interactive.sh try-template10 e2e/expect/try-template10.exp
+
 # try template4 group — skipped: group try is interactive (member templates have questions)
 # TODO: add back when `try group` supports non-interactive mode
 

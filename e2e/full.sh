@@ -36,6 +36,11 @@ echo "▶️  RUN create-template8 (create, verify preset answers injection)"
 rm -rf /tmp/e2e-create-t8-output
 ./e2e/run-interactive.sh create-template8 e2e/expect/create-template8.exp
 
+# --- command execution tests ---
+echo "🔍 Testing command execution on create..."
+rm -rf /tmp/e2e-create-t10-output
+./e2e/run-interactive.sh create-template10 e2e/expect/create-template10.exp
+
 # --- upgrade tests (LWW) ---
 echo "🔍 Running upgrade tests (LWW)..."
 
