@@ -1,3 +1,26 @@
+## [2.19.0](https://github.com/AtomiCloud/sulfone.iridium/compare/v2.18.1...v2.19.0) (2026-03-25)
+
+
+### 📜 Documentation 📜
+
+* **CU-86ex0ycve:** add spec and plans for preset answers ([45ba6de](https://github.com/AtomiCloud/sulfone.iridium/commit/45ba6debbd1e9e4a8fb9c161be719fb144abe799))
+
+
+### ✨ Features ✨
+
+* **cyancoordinator:** dep resolution injection for preset answers ([9e0dc57](https://github.com/AtomiCloud/sulfone.iridium/commit/9e0dc577ccbdb5646e2f113484544b0c4bca48c7))
+* **cyanregistry:** extend data pipeline for preset answers ([5ab99d3](https://github.com/AtomiCloud/sulfone.iridium/commit/5ab99d39afbce7bed5b3d2f56253e3591128bf5e))
+
+
+### 🐛 Bug Fixes 🐛
+
+* **cyancoordinator:** clarify test comments for dependency traversal ([65e7a4c](https://github.com/AtomiCloud/sulfone.iridium/commit/65e7a4cc7f9dffef9d89ff59f439e578d76819dc))
+
+
+### 🧪 Tests 🧪
+
+* **e2e:** add E2E test coverage for preset answers feature ([0a3726b](https://github.com/AtomiCloud/sulfone.iridium/commit/0a3726bb9a69a650910bfc835bc9669af2d5d47d))
+
 ## [2.18.1](https://github.com/AtomiCloud/sulfone.iridium/compare/v2.18.0...v2.18.1) (2026-03-24)
 
 

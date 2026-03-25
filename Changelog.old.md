@@ -1,3 +1,10 @@
+## [2.18.1](https://github.com/AtomiCloud/sulfone.iridium/compare/v2.18.0...v2.18.1) (2026-03-24)
+
+
+### 🐛 Bug Fixes 🐛
+
+* **e2e:** update E2E test snapshots and add ticket specification ([db62b58](https://github.com/AtomiCloud/sulfone.iridium/commit/db62b58d72ea57c00b98fa8fa985ba9c10cb3f38))
+
 ## [2.18.0](https://github.com/AtomiCloud/sulfone.iridium/compare/v2.17.0...v2.18.0) (2026-03-23)
 
 
