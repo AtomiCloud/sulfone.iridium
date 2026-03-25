@@ -1,0 +1,26 @@
+username: cyane2e
+name: template7
+description: Template7 - Sub-template for preset answers E2E testing
+project: https://google.com
+source: https://google.com
+email: cyane2e@atomi.cloud
+tags: []
+readme: cyan/README.MD
+processors: ['cyane2e/processor2']
+plugins: ['cyane2e/plugin2']
+templates: []
+resolvers: []
+
+build:
+  registry: kirinnee
+  platforms:
+    - linux/amd64
+  images:
+    template:
+      image: template7
+      dockerfile: cyan/Dockerfile
+      context: ./cyan
+    blob:
+      image: blob7
+      dockerfile: blob.Dockerfile
+      context: .

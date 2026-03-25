@@ -1,0 +1,36 @@
+#!/usr/bin/expect -f
+
+set timeout 120
+
+spawn cyanprint create cyane2e/template8:1 /tmp/e2e-create-t8-output
+
+# Template7 questions (database and port are preset, only enableSSL is asked)
+expect -re {.*SSL.*}
+send "y\r"
+
+# Template8 questions
+expect -re {.*app name.*}
+send "myapp\r"
+
+expect -re {.*environment.*}
+send "\r"
+
+expect eof
+
+# Verify output directory exists and contains both config files
+if {[file isdirectory /tmp/e2e-create-t8-output]} {
+    if {[file exists /tmp/e2e-create-t8-output/db-config.yaml]} {
+        if {[file exists /tmp/e2e-create-t8-output/app-config.yaml]} {
+            exit 0
+        } else {
+            puts "ERROR: app-config.yaml not found in output"
+            exit 1
+        }
+    } else {
+        puts "ERROR: db-config.yaml not found in output"
+        exit 1
+    }
+} else {
+    puts "ERROR: Output directory /tmp/e2e-create-t8-output does not exist"
+    exit 1
+}

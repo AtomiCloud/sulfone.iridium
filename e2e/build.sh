@@ -63,6 +63,16 @@ echo "🔍 Publishing template6..."
 tag=$(openssl rand -hex 5)
 cyanprint push --folder ./e2e/template6 template --build "$tag"
 
+# template7 uses new build format
+echo "🔍 Publishing template7..."
+tag=$(openssl rand -hex 5)
+cyanprint push --folder ./e2e/template7 template --build "$tag"
+
+# template8 uses new build format
+echo "🔍 Publishing template8..."
+tag=$(openssl rand -hex 5)
+cyanprint push --folder ./e2e/template8 template --build "$tag"
+
 ./e2e/publish-template.sh ./e2e/test-batch-a-v1 test-batch-a push
 ./e2e/publish-template.sh ./e2e/test-batch-a-v2 test-batch-a push
 ./e2e/publish-template.sh ./e2e/test-batch-b-v1 test-batch-b push
