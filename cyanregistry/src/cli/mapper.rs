@@ -288,6 +288,7 @@ pub fn template_config_mapper(
                         plugins: plug_result,
                         templates: temp_result,
                         resolvers: resolvers_result,
+                        commands: r.commands.clone(),
                     })
                 })
             })
@@ -1031,6 +1032,139 @@ mod tests {
 
         // Cleanup
         std::env::remove_var("CYAN_ITEST_EMPTY_URL");
+    }
+
+    // ===== Template Config Commands Tests =====
+
+    #[test]
+    fn test_template_config_mapper_with_commands() {
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+        let readme_path = temp_dir.path().join("README.md");
+        std::fs::write(&readme_path, "Test template readme").expect("Failed to write README");
+
+        let file_config = CyanTemplateFileConfig {
+            username: "testuser".to_string(),
+            name: "test-template".to_string(),
+            description: "A test template".to_string(),
+            project: "test-project".to_string(),
+            source: "github.com/test/template".to_string(),
+            email: "test@test.com".to_string(),
+            tags: vec!["test".to_string()],
+            readme: readme_path.to_string_lossy().to_string(),
+            processors: vec![],
+            plugins: vec![],
+            templates: vec![],
+            resolvers: vec![],
+            commands: vec!["build".to_string(), "test".to_string()],
+        };
+
+        let result = template_config_mapper(&file_config);
+        assert!(result.is_ok(), "template_config_mapper should succeed");
+
+        let domain_config = result.unwrap();
+        assert_eq!(domain_config.commands, vec!["build", "test"]);
+    }
+
+    #[test]
+    fn test_template_config_mapper_without_commands() {
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+        let readme_path = temp_dir.path().join("README.md");
+        std::fs::write(&readme_path, "Test template readme").expect("Failed to write README");
+
+        let file_config = CyanTemplateFileConfig {
+            username: "testuser".to_string(),
+            name: "test-template".to_string(),
+            description: "A test template".to_string(),
+            project: "test-project".to_string(),
+            source: "github.com/test/template".to_string(),
+            email: "test@test.com".to_string(),
+            tags: vec!["test".to_string()],
+            readme: readme_path.to_string_lossy().to_string(),
+            processors: vec![],
+            plugins: vec![],
+            templates: vec![],
+            resolvers: vec![],
+            commands: vec![], // Empty commands - backward compat
+        };
+
+        let result = template_config_mapper(&file_config);
+        assert!(result.is_ok(), "template_config_mapper should succeed");
+
+        let domain_config = result.unwrap();
+        assert!(domain_config.commands.is_empty());
+    }
+
+    #[test]
+    fn test_template_file_config_parse_yaml_with_commands() {
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+        let config_path = temp_dir.path().join("cyan.yaml");
+        let readme_path = temp_dir.path().join("README.md");
+        std::fs::write(&readme_path, "Test template readme").expect("Failed to write README");
+
+        std::fs::write(
+            &config_path,
+            r#"username: testuser
+name: test-template
+description: A test template
+project: test-project
+source: github.com/test/template
+email: test@test.com
+tags:
+  - test
+readme: README.md
+processors: []
+plugins: []
+templates: []
+resolvers: []
+commands:
+  - build
+  - test
+"#,
+        )
+        .expect("Failed to write config");
+
+        let result = read_yaml::<CyanTemplateFileConfig>(config_path.to_string_lossy().to_string());
+        assert!(result.is_ok(), "Should parse YAML with commands");
+
+        let config = result.unwrap();
+        assert_eq!(config.commands, vec!["build", "test"]);
+    }
+
+    #[test]
+    fn test_template_file_config_parse_yaml_without_commands() {
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+        let config_path = temp_dir.path().join("cyan.yaml");
+        let readme_path = temp_dir.path().join("README.md");
+        std::fs::write(&readme_path, "Test template readme").expect("Failed to write README");
+
+        std::fs::write(
+            &config_path,
+            r#"username: testuser
+name: test-template
+description: A test template
+project: test-project
+source: github.com/test/template
+email: test@test.com
+tags:
+  - test
+readme: README.md
+processors: []
+plugins: []
+templates: []
+resolvers: []
+"#,
+        )
+        .expect("Failed to write config");
+
+        let result = read_yaml::<CyanTemplateFileConfig>(config_path.to_string_lossy().to_string());
+        assert!(
+            result.is_ok(),
+            "Should parse YAML without commands (backward compat)"
+        );
+
+        let config = result.unwrap();
+        // Should default to empty vec due to #[serde(default)]
+        assert!(config.commands.is_empty());
     }
 }
 

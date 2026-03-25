@@ -27,6 +27,7 @@ use crate::update::UserAborted;
 use crate::update::cyan_update;
 use crate::util::parse_ref;
 
+pub mod command_executor;
 pub mod commands;
 pub mod coord;
 pub mod docker;

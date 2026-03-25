@@ -1,0 +1,63 @@
+#!/usr/bin/expect -f
+
+set timeout 120
+
+spawn cyanprint create cyane2e/template10 /tmp/e2e-create-t10-output
+
+# Answer the greeting question for template9 (dependency)
+expect -re {.*Greeting.*}
+send "hi\r"
+
+# Answer the greeting question for template10 (itself)
+expect -re {.*Greeting.*}
+send "hi\r"
+
+# Wait for command execution approval prompt
+expect -re {.*proceed with execution.*}
+send "y\r"
+
+expect eof
+
+# Wait for file system to settle
+sleep 1
+
+# Verify output directory exists
+if {![file isdirectory /tmp/e2e-create-t10-output]} {
+    puts "ERROR: Output directory /tmp/e2e-create-t10-output does not exist"
+    exit 1
+}
+
+# Verify order.txt was created with correct content from both templates
+set fp [open "/tmp/e2e-create-t10-output/order.txt" r]
+set content [read $fp]
+close $fp
+
+# All three steps must be present
+if {[string first "step1-t9" $content] == -1} {
+    puts "ERROR: order.txt missing step1-t9 (from dependency template9)"
+    exit 1
+}
+if {[string first "step2-t9" $content] == -1} {
+    puts "ERROR: order.txt missing step2-t9 (from dependency template9)"
+    exit 1
+}
+if {[string first "step3-t10" $content] == -1} {
+    puts "ERROR: order.txt missing step3-t10 (from template10)"
+    exit 1
+}
+
+# Verify post-order: dependency commands before own commands
+set idx1 [string first "step1-t9" $content]
+set idx2 [string first "step2-t9" $content]
+set idx3 [string first "step3-t10" $content]
+if {$idx1 > $idx2} {
+    puts "ERROR: step1-t9 should appear before step2-t9"
+    exit 1
+}
+if {$idx2 > $idx3} {
+    puts "ERROR: step2-t9 (dependency) should appear before step3-t10 (own)"
+    exit 1
+}
+
+puts "OK: create template10 commands executed in correct post-order"
+exit 0

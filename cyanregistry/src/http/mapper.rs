@@ -118,6 +118,12 @@ pub fn template_req_with_properties_mapper(
         processors: r.processors.iter().map(processor_ref_req_mapper).collect(),
         templates: r.templates.iter().map(template_ref_req_mapper).collect(),
         resolvers: r.resolvers.iter().map(resolver_ref_req_mapper).collect(),
+        commands: r
+            .commands
+            .iter()
+            .filter(|c| !c.trim().is_empty())
+            .cloned()
+            .collect(),
     }
 }
 
@@ -137,6 +143,12 @@ pub fn template_req_without_properties_mapper(r: &CyanTemplateConfig, desc: Stri
         processors: r.processors.iter().map(processor_ref_req_mapper).collect(),
         templates: r.templates.iter().map(template_ref_req_mapper).collect(),
         resolvers: r.resolvers.iter().map(resolver_ref_req_mapper).collect(),
+        commands: r
+            .commands
+            .iter()
+            .filter(|c| !c.trim().is_empty())
+            .cloned()
+            .collect(),
     }
 }
 
@@ -346,5 +358,208 @@ mod tests {
         assert_eq!(deserialized.name, original.name);
         assert_eq!(deserialized.version, original.version);
         assert_eq!(deserialized.preset_answers, original.preset_answers);
+    }
+
+    #[test]
+    fn test_template_req_with_properties_mapper_with_commands() {
+        let config = CyanTemplateConfig {
+            username: "testuser".to_string(),
+            name: "my-template".to_string(),
+            description: "A test template".to_string(),
+            project: "test-project".to_string(),
+            source: "github.com/test/template".to_string(),
+            email: "test@test.com".to_string(),
+            tags: vec!["test".to_string()],
+            processors: vec![],
+            plugins: vec![],
+            templates: vec![],
+            readme: "Test template".to_string(),
+            resolvers: vec![],
+            commands: vec!["echo hello".to_string(), "echo world".to_string()],
+        };
+
+        let req = template_req_with_properties_mapper(
+            &config,
+            "Initial version".to_string(),
+            "blob-ref".to_string(),
+            "blob-tag".to_string(),
+            "template-ref".to_string(),
+            "template-tag".to_string(),
+        );
+
+        assert_eq!(req.commands, vec!["echo hello", "echo world"]);
+    }
+
+    #[test]
+    fn test_template_req_without_properties_mapper_with_commands() {
+        let config = CyanTemplateConfig {
+            username: "testuser".to_string(),
+            name: "my-template".to_string(),
+            description: "A test template".to_string(),
+            project: "test-project".to_string(),
+            source: "github.com/test/template".to_string(),
+            email: "test@test.com".to_string(),
+            tags: vec!["test".to_string()],
+            processors: vec![],
+            plugins: vec![],
+            templates: vec![],
+            readme: "Test template".to_string(),
+            resolvers: vec![],
+            commands: vec!["build".to_string(), "test".to_string()],
+        };
+
+        let req = template_req_without_properties_mapper(&config, "v1".to_string());
+
+        assert_eq!(req.commands, vec!["build", "test"]);
+    }
+
+    #[test]
+    fn test_template_req_mapper_with_empty_commands() {
+        let config = CyanTemplateConfig {
+            username: "testuser".to_string(),
+            name: "my-template".to_string(),
+            description: "A test template".to_string(),
+            project: "test-project".to_string(),
+            source: "github.com/test/template".to_string(),
+            email: "test@test.com".to_string(),
+            tags: vec!["test".to_string()],
+            processors: vec![],
+            plugins: vec![],
+            templates: vec![],
+            readme: "Test template".to_string(),
+            resolvers: vec![],
+            commands: vec![],
+        };
+
+        let req = template_req_with_properties_mapper(
+            &config,
+            "Initial version".to_string(),
+            "blob-ref".to_string(),
+            "blob-tag".to_string(),
+            "template-ref".to_string(),
+            "template-tag".to_string(),
+        );
+
+        assert!(req.commands.is_empty());
+    }
+
+    #[test]
+    fn test_template_req_mapper_with_single_command() {
+        let config = CyanTemplateConfig {
+            username: "testuser".to_string(),
+            name: "my-template".to_string(),
+            description: "A test template".to_string(),
+            project: "test-project".to_string(),
+            source: "github.com/test/template".to_string(),
+            email: "test@test.com".to_string(),
+            tags: vec!["test".to_string()],
+            processors: vec![],
+            plugins: vec![],
+            templates: vec![],
+            readme: "Test template".to_string(),
+            resolvers: vec![],
+            commands: vec!["npm run build".to_string()],
+        };
+
+        let req = template_req_with_properties_mapper(
+            &config,
+            "Initial version".to_string(),
+            "blob-ref".to_string(),
+            "blob-tag".to_string(),
+            "template-ref".to_string(),
+            "template-tag".to_string(),
+        );
+
+        assert_eq!(req.commands, vec!["npm run build"]);
+    }
+
+    #[test]
+    fn test_template_req_mapper_filters_empty_commands() {
+        let config = CyanTemplateConfig {
+            username: "testuser".to_string(),
+            name: "my-template".to_string(),
+            description: "A test template".to_string(),
+            project: "test-project".to_string(),
+            source: "github.com/test/template".to_string(),
+            email: "test@test.com".to_string(),
+            tags: vec!["test".to_string()],
+            processors: vec![],
+            plugins: vec![],
+            templates: vec![],
+            readme: "Test template".to_string(),
+            resolvers: vec![],
+            commands: vec![
+                "echo hello".to_string(),
+                "".to_string(),
+                "   ".to_string(),
+                "echo world".to_string(),
+            ],
+        };
+
+        let req = template_req_with_properties_mapper(
+            &config,
+            "Initial version".to_string(),
+            "blob-ref".to_string(),
+            "blob-tag".to_string(),
+            "template-ref".to_string(),
+            "template-tag".to_string(),
+        );
+
+        // Empty and whitespace-only commands should be filtered out
+        assert_eq!(req.commands, vec!["echo hello", "echo world"]);
+    }
+
+    #[test]
+    fn test_template_req_serde_roundtrip_with_commands() {
+        let original = TemplateReq {
+            name: "my-template".to_string(),
+            project: "test-project".to_string(),
+            source: "github.com/test/template".to_string(),
+            email: "test@test.com".to_string(),
+            tags: vec!["test".to_string()],
+            description: "A test template".to_string(),
+            readme: "Test template".to_string(),
+            version_description: "Initial version".to_string(),
+            properties: None,
+            plugins: vec![],
+            processors: vec![],
+            templates: vec![],
+            resolvers: vec![],
+            commands: vec!["build".to_string(), "test".to_string()],
+        };
+
+        let json = serde_json::to_string(&original).expect("serialization should succeed");
+        let deserialized: TemplateReq =
+            serde_json::from_str(&json).expect("deserialization should succeed");
+
+        assert_eq!(deserialized.name, original.name);
+        assert_eq!(deserialized.commands, original.commands);
+    }
+
+    #[test]
+    fn test_template_req_serde_roundtrip_without_commands() {
+        let original = TemplateReq {
+            name: "my-template".to_string(),
+            project: "test-project".to_string(),
+            source: "github.com/test/template".to_string(),
+            email: "test@test.com".to_string(),
+            tags: vec!["test".to_string()],
+            description: "A test template".to_string(),
+            readme: "Test template".to_string(),
+            version_description: "Initial version".to_string(),
+            properties: None,
+            plugins: vec![],
+            processors: vec![],
+            templates: vec![],
+            resolvers: vec![],
+            commands: vec![],
+        };
+
+        let json = serde_json::to_string(&original).expect("serialization should succeed");
+        let deserialized: TemplateReq =
+            serde_json::from_str(&json).expect("deserialization should succeed");
+
+        assert_eq!(deserialized.name, original.name);
+        assert!(deserialized.commands.is_empty());
     }
 }

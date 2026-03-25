@@ -13,6 +13,8 @@ use cyanregistry::http::models::template_res::TemplateVersionRes;
 
 pub mod composition;
 
+pub use composition::CompositionOperator;
+
 /// Trait defining operations that can be performed on templates
 pub trait TemplateOperations {
     /// Create a new project from a template

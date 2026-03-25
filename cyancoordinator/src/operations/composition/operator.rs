@@ -1,4 +1,5 @@
 use cyanprompt::domain::models::answer::Answer;
+use cyanregistry::http::models::template_res::TemplateVersionRes;
 use std::collections::HashMap;
 use std::error::Error;
 use std::path::Path;
@@ -211,16 +212,26 @@ impl CompositionOperator {
     // Unified Batch Processing Methods (v2/v3 spec)
     // =========================================================================
 
-    /// Execute a single template spec and return VFS + final state + session IDs.
+    /// Execute a single template spec and return VFS + final state + session IDs + commands.
     /// This is the core primitive - pure function, no side effects.
     /// Dependencies are resolved in post-order and layered internally.
-    /// Returns the final CompositionState which contains answers after Q&A.
+    /// Returns the final CompositionState which contains answers after Q&A,
+    /// and commands collected from all resolved dependencies in post-order.
+    #[allow(clippy::type_complexity)]
     pub fn execute_template(
         &mut self,
         template: &cyanregistry::http::models::template_res::TemplateVersionRes,
         answers: &HashMap<String, Answer>,
         deterministic_states: &HashMap<String, String>,
-    ) -> Result<(VirtualFileSystem, CompositionState, Vec<String>), Box<dyn Error + Send>> {
+    ) -> Result<
+        (
+            VirtualFileSystem,
+            CompositionState,
+            Vec<String>,
+            Vec<String>,
+        ),
+        Box<dyn Error + Send>,
+    > {
         let dependencies = self.dependency_resolver.resolve_dependencies(template)?;
 
         let shared_state = CompositionState {
@@ -231,7 +242,8 @@ impl CompositionOperator {
 
         let (vfs, final_state, session_ids) =
             self.execute_composition(&dependencies, &shared_state)?;
-        Ok((vfs, final_state, session_ids))
+        let commands = Self::collect_commands(&dependencies);
+        Ok((vfs, final_state, session_ids, commands))
     }
 
     /// Layer merge a list of VFS into one (LWW semantics).
@@ -320,5 +332,35 @@ impl CompositionOperator {
         self.template_operator
             .vfs
             .cleanup_deleted_files(target_dir, local_vfs, merged_vfs)
+    }
+
+    // =========================================================================
+    // Command Collection (for post-composition execution)
+    // =========================================================================
+
+    /// Collect commands from resolved dependencies in post-order.
+    /// Iterates over dependencies (already in post-order from resolve_dependencies),
+    /// collects non-empty commands from each template, and flattens into a single vec.
+    pub fn collect_commands(dependencies: &[ResolvedDependency]) -> Vec<String> {
+        let mut commands = Vec::new();
+        for dep in dependencies {
+            let template_commands = &dep.template.commands;
+            if !template_commands.is_empty() {
+                commands.extend(template_commands.iter().cloned());
+            }
+        }
+        commands
+    }
+
+    /// Collect commands from template version responses.
+    /// Used by batch_process where commands are collected from raw template results.
+    pub fn collect_commands_from_templates(templates: &[TemplateVersionRes]) -> Vec<String> {
+        let mut commands = Vec::new();
+        for template in templates {
+            if !template.commands.is_empty() {
+                commands.extend(template.commands.iter().cloned());
+            }
+        }
+        commands
     }
 }

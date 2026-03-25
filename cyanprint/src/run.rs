@@ -23,6 +23,7 @@ use cyancoordinator::session::SessionIdGenerator;
 use cyancoordinator::template::DefaultTemplateExecutor;
 use cyancoordinator::template::{DefaultTemplateHistory, TemplateUpdateType};
 
+use crate::command_executor::CommandExecutor;
 use crate::update::spec::{TemplateSpec, TemplateSpecManager, sort_specs};
 
 /// Check if a template has execution artifacts (Docker properties)
@@ -37,7 +38,8 @@ fn has_dependencies(template: &TemplateVersionRes) -> bool {
 
 /// Unified batch processing for both create and update commands.
 /// Handles MAP, LAYER, and MERGE+WRITE phases.
-/// Returns session IDs for cleanup and file conflicts for state persistence.
+/// Returns session IDs for cleanup, file conflicts for state persistence, and commands for execution.
+#[allow(clippy::type_complexity)]
 pub fn batch_process(
     prev_specs: &[TemplateSpec],
     curr_specs: &[TemplateSpec],
@@ -46,7 +48,7 @@ pub fn batch_process(
     registry: &CyanRegistryClient,
     coord_client: &CyanCoordinatorClient,
     operator: &mut CompositionOperator,
-) -> Result<(Vec<String>, Vec<FileConflictEntry>), Box<dyn Error + Send>> {
+) -> Result<(Vec<String>, Vec<FileConflictEntry>, Vec<String>), Box<dyn Error + Send>> {
     // PHASE 2: MAP (execute each template spec → VFS)
     println!(
         "\n📦 PHASE 2: MAP - Executing {} prev + {} curr templates",
@@ -66,7 +68,7 @@ pub fn batch_process(
             spec.template_name.clone(),
             Some(spec.version),
         )?;
-        let (vfs, _final_state, session_ids) =
+        let (vfs, _final_state, session_ids, _commands) =
             operator.execute_template(&template_res, &spec.answers, &spec.deterministic_states)?;
         prev_vfs_list.push(vfs);
         prev_session_ids.extend(session_ids);
@@ -79,6 +81,7 @@ pub fn batch_process(
     // Map template_key -> final answers for metadata persistence
     let mut final_answers_map: HashMap<String, HashMap<String, Answer>> = HashMap::new();
     let mut curr_template_res_list = Vec::new();
+    let mut curr_resolved_commands = Vec::new();
 
     for spec in curr_specs {
         println!("  🔄 Executing curr: {} v{}", spec.key(), spec.version);
@@ -87,13 +90,15 @@ pub fn batch_process(
             spec.template_name.clone(),
             Some(spec.version),
         )?;
-        let (vfs, final_state, session_ids) =
+        let (vfs, final_state, session_ids, commands) =
             operator.execute_template(&template_res, &spec.answers, &spec.deterministic_states)?;
         curr_vfs_list.push(vfs);
         curr_session_ids.extend(session_ids);
         // Store the final answers for this template (includes Q&A answers)
         final_answers_map.insert(spec.key(), final_state.shared_answers);
         curr_template_res_list.push(template_res);
+        // Collect commands from the full dependency tree (not just root templates)
+        curr_resolved_commands.extend(commands);
     }
 
     // PHASE 3: LAYER (merge each list into ONE VFS)
@@ -188,8 +193,12 @@ pub fn batch_process(
     // Collect file conflicts from operator for state persistence
     let file_conflicts = operator.get_file_conflicts().to_vec();
 
+    // Use resolved commands from execute_template which includes the full dependency tree
+    // (prev is just the 3-way-merge baseline; its commands would be duplicates or stale)
+    let all_commands = curr_resolved_commands;
+
     println!("✅ Batch process complete");
-    Ok((all_session_ids, file_conflicts))
+    Ok((all_session_ids, file_conflicts, all_commands))
 }
 
 /// Run the cyan template generation process with automatic composition detection
@@ -442,7 +451,7 @@ pub fn cyan_run(
     let upgraded_refs: Vec<&TemplateSpec> = upgraded_specs.iter().collect();
 
     // Execute unified batch processing
-    let (session_ids, file_conflicts) = batch_process(
+    let (session_ids, file_conflicts, commands) = batch_process(
         &prev_specs,
         &curr_specs,
         &upgraded_refs,
@@ -462,6 +471,34 @@ pub fn cyan_run(
     state_manager.save_state_file(&cyan_state, &state_file_path)?;
     if conflicts_count > 0 {
         println!("📝 Saved {conflicts_count} file conflict(s) to state");
+    }
+
+    // Execute commands if any were collected
+    if !commands.is_empty() {
+        println!(
+            "\n⚡ Executing {} post-template command(s)...",
+            commands.len()
+        );
+        let exec_result = match CommandExecutor::execute_commands(&commands, target_dir) {
+            Ok(result) => result,
+            Err(err) => {
+                // Clean up coordinator sessions before propagating the error
+                for sid in &session_ids {
+                    let _ = coord_client.clean(sid.clone());
+                }
+                return Err(err);
+            }
+        };
+        if exec_result.aborted {
+            // Clean up coordinator sessions before returning on abort
+            for sid in &session_ids {
+                let _ = coord_client.clean(sid.clone());
+            }
+            return Err(Box::new(std::io::Error::other(format!(
+                "Command execution aborted: {}/{} succeeded, {}/{} failed before abort",
+                exec_result.succeeded, exec_result.total, exec_result.failed, exec_result.total
+            ))));
+        }
     }
 
     Ok(session_ids)

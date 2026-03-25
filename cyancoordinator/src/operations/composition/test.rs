@@ -785,6 +785,7 @@ mod tests {
     use std::collections::HashSet;
     use std::rc::Rc;
 
+    use super::super::operator::CompositionOperator;
     use super::super::resolver::{
         DefaultDependencyResolver, DependencyResolver, ResolvedDependency,
         flatten_dependencies_with_fetcher,
@@ -837,6 +838,7 @@ mod tests {
             processors: vec![],
             templates,
             resolvers: vec![],
+            commands: vec![],
         }
     }
 
@@ -1540,5 +1542,251 @@ mod tests {
             a_count, 1,
             "Root A should appear exactly once, not twice (cycle prevented by pre-marking root as visited)"
         );
+    }
+
+    // =========================================================================
+    // collect_commands Tests (spec 2)
+    // =========================================================================
+
+    /// Helper to build a minimal TemplateVersionRes with commands
+    fn make_template_with_commands(
+        id: &str,
+        name: &str,
+        commands: Vec<String>,
+    ) -> TemplateVersionRes {
+        TemplateVersionRes {
+            principal: TemplateVersionPrincipalRes {
+                id: id.to_string(),
+                version: 1,
+                created_at: "2025-01-01T00:00:00Z".to_string(),
+                description: "test".to_string(),
+                properties: Some(TemplatePropertyRes {
+                    blob_docker_reference: "test".to_string(),
+                    blob_docker_tag: "latest".to_string(),
+                    template_docker_reference: "test".to_string(),
+                    template_docker_tag: "latest".to_string(),
+                }),
+            },
+            template: TemplatePrincipalRes {
+                id: id.to_string(),
+                name: name.to_string(),
+                project: "test-project".to_string(),
+                source: "local".to_string(),
+                email: "test@test.com".to_string(),
+                tags: vec![],
+                description: "test".to_string(),
+                readme: "".to_string(),
+                user_id: "user1".to_string(),
+            },
+            plugins: vec![],
+            processors: vec![],
+            templates: vec![],
+            resolvers: vec![],
+            commands,
+        }
+    }
+
+    /// Test that collect_commands returns empty vec for empty dependency list
+    #[test]
+    fn test_collect_commands_empty_list() {
+        let deps: Vec<ResolvedDependency> = vec![];
+        let result = CompositionOperator::collect_commands(&deps);
+        assert!(
+            result.is_empty(),
+            "Empty dependency list should return empty commands"
+        );
+    }
+
+    /// Test that collect_commands returns commands from single template
+    #[test]
+    fn test_collect_commands_single_template() {
+        let template = make_template_with_commands("t1", "template1", vec!["build".to_string()]);
+        let deps = vec![ResolvedDependency {
+            template,
+            preset_answers: HashMap::new(),
+        }];
+        let result = CompositionOperator::collect_commands(&deps);
+        assert_eq!(result.len(), 1, "Should have 1 command");
+        assert_eq!(result[0], "build");
+    }
+
+    /// Test that collect_commands returns commands from multiple templates in order
+    #[test]
+    fn test_collect_commands_multiple_templates_in_order() {
+        let template1 = make_template_with_commands("t1", "template1", vec!["build".to_string()]);
+        let template2 = make_template_with_commands(
+            "t2",
+            "template2",
+            vec!["test".to_string(), "lint".to_string()],
+        );
+        let template3 = make_template_with_commands("t3", "template3", vec!["deploy".to_string()]);
+
+        let deps = vec![
+            ResolvedDependency {
+                template: template1,
+                preset_answers: HashMap::new(),
+            },
+            ResolvedDependency {
+                template: template2,
+                preset_answers: HashMap::new(),
+            },
+            ResolvedDependency {
+                template: template3,
+                preset_answers: HashMap::new(),
+            },
+        ];
+
+        let result = CompositionOperator::collect_commands(&deps);
+        assert_eq!(result.len(), 4, "Should have 4 commands");
+        assert_eq!(result[0], "build");
+        assert_eq!(result[1], "test");
+        assert_eq!(result[2], "lint");
+        assert_eq!(result[3], "deploy");
+    }
+
+    /// Test that collect_commands skips templates with empty commands
+    #[test]
+    fn test_collect_commands_skips_empty_commands() {
+        let template1 = make_template_with_commands("t1", "template1", vec!["build".to_string()]);
+        let template2 = make_template_with_commands("t2", "template2", vec![]); // No commands
+        let template3 = make_template_with_commands("t3", "template3", vec!["deploy".to_string()]);
+
+        let deps = vec![
+            ResolvedDependency {
+                template: template1,
+                preset_answers: HashMap::new(),
+            },
+            ResolvedDependency {
+                template: template2,
+                preset_answers: HashMap::new(),
+            },
+            ResolvedDependency {
+                template: template3,
+                preset_answers: HashMap::new(),
+            },
+        ];
+
+        let result = CompositionOperator::collect_commands(&deps);
+        assert_eq!(result.len(), 2, "Should have 2 commands (skipping empty)");
+        assert_eq!(result[0], "build");
+        assert_eq!(result[1], "deploy");
+    }
+
+    /// Test that collect_commands handles mix of empty and non-empty commands
+    #[test]
+    fn test_collect_commands_mixed_empty_and_non_empty() {
+        let template1 = make_template_with_commands("t1", "template1", vec![]);
+        let template2 = make_template_with_commands("t2", "template2", vec!["test".to_string()]);
+        let template3 = make_template_with_commands("t3", "template3", vec![]);
+        let template4 = make_template_with_commands(
+            "t4",
+            "template4",
+            vec!["package".to_string(), "upload".to_string()],
+        );
+
+        let deps = vec![
+            ResolvedDependency {
+                template: template1,
+                preset_answers: HashMap::new(),
+            },
+            ResolvedDependency {
+                template: template2,
+                preset_answers: HashMap::new(),
+            },
+            ResolvedDependency {
+                template: template3,
+                preset_answers: HashMap::new(),
+            },
+            ResolvedDependency {
+                template: template4,
+                preset_answers: HashMap::new(),
+            },
+        ];
+
+        let result = CompositionOperator::collect_commands(&deps);
+        assert_eq!(result.len(), 3, "Should have 3 commands total");
+        assert_eq!(result[0], "test");
+        assert_eq!(result[1], "package");
+        assert_eq!(result[2], "upload");
+    }
+
+    /// Test that collect_commands maintains post-order (dep order)
+    #[test]
+    fn test_collect_commands_maintains_post_order() {
+        // Post-order means: dependencies first (in reverse dependency order), then root
+        // Build: root -> [A, B]; A -> [C]]
+        // Expected post-order: C, A, B (dependencies processed before their parents)
+        // Commands should be collected in this order
+
+        let template_c = make_template_with_commands("C", "child", vec!["cmd_c".to_string()]);
+        let template_a = make_template_with_commands("A", "parent_a", vec!["cmd_a".to_string()]);
+        let template_b = make_template_with_commands("B", "parent_b", vec!["cmd_b".to_string()]);
+        let template_root =
+            make_template_with_commands("root", "root", vec!["cmd_root".to_string()]);
+
+        // Simulate post-order: C first, then A, then B, then root
+        let deps = vec![
+            ResolvedDependency {
+                template: template_c,
+                preset_answers: HashMap::new(),
+            },
+            ResolvedDependency {
+                template: template_a,
+                preset_answers: HashMap::new(),
+            },
+            ResolvedDependency {
+                template: template_b,
+                preset_answers: HashMap::new(),
+            },
+            ResolvedDependency {
+                template: template_root,
+                preset_answers: HashMap::new(),
+            },
+        ];
+
+        let result = CompositionOperator::collect_commands(&deps);
+        assert_eq!(result.len(), 4, "Should have 4 commands");
+        assert_eq!(result[0], "cmd_c");
+        assert_eq!(result[1], "cmd_a");
+        assert_eq!(result[2], "cmd_b");
+        assert_eq!(result[3], "cmd_root");
+    }
+
+    // =========================================================================
+    // collect_commands_from_templates Tests
+    // =========================================================================
+
+    /// Test that collect_commands_from_templates returns empty for empty list
+    #[test]
+    fn test_collect_commands_from_templates_empty() {
+        let templates: Vec<TemplateVersionRes> = vec![];
+        let result = CompositionOperator::collect_commands_from_templates(&templates);
+        assert!(result.is_empty());
+    }
+
+    /// Test that collect_commands_from_templates collects from single template
+    #[test]
+    fn test_collect_commands_from_templates_single() {
+        let template = make_template_with_commands("t1", "template1", vec!["build".to_string()]);
+        let result = CompositionOperator::collect_commands_from_templates(&[template]);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0], "build");
+    }
+
+    /// Test that collect_commands_from_templates skips empty commands
+    #[test]
+    fn test_collect_commands_from_templates_skips_empty() {
+        let t1 = make_template_with_commands("t1", "template1", vec![]);
+        let t2 = make_template_with_commands("t2", "template2", vec!["test".to_string()]);
+        let t3 = make_template_with_commands(
+            "t3",
+            "template3",
+            vec!["deploy".to_string(), "lint".to_string()],
+        );
+        let result = CompositionOperator::collect_commands_from_templates(&[t1, t2, t3]);
+        assert_eq!(result.len(), 3);
+        assert_eq!(result[0], "test");
+        assert_eq!(result[1], "deploy");
+        assert_eq!(result[2], "lint");
     }
 }

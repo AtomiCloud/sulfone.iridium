@@ -32,9 +32,12 @@ use cyancoordinator::fs::{
     DefaultVfs, DiskFileLoader, DiskFileWriter, GitLikeMerger, TarGzUnpacker,
 };
 use cyancoordinator::operations::TemplateOperator;
-use cyancoordinator::operations::composition::{CompositionOperator, DefaultDependencyResolver};
+use cyancoordinator::operations::composition::{
+    CompositionOperator, DefaultDependencyResolver, DependencyResolver,
+};
 use cyancoordinator::template::DefaultTemplateExecutor;
 
+use crate::command_executor::CommandExecutor;
 use crate::coord::start_coordinator;
 use crate::docker::buildx::{BuildOptions, BuildOutput, BuildxBuilder};
 use crate::port::{TEMPLATE_TRY, TEMPLATE_TRY_END, allocate_port};
@@ -209,6 +212,18 @@ pub fn execute_try_command(
         build_result.as_ref(),
     )?;
 
+    // Step 8.5: Resolve dependency commands (collect from all templates in dep tree)
+    let dependency_resolver = DefaultDependencyResolver::new(registry_client.clone());
+    let resolved_commands: Vec<String> =
+        match dependency_resolver.resolve_dependencies(&synthetic_template) {
+            Ok(deps) => CompositionOperator::collect_commands(&deps),
+            Err(e) => {
+                // Non-fatal: log but continue with just the local template's commands
+                eprintln!("  ⚠️ Failed to resolve dependency commands: {e}");
+                synthetic_template.commands.clone()
+            }
+        };
+
     // Step 9: Setup try environment with Boron (blob volume, images, resolvers)
     println!("🔧 Setting up try environment with Boron...");
     let coord_client = CyanCoordinatorClient::new(coordinator_endpoint.clone());
@@ -350,6 +365,45 @@ pub fn execute_try_command(
         states,
         merger_id,
     )?;
+
+    // Step 13.5: Execute post-template commands (resolved from all dependency templates)
+    if !resolved_commands.is_empty() {
+        println!(
+            "\n⚡ Executing {} post-template command(s)...",
+            resolved_commands.len()
+        );
+        let exec_result =
+            match CommandExecutor::execute_commands(&resolved_commands, Path::new(&output_path)) {
+                Ok(result) => result,
+                Err(err) => {
+                    // Clean up coordinator session before propagating the error
+                    cleanup(
+                        &coord_client,
+                        &session_id,
+                        keep_containers,
+                        &docker,
+                        &template_container_name,
+                        image_ref.as_deref(),
+                    )?;
+                    return Err(err);
+                }
+            };
+        if exec_result.aborted {
+            // Clean up coordinator session before returning on abort
+            cleanup(
+                &coord_client,
+                &session_id,
+                keep_containers,
+                &docker,
+                &template_container_name,
+                image_ref.as_deref(),
+            )?;
+            return Err(Box::new(std::io::Error::other(format!(
+                "Command execution aborted: {}/{} succeeded, {}/{} failed before abort",
+                exec_result.succeeded, exec_result.total, exec_result.failed, exec_result.total
+            ))));
+        }
+    }
 
     // Step 14: Cleanup (best-effort, including built image)
     println!("🧹 Cleaning up...");
@@ -729,6 +783,7 @@ pub(crate) fn build_synthetic_template(
         plugins: pinned.plugins.clone(),
         templates: pinned.templates.clone(),
         resolvers: pinned.resolvers.clone(),
+        commands: config.commands.clone(),
     })
 }
 
@@ -1345,11 +1400,8 @@ pub fn execute_try_group_command(
     let empty_answers: HashMap<String, Answer> = HashMap::new();
     let empty_states: HashMap<String, String> = HashMap::new();
 
-    let (vfs_output, _final_state, session_ids) = composition_operator.execute_template(
-        &synthetic_template,
-        &empty_answers,
-        &empty_states,
-    )?;
+    let (vfs_output, _final_state, session_ids, resolved_commands) = composition_operator
+        .execute_template(&synthetic_template, &empty_answers, &empty_states)?;
 
     // Step 9: Write output to disk
     println!("📝 Writing output to {output_path}...");
@@ -1359,6 +1411,26 @@ pub fn execute_try_group_command(
     composition_operator
         .get_vfs()
         .write_to_disk(output_dir, &vfs_output)?;
+
+    // Step 9.5: Execute post-template commands (resolved from all dependency templates)
+    if !resolved_commands.is_empty() {
+        println!(
+            "\n⚡ Executing {} post-template command(s)...",
+            resolved_commands.len()
+        );
+        let exec_result = CommandExecutor::execute_commands(&resolved_commands, output_dir)?;
+        if exec_result.aborted {
+            // Clean up sessions before bailing out (same as Step 10 below)
+            println!("🧹 Cleaning up {} session(s)...", session_ids.len());
+            for sid in &session_ids {
+                let _ = coord_client.clean(sid.clone());
+            }
+            return Err(Box::new(std::io::Error::other(format!(
+                "Command execution aborted: {}/{} succeeded, {}/{} failed before abort",
+                exec_result.succeeded, exec_result.total, exec_result.failed, exec_result.total
+            ))));
+        }
+    }
 
     // Step 10: Cleanup sessions
     println!("🧹 Cleaning up {} session(s)...", session_ids.len());
@@ -1459,6 +1531,7 @@ mod tests {
             plugins: vec![],
             templates: vec![],
             resolvers: vec![],
+            commands: vec![],
         };
 
         let blob_ref = Some("ghcr.io/test/blob:v1.0.0".to_string());
@@ -1495,6 +1568,7 @@ mod tests {
             plugins: vec![],
             templates: vec![],
             resolvers: vec![],
+            commands: vec![],
         };
 
         let result = build_synthetic_template("local-test", &config, &pinned, true, None);
@@ -1503,5 +1577,33 @@ mod tests {
         let template = result.unwrap();
         assert_eq!(template.principal.id, "local-test");
         assert!(template.principal.properties.is_none());
+    }
+
+    #[test]
+    fn test_build_synthetic_template_includes_commands() {
+        let pinned = PinnedDependencies::default();
+        let config = CyanTemplateFileConfig {
+            username: "test".to_string(),
+            name: "test-template".to_string(),
+            project: "test-project".to_string(),
+            source: "local".to_string(),
+            email: "test@example.com".to_string(),
+            tags: vec![],
+            description: "Test template".to_string(),
+            readme: "".to_string(),
+            processors: vec![],
+            plugins: vec![],
+            templates: vec![],
+            resolvers: vec![],
+            commands: vec!["npm install".to_string(), "npm run build".to_string()],
+        };
+
+        let result = build_synthetic_template("local-test", &config, &pinned, true, None);
+
+        assert!(result.is_ok());
+        let template = result.unwrap();
+        assert_eq!(template.commands.len(), 2);
+        assert_eq!(template.commands[0], "npm install");
+        assert_eq!(template.commands[1], "npm run build");
     }
 }

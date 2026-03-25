@@ -41,6 +41,9 @@ pub struct CyanTemplateFileConfig {
 
     #[serde(default)]
     pub resolvers: Vec<CyanResolverRefFileConfig>,
+
+    #[serde(default)]
+    pub commands: Vec<String>,
 }
 
 /// Resolver reference configuration from cyan.yaml

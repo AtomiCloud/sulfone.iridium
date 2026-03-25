@@ -11,6 +11,7 @@ use inquire::Select;
 
 use super::operator_factory::OperatorFactory;
 use super::spec::{TemplateSpec, TemplateSpecManager, sort_specs};
+use crate::command_executor::CommandExecutor;
 use crate::git::{GitError, get_modified_files, is_git_dirty};
 use crate::run::batch_process;
 
@@ -186,7 +187,7 @@ impl UpdateOrchestrator {
         let upgraded_refs: Vec<&TemplateSpec> = upgraded.iter().collect();
 
         // PHASE 2-4: BATCH PROCESS
-        let (session_ids, file_conflicts) = batch_process(
+        let (session_ids, file_conflicts, commands) = batch_process(
             &prev_specs,
             &curr_specs,
             &upgraded_refs,
@@ -202,6 +203,21 @@ impl UpdateOrchestrator {
         state_manager.save_state_file(&cyan_state, &state_file_path)?;
         if conflicts_count > 0 {
             println!("📝 Saved {conflicts_count} file conflict(s) to state");
+        }
+
+        // Execute commands if any were collected
+        if !commands.is_empty() {
+            println!(
+                "\n⚡ Executing {} post-template command(s)...",
+                commands.len()
+            );
+            let exec_result = CommandExecutor::execute_commands(&commands, target_dir)?;
+            if exec_result.aborted {
+                return Err(Box::new(std::io::Error::other(format!(
+                    "Command execution aborted: {}/{} succeeded, {}/{} failed before abort",
+                    exec_result.succeeded, exec_result.total, exec_result.failed, exec_result.total
+                ))));
+            }
         }
 
         println!("✅ Batch update complete");

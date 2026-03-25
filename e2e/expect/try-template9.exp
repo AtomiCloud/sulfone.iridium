@@ -1,0 +1,40 @@
+#!/usr/bin/expect -f
+
+set timeout 120
+
+spawn cyanprint try template ./e2e/template9 /tmp/e2e-try-t9-output
+
+# Answer the greeting question
+expect -re {.*Greeting.*}
+send "hi\r"
+
+# Wait for command execution approval prompt
+expect -re {.*proceed with execution.*}
+send "y\r"
+
+expect eof
+
+# Verify order.txt was created with correct content
+set fp [open "/tmp/e2e-try-t9-output/order.txt" r]
+set content [read $fp]
+close $fp
+
+if {[string first "step1-t9" $content] == -1} {
+    puts "ERROR: order.txt missing step1-t9"
+    exit 1
+}
+if {[string first "step2-t9" $content] == -1} {
+    puts "ERROR: order.txt missing step2-t9"
+    exit 1
+}
+
+# Verify order: step1 comes before step2
+set idx1 [string first "step1-t9" $content]
+set idx2 [string first "step2-t9" $content]
+if {$idx1 > $idx2} {
+    puts "ERROR: step1-t9 should appear before step2-t9 in order.txt"
+    exit 1
+}
+
+puts "OK: template9 commands executed in correct order"
+exit 0

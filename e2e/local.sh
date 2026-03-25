@@ -34,6 +34,10 @@ echo "▶️  RUN processor2 (test)"
 cyanprint test processor ./e2e/processor2 --disable-daemon-autostart
 echo "▶️  RUN resolver2 (test)"
 cyanprint test resolver ./e2e/resolver2 --disable-daemon-autostart
+echo "▶️  RUN template9 (test, command ordering)"
+cyanprint test template ./e2e/template9 --disable-daemon-autostart
+echo "▶️  RUN template10 (test, dependency command ordering)"
+cyanprint test template ./e2e/template10 --disable-daemon-autostart
 
 # --- try commands ---
 echo "🔍 Running try commands..."
@@ -41,6 +45,11 @@ echo "🔍 Running try commands..."
   e2e/template2/fixtures/expected/hello:stocks:conservative:retirement:short-term-2-years:salary
 ./e2e/run-interactive.sh try-template5 e2e/expect/try-template5.exp \
   e2e/template5/fixtures/expected/hello:pass123:2026-03-13:typescript:no:logging
+
+# --- command execution tests ---
+echo "🔍 Running command execution tests..."
+./e2e/run-interactive.sh try-template9 e2e/expect/try-template9.exp
+./e2e/run-interactive.sh try-template10 e2e/expect/try-template10.exp
 
 # try template4 group — skipped: group try is interactive (member templates have questions)
 # TODO: add back when `try group` supports non-interactive mode
