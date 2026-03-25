@@ -1389,6 +1389,11 @@ pub fn execute_try_group_command(
         let exec_result =
             CommandExecutor::execute_commands(&synthetic_template.commands, output_dir)?;
         if exec_result.aborted {
+            // Clean up sessions before bailing out (same as Step 10 below)
+            println!("🧹 Cleaning up {} session(s)...", session_ids.len());
+            for sid in &session_ids {
+                let _ = coord_client.clean(sid.clone());
+            }
             return Err(Box::new(std::io::Error::other(format!(
                 "Command execution aborted: {}/{} succeeded, {}/{} failed before abort",
                 exec_result.succeeded, exec_result.total, exec_result.failed, exec_result.total

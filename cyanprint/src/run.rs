@@ -190,14 +190,10 @@ pub fn batch_process(
     // Collect file conflicts from operator for state persistence
     let file_conflicts = operator.get_file_conflicts().to_vec();
 
-    // Collect commands from both prev and curr template result lists
-    let mut all_commands = Vec::new();
-    all_commands.extend(CompositionOperator::collect_commands_from_templates(
-        &prev_template_res_list,
-    ));
-    all_commands.extend(CompositionOperator::collect_commands_from_templates(
-        &curr_template_res_list,
-    ));
+    // Collect commands from curr template result list only
+    // (prev is just the 3-way-merge baseline; its commands would be duplicates or stale)
+    let all_commands =
+        CompositionOperator::collect_commands_from_templates(&curr_template_res_list);
 
     println!("✅ Batch process complete");
     Ok((all_session_ids, file_conflicts, all_commands))
