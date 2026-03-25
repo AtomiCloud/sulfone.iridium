@@ -136,7 +136,10 @@ impl CommandExecutor {
         Ok(result)
     }
 
-    /// Execute commands non-interactively (no approval prompt, fail immediately on error).
+    /// Execute commands non-interactively (no approval prompt).
+    ///
+    /// Runs all commands, accumulating failures in the result. The caller
+    /// should check `all_succeeded()` to determine overall outcome.
     ///
     /// Used by the test runner where commands should always execute without user interaction.
     pub fn execute_commands_non_interactive(

@@ -758,7 +758,10 @@ fn run_single_test_case(
     let resolver = DefaultDependencyResolver::new(rc_registry);
     let resolved_commands: Vec<String> = match resolver.resolve_dependencies(&warmup.template) {
         Ok(deps) => CompositionOperator::collect_commands(&deps),
-        Err(_) => warmup.template.commands.clone(),
+        Err(e) => {
+            eprintln!("  Warning: dependency resolution failed, using root commands only: {e}");
+            warmup.template.commands.clone()
+        }
     };
     if !resolved_commands.is_empty() {
         println!(

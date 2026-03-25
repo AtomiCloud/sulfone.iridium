@@ -34,6 +34,10 @@ echo "▶️  RUN processor2 (test)"
 cyanprint test processor ./e2e/processor2 --disable-daemon-autostart
 echo "▶️  RUN resolver2 (test)"
 cyanprint test resolver ./e2e/resolver2 --disable-daemon-autostart
+echo "▶️  RUN template9 (test, command ordering)"
+cyanprint test template ./e2e/template9 --disable-daemon-autostart
+echo "▶️  RUN template10 (test, dependency command ordering)"
+cyanprint test template ./e2e/template10 --disable-daemon-autostart
 
 # --- try commands ---
 echo "🔍 Running try commands..."
