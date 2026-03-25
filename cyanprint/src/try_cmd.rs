@@ -35,6 +35,7 @@ use cyancoordinator::operations::TemplateOperator;
 use cyancoordinator::operations::composition::{CompositionOperator, DefaultDependencyResolver};
 use cyancoordinator::template::DefaultTemplateExecutor;
 
+use crate::command_executor::CommandExecutor;
 use crate::coord::start_coordinator;
 use crate::docker::buildx::{BuildOptions, BuildOutput, BuildxBuilder};
 use crate::port::{TEMPLATE_TRY, TEMPLATE_TRY_END, allocate_port};
@@ -350,6 +351,24 @@ pub fn execute_try_command(
         states,
         merger_id,
     )?;
+
+    // Step 13.5: Execute post-template commands
+    if !synthetic_template.commands.is_empty() {
+        println!(
+            "\n⚡ Executing {} post-template command(s)...",
+            synthetic_template.commands.len()
+        );
+        let exec_result = CommandExecutor::execute_commands(
+            &synthetic_template.commands,
+            Path::new(&output_path),
+        )?;
+        if exec_result.aborted {
+            return Err(Box::new(std::io::Error::other(format!(
+                "Command execution aborted: {}/{} succeeded, {}/{} failed before abort",
+                exec_result.succeeded, exec_result.total, exec_result.failed, exec_result.total
+            ))));
+        }
+    }
 
     // Step 14: Cleanup (best-effort, including built image)
     println!("🧹 Cleaning up...");
@@ -729,7 +748,7 @@ pub(crate) fn build_synthetic_template(
         plugins: pinned.plugins.clone(),
         templates: pinned.templates.clone(),
         resolvers: pinned.resolvers.clone(),
-        commands: vec![],
+        commands: config.commands.clone(),
     })
 }
 
@@ -1361,6 +1380,22 @@ pub fn execute_try_group_command(
         .get_vfs()
         .write_to_disk(output_dir, &vfs_output)?;
 
+    // Step 9.5: Execute post-template commands
+    if !synthetic_template.commands.is_empty() {
+        println!(
+            "\n⚡ Executing {} post-template command(s)...",
+            synthetic_template.commands.len()
+        );
+        let exec_result =
+            CommandExecutor::execute_commands(&synthetic_template.commands, output_dir)?;
+        if exec_result.aborted {
+            return Err(Box::new(std::io::Error::other(format!(
+                "Command execution aborted: {}/{} succeeded, {}/{} failed before abort",
+                exec_result.succeeded, exec_result.total, exec_result.failed, exec_result.total
+            ))));
+        }
+    }
+
     // Step 10: Cleanup sessions
     println!("🧹 Cleaning up {} session(s)...", session_ids.len());
     for sid in &session_ids {
@@ -1506,5 +1541,33 @@ mod tests {
         let template = result.unwrap();
         assert_eq!(template.principal.id, "local-test");
         assert!(template.principal.properties.is_none());
+    }
+
+    #[test]
+    fn test_build_synthetic_template_includes_commands() {
+        let pinned = PinnedDependencies::default();
+        let config = CyanTemplateFileConfig {
+            username: "test".to_string(),
+            name: "test-template".to_string(),
+            project: "test-project".to_string(),
+            source: "local".to_string(),
+            email: "test@example.com".to_string(),
+            tags: vec![],
+            description: "Test template".to_string(),
+            readme: "".to_string(),
+            processors: vec![],
+            plugins: vec![],
+            templates: vec![],
+            resolvers: vec![],
+            commands: vec!["npm install".to_string(), "npm run build".to_string()],
+        };
+
+        let result = build_synthetic_template("local-test", &config, &pinned, true, None);
+
+        assert!(result.is_ok());
+        let template = result.unwrap();
+        assert_eq!(template.commands.len(), 2);
+        assert_eq!(template.commands[0], "npm install");
+        assert_eq!(template.commands[1], "npm run build");
     }
 }
