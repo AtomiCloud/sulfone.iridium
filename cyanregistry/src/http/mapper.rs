@@ -73,6 +73,7 @@ pub fn template_ref_req_mapper(r: &CyanTemplateRef) -> TemplateRefReq {
         username: r.username.clone(),
         name: r.name.clone(),
         version: r.version.unwrap_or(0),
+        preset_answers: r.preset_answers.clone(),
     }
 }
 
@@ -280,5 +281,70 @@ mod tests {
         assert_eq!(req.version, 0); // Default to 0 when no version
         assert_eq!(req.config, serde_json::json!({}));
         assert_eq!(req.files, vec!["*.json"]);
+    }
+
+    #[test]
+    fn test_template_ref_req_mapper_with_preset_answers() {
+        let mut preset_answers = std::collections::HashMap::new();
+        preset_answers.insert("framework".to_string(), serde_json::json!("react"));
+        preset_answers.insert("language".to_string(), serde_json::json!("typescript"));
+
+        let template_ref = CyanTemplateRef {
+            username: "cyane2e".to_string(),
+            name: "web-app".to_string(),
+            version: Some(3),
+            preset_answers: preset_answers.clone(),
+        };
+
+        let req = template_ref_req_mapper(&template_ref);
+
+        assert_eq!(req.username, "cyane2e");
+        assert_eq!(req.name, "web-app");
+        assert_eq!(req.version, 3);
+        assert_eq!(req.preset_answers, preset_answers);
+    }
+
+    #[test]
+    fn test_template_ref_req_mapper_without_preset_answers() {
+        let template_ref = CyanTemplateRef {
+            username: "cyane2e".to_string(),
+            name: "base-template".to_string(),
+            version: Some(1),
+            preset_answers: std::collections::HashMap::new(),
+        };
+
+        let req = template_ref_req_mapper(&template_ref);
+
+        assert_eq!(req.username, "cyane2e");
+        assert_eq!(req.name, "base-template");
+        assert_eq!(req.version, 1);
+        assert!(req.preset_answers.is_empty());
+    }
+
+    #[test]
+    fn test_template_ref_req_serde_roundtrip_with_preset_answers() {
+        let mut preset_answers = std::collections::HashMap::new();
+        preset_answers.insert("key".to_string(), serde_json::json!("value"));
+        preset_answers.insert("count".to_string(), serde_json::json!(42));
+        preset_answers.insert(
+            "nested".to_string(),
+            serde_json::json!({"foo": "bar", "enabled": true}),
+        );
+
+        let original = TemplateRefReq {
+            username: "testuser".to_string(),
+            name: "my-template".to_string(),
+            version: 5,
+            preset_answers,
+        };
+
+        let json = serde_json::to_string(&original).expect("serialization should succeed");
+        let deserialized: TemplateRefReq =
+            serde_json::from_str(&json).expect("deserialization should succeed");
+
+        assert_eq!(deserialized.username, original.username);
+        assert_eq!(deserialized.name, original.name);
+        assert_eq!(deserialized.version, original.version);
+        assert_eq!(deserialized.preset_answers, original.preset_answers);
     }
 }

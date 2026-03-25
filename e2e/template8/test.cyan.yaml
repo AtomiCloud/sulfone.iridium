@@ -1,0 +1,35 @@
+tests:
+  - name: myapp:dev:true
+    expected:
+      type: snapshot
+      value:
+        path: fixtures/expected/myapp:dev:true
+    answer_state:
+      cyane2e/template8/appName:
+        type: String
+        value: myapp
+      cyane2e/template8/environment:
+        type: String
+        value: Development
+      cyane2e/template7/enableSSL:
+        type: Bool
+        value: true
+    deterministic_state: {}
+    validate: []
+  - name: myapp:prod:false
+    expected:
+      type: snapshot
+      value:
+        path: fixtures/expected/myapp:prod:false
+    answer_state:
+      cyane2e/template8/appName:
+        type: String
+        value: myapp
+      cyane2e/template8/environment:
+        type: String
+        value: Production
+      cyane2e/template7/enableSSL:
+        type: Bool
+        value: false
+    deterministic_state: {}
+    validate: []

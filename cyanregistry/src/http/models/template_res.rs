@@ -27,7 +27,7 @@ pub struct TemplateVersionRes {
     pub template: TemplatePrincipalRes,
     pub plugins: Vec<PluginVersionPrincipalRes>,
     pub processors: Vec<ProcessorVersionPrincipalRes>,
-    pub templates: Vec<TemplateVersionPrincipalRes>,
+    pub templates: Vec<TemplateVersionTemplateRefRes>,
     #[serde(default)]
     pub resolvers: Vec<TemplateVersionResolverRes>,
 }
@@ -44,6 +44,16 @@ pub struct TemplatePrincipalRes {
     pub description: String,
     pub readme: String,
     pub user_id: String,
+}
+
+/// Template dependency reference with preset answers
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TemplateVersionTemplateRefRes {
+    pub id: String,
+    pub version: i64,
+    #[serde(default)]
+    pub preset_answers: std::collections::HashMap<String, serde_json::Value>,
 }
 
 /// Resolver reference attached to a template version

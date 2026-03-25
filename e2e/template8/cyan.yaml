@@ -1,0 +1,30 @@
+username: cyane2e
+name: template8
+description: Template8 - Parent template with preset answers for template7
+project: https://google.com
+source: https://google.com
+email: cyane2e@atomi.cloud
+tags: []
+readme: cyan/README.MD
+processors: ['cyane2e/processor2']
+plugins: ['cyane2e/plugin2']
+templates:
+  - template: cyane2e/template7
+    preset_answers:
+      cyane2e/template7/database: PostgreSQL
+      cyane2e/template7/port: '5432'
+resolvers: []
+
+build:
+  registry: kirinnee
+  platforms:
+    - linux/amd64
+  images:
+    template:
+      image: template8
+      dockerfile: cyan/Dockerfile
+      context: ./cyan
+    blob:
+      image: blob8
+      dockerfile: blob.Dockerfile
+      context: .

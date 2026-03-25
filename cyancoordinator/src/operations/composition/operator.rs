@@ -11,7 +11,7 @@ use crate::fs::VirtualFileSystem;
 use crate::operations::TemplateOperator;
 
 use super::layerer::{DefaultVfsLayerer, ResolverAwareLayerer, VfsLayerer};
-use super::resolver::DependencyResolver;
+use super::resolver::{DependencyResolver, ResolvedDependency};
 use super::state::CompositionState;
 
 /// Composition operator for recursive template execution
@@ -57,11 +57,12 @@ impl CompositionOperator {
 
     /// Build a resolver registry from template response data
     fn build_resolver_registry(
-        templates: &[cyanregistry::http::models::template_res::TemplateVersionRes],
+        dependencies: &[ResolvedDependency],
     ) -> ConflictFileResolverRegistry {
         let mut registry = ConflictFileResolverRegistry::new();
 
-        for template in templates {
+        for dep in dependencies {
+            let template = &dep.template;
             let template_id = template.principal.id.clone();
             let resolvers: Vec<ResolverInstance> = template
                 .resolvers
@@ -84,15 +85,13 @@ impl CompositionOperator {
     }
 
     /// Build template info list for layerer from template response data
-    fn build_template_infos(
-        templates: &[cyanregistry::http::models::template_res::TemplateVersionRes],
-    ) -> Vec<TemplateInfo> {
-        templates
+    fn build_template_infos(dependencies: &[ResolvedDependency]) -> Vec<TemplateInfo> {
+        dependencies
             .iter()
             .enumerate()
-            .map(|(idx, t)| TemplateInfo {
-                template_id: t.principal.id.clone(),
-                template_version: t.principal.version,
+            .map(|(idx, dep)| TemplateInfo {
+                template_id: dep.template.principal.id.clone(),
+                template_version: dep.template.principal.version,
                 layer: idx as i32,
             })
             .collect()
@@ -106,7 +105,7 @@ impl CompositionOperator {
     /// Execute a composition of templates (recursive dependencies)
     fn execute_composition(
         &mut self,
-        templates: &[cyanregistry::http::models::template_res::TemplateVersionRes],
+        dependencies: &[ResolvedDependency],
         initial_shared_state: &CompositionState,
     ) -> Result<(VirtualFileSystem, CompositionState, Vec<String>), Box<dyn Error + Send>> {
         let mut shared_state = initial_shared_state.clone();
@@ -116,7 +115,9 @@ impl CompositionOperator {
         // Clear previous conflicts
         self.file_conflicts.clear();
 
-        for template in templates {
+        for dep in dependencies {
+            let template = &dep.template;
+
             // Check if template has execution artifacts (properties field)
             if template.principal.properties.is_none() {
                 println!(
@@ -142,12 +143,20 @@ impl CompositionOperator {
             // Generate session for this template
             let session_id = self.template_operator.session_id_generator.generate();
 
-            // Execute template with current shared state
+            // Merge preset answers into shared_answers for this template only
+            let mut template_answers = shared_state.shared_answers.clone();
+            for (key, answer) in &dep.preset_answers {
+                template_answers
+                    .entry(key.clone())
+                    .or_insert(answer.clone());
+            }
+
+            // Execute template with current shared state (preset answers fill gaps)
             let (archive_data, template_state, actual_session_id) =
                 self.template_operator.template_executor.execute_template(
                     template,
                     &session_id,
-                    Some(&shared_state.shared_answers),
+                    Some(&template_answers),
                     Some(&shared_state.shared_deterministic_states),
                 )?;
 
@@ -170,8 +179,8 @@ impl CompositionOperator {
         } else if let Some(ref client) = self.client {
             // Use resolver-aware layering
             // Vertical layering: collect resolvers from ALL templates in dependency tree
-            let registry = Self::build_resolver_registry(templates);
-            let template_infos = Self::build_template_infos(templates);
+            let registry = Self::build_resolver_registry(dependencies);
+            let template_infos = Self::build_template_infos(dependencies);
             let layerer = ResolverAwareLayerer::new(registry, template_infos, client.clone());
 
             let result = layerer.layer_merge(&vfs_outputs)?;
@@ -212,7 +221,7 @@ impl CompositionOperator {
         answers: &HashMap<String, Answer>,
         deterministic_states: &HashMap<String, String>,
     ) -> Result<(VirtualFileSystem, CompositionState, Vec<String>), Box<dyn Error + Send>> {
-        let templates = self.dependency_resolver.resolve_dependencies(template)?;
+        let dependencies = self.dependency_resolver.resolve_dependencies(template)?;
 
         let shared_state = CompositionState {
             shared_answers: answers.clone(),
@@ -221,7 +230,7 @@ impl CompositionOperator {
         };
 
         let (vfs, final_state, session_ids) =
-            self.execute_composition(&templates, &shared_state)?;
+            self.execute_composition(&dependencies, &shared_state)?;
         Ok((vfs, final_state, session_ids))
     }
 
@@ -250,9 +259,19 @@ impl CompositionOperator {
             return Ok(vfs_list[0].clone());
         }
 
+        // Convert root templates to ResolvedDependency for helper functions
+        // (preset_answers are not applicable for horizontal layering)
+        let root_dependencies: Vec<ResolvedDependency> = root_templates
+            .iter()
+            .map(|t| ResolvedDependency {
+                template: t.clone(),
+                preset_answers: HashMap::new(),
+            })
+            .collect();
+
         // Build resolver registry from ONLY root templates (horizontal layering scope)
-        let registry = Self::build_resolver_registry(root_templates);
-        let template_infos = Self::build_template_infos(root_templates);
+        let registry = Self::build_resolver_registry(&root_dependencies);
+        let template_infos = Self::build_template_infos(&root_dependencies);
 
         // Use resolver-aware layerer
         let layerer = ResolverAwareLayerer::new(registry, template_infos, client.clone());

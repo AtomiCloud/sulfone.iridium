@@ -31,6 +31,11 @@ echo "▶️  RUN create-group (create)"
 rm -rf /tmp/e2e-create-group-output
 ./e2e/run-interactive.sh create-group e2e/expect/create-group-template4.exp
 
+# create template8 (preset answers test — verify preset answers injection via interactive expect)
+echo "▶️  RUN create-template8 (create, verify preset answers injection)"
+rm -rf /tmp/e2e-create-t8-output
+./e2e/run-interactive.sh create-template8 e2e/expect/create-template8.exp
+
 # --- upgrade tests (LWW) ---
 echo "🔍 Running upgrade tests (LWW)..."
 
