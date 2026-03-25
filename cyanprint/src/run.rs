@@ -81,6 +81,7 @@ pub fn batch_process(
     // Map template_key -> final answers for metadata persistence
     let mut final_answers_map: HashMap<String, HashMap<String, Answer>> = HashMap::new();
     let mut curr_template_res_list = Vec::new();
+    let mut curr_resolved_commands = Vec::new();
 
     for spec in curr_specs {
         println!("  🔄 Executing curr: {} v{}", spec.key(), spec.version);
@@ -89,13 +90,15 @@ pub fn batch_process(
             spec.template_name.clone(),
             Some(spec.version),
         )?;
-        let (vfs, final_state, session_ids, _commands) =
+        let (vfs, final_state, session_ids, commands) =
             operator.execute_template(&template_res, &spec.answers, &spec.deterministic_states)?;
         curr_vfs_list.push(vfs);
         curr_session_ids.extend(session_ids);
         // Store the final answers for this template (includes Q&A answers)
         final_answers_map.insert(spec.key(), final_state.shared_answers);
         curr_template_res_list.push(template_res);
+        // Collect commands from the full dependency tree (not just root templates)
+        curr_resolved_commands.extend(commands);
     }
 
     // PHASE 3: LAYER (merge each list into ONE VFS)
@@ -190,10 +193,9 @@ pub fn batch_process(
     // Collect file conflicts from operator for state persistence
     let file_conflicts = operator.get_file_conflicts().to_vec();
 
-    // Collect commands from curr template result list only
+    // Use resolved commands from execute_template which includes the full dependency tree
     // (prev is just the 3-way-merge baseline; its commands would be duplicates or stale)
-    let all_commands =
-        CompositionOperator::collect_commands_from_templates(&curr_template_res_list);
+    let all_commands = curr_resolved_commands;
 
     println!("✅ Batch process complete");
     Ok((all_session_ids, file_conflicts, all_commands))
