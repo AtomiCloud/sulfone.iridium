@@ -38,19 +38,16 @@ jobs:
               - nscloud-cache-tag-${{ inputs.atomi_platform }}-${{ inputs.atomi_service }}-nix-store-cache
             namespacelabs: true
             target: aarch64-unknown-linux-gnu
-          - name: MacOS x86_64
-            os:
-              - macos-15-intel
-            namespacelabs: false
-            target: x86_64-apple-darwin
           - name: MacOS aarch64
             os:
-              - macos-15
-            namespacelabs: false
+              - nscloud-macos-sequoia-arm64-6x14
+              - nscloud-cache-size-50gb
+              - nscloud-cache-tag-${{ inputs.atomi_platform }}-${{ inputs.atomi_service }}-nix-store-cache
+            namespacelabs: true
             target: aarch64-apple-darwin
     steps:
       # Setup
-      - uses: AtomiCloud/actions.setup-nix@v2
+      - uses: AtomiCloud/actions.setup-nix@v3
         with:
           namespacelabs: ${{ matrix.platform.namespacelabs }}
 
