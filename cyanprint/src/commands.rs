@@ -221,6 +221,13 @@ pub enum TestCommands {
 
         #[arg(long, help = "Skip automatic daemon start")]
         disable_daemon_autostart: bool,
+
+        #[arg(
+            long,
+            help = "Test the root template in isolation, skipping its template dependencies. \
+                    By default, template dependencies are composed in so the final merged state is tested."
+        )]
+        skip_deps: bool,
     },
 
     #[command(about = "Run processor tests")]
@@ -694,6 +701,7 @@ mod tests {
                 junit,
                 coordinator_endpoint,
                 disable_daemon_autostart,
+                skip_deps,
             } = command
             {
                 assert_eq!(path, ".");
@@ -706,6 +714,8 @@ mod tests {
                 // coordinator_endpoint uses env-backed default, so we only verify it's non-empty
                 assert!(!coordinator_endpoint.is_empty());
                 assert!(!disable_daemon_autostart);
+                // dependencies are included by default
+                assert!(!skip_deps);
             } else {
                 panic!("Expected TestCommands::Template");
             }
@@ -749,6 +759,21 @@ mod tests {
                 assert!(update_snapshots);
                 assert_eq!(output, "/output");
                 assert_eq!(junit, Some("report.xml".to_string()));
+            } else {
+                panic!("Expected TestCommands::Template");
+            }
+        } else {
+            panic!("Expected Commands::Test");
+        }
+    }
+
+    #[test]
+    fn test_test_template_command_skip_deps() {
+        let cli = Cli::try_parse_from(["cyanprint", "test", "template", "--skip-deps"]);
+        assert!(cli.is_ok());
+        if let Commands::Test { command } = cli.unwrap().command {
+            if let TestCommands::Template { skip_deps, .. } = command {
+                assert!(skip_deps);
             } else {
                 panic!("Expected TestCommands::Template");
             }
