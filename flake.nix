@@ -32,7 +32,14 @@
     , nixpkgs-2505
 
     } @inputs:
-    flake-utils.lib.eachDefaultSystem
+    # Intel macOS (x86_64-darwin) is intentionally dropped: the Determinate Nix
+    # Installer no longer supports it. We only build Linux and Apple Silicon.
+    flake-utils.lib.eachSystem
+      [
+        "x86_64-linux"
+        "aarch64-linux"
+        "aarch64-darwin"
+      ]
       (system:
       let
         pkgs-unstable = nixpkgs-unstable.legacyPackages.${system};

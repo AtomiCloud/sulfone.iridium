@@ -19,7 +19,7 @@ jobs:
       - nscloud-cache-tag-${{ inputs.atomi_platform }}-${{ inputs.atomi_service }}-nix-store-cache
     steps:
       # Setup
-      - uses: AtomiCloud/actions.setup-nix@v2
+      - uses: AtomiCloud/actions.setup-nix@v3
       # Pre Commit
       - name: Run pre-commit
         run: nix develop .#ci -c ./scripts/pre-commit.sh

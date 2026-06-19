@@ -19,6 +19,10 @@ builds:
     goarch:
       - amd64
       - arm64
+    # Intel macOS (darwin/amd64) is deprecated; we no longer build or release it.
+    ignore:
+      - goos: darwin
+        goarch: amd64
     binary: cyanprint
     hooks:
       post:
