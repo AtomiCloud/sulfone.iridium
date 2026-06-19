@@ -3,7 +3,7 @@ use std::error::Error;
 
 use bollard::Docker;
 use bollard::models::{
-    ContainerCreateBody, ContainerSummaryStateEnum, HostConfig, Mount, MountTypeEnum, PortBinding,
+    ContainerCreateBody, ContainerSummaryStateEnum, HostConfig, Mount, MountType, PortBinding,
 };
 use bollard::query_parameters::{
     CreateContainerOptions, CreateImageOptions, ListContainersOptions, LogsOptions,
@@ -174,7 +174,7 @@ pub async fn start_coordinator(
         } else {
             String::from("/var/run/docker.sock")
         }),
-        typ: Some(MountTypeEnum::BIND),
+        typ: Some(MountType::BIND),
         consistency: Some(String::from("default")),
         ..Default::default()
     };
