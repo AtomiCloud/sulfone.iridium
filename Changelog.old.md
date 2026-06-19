@@ -1,3 +1,10 @@
+## [2.21.0](https://github.com/AtomiCloud/sulfone.iridium/compare/v2.20.0...v2.21.0) (2026-06-19)
+
+
+### ✨ Features ✨
+
+* **test:** compose template dependencies by default ([3abc204](https://github.com/AtomiCloud/sulfone.iridium/commit/3abc2046322a6f483ed0a3e8c7a95115fbc773a0))
+
 ## [2.20.0](https://github.com/AtomiCloud/sulfone.iridium/compare/v2.19.0...v2.20.0) (2026-03-25)
 
 

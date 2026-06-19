@@ -1,3 +1,11 @@
+## [2.21.1](https://github.com/AtomiCloud/sulfone.iridium/compare/v2.21.0...v2.21.1) (2026-06-19)
+
+
+### 🐛 Bug Fixes 🐛
+
+* **deps:** pin bollard to 0.21 and fix MountType rename ([#88](https://github.com/AtomiCloud/sulfone.iridium/issues/88)) ([810c93d](https://github.com/AtomiCloud/sulfone.iridium/commit/810c93d390af0a4567d40b76f7222f34c1d45b72))
+* **deps:** pin bollard to 0.21 and fix MountType rename ([cf6fec7](https://github.com/AtomiCloud/sulfone.iridium/commit/cf6fec75778c8e4ddb26dad834f546126ba2c683))
+
 ## [2.21.0](https://github.com/AtomiCloud/sulfone.iridium/compare/v2.20.0...v2.21.0) (2026-06-19)
 
 
