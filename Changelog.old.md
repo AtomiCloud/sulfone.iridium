@@ -1,3 +1,31 @@
+## [2.20.0](https://github.com/AtomiCloud/sulfone.iridium/compare/v2.19.0...v2.20.0) (2026-03-25)
+
+
+### 📜 Documentation 📜
+
+* **CU-86ex0yctp:** add implementation plans v1 ([1ceb2c9](https://github.com/AtomiCloud/sulfone.iridium/commit/1ceb2c933e15269ddec62d1e62b5b598251ced72))
+* **CU-86ex0yctp:** add task spec for command configs ([d3e34c5](https://github.com/AtomiCloud/sulfone.iridium/commit/d3e34c5b0490a789aa55cbeed796df121ad46b63))
+
+
+### ✨ Features ✨
+
+* **test:** execute template commands in test runner ([749d473](https://github.com/AtomiCloud/sulfone.iridium/commit/749d473abcb6d53e6fd4a9220588c3f39a6fce26))
+* **cyancoordinator:** implement command execution pipeline ([14eb69c](https://github.com/AtomiCloud/sulfone.iridium/commit/14eb69c36a68e67714d3060bb2749464ce0a93db))
+* **cyanregistry:** plan-1 implement command config data pipeline ([f538fb6](https://github.com/AtomiCloud/sulfone.iridium/commit/f538fb6b19ec9e7ced16faf7399427430eca5ecb))
+
+
+### 🐛 Bug Fixes 🐛
+
+* address coderabbit local review findings ([cd75646](https://github.com/AtomiCloud/sulfone.iridium/commit/cd75646d77dd3a5981fc1f09206f4f063a9d5b74))
+* address coderabbit review findings ([d736f5c](https://github.com/AtomiCloud/sulfone.iridium/commit/d736f5c8d09b25e19814f4fed016c3aa36d4ffae))
+* address CodeRabbit review findings ([3515853](https://github.com/AtomiCloud/sulfone.iridium/commit/3515853d897dbdfadec0dca0c6a7908e6abf12f0))
+* **batch_process:** use resolved dependency commands ([6381bb2](https://github.com/AtomiCloud/sulfone.iridium/commit/6381bb2b60435de9a7eff740b0394412a5dcdf86))
+
+
+### 🧪 Tests 🧪
+
+* **e2e:** add command execution test coverage for templates 9 and 10 ([2d77da3](https://github.com/AtomiCloud/sulfone.iridium/commit/2d77da3b253c605f8be99bb3af11f17105177d0a))
+
 ## [2.19.0](https://github.com/AtomiCloud/sulfone.iridium/compare/v2.18.1...v2.19.0) (2026-03-25)
 
 
