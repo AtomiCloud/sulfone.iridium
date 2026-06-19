@@ -191,6 +191,7 @@ pub fn run_init(
         None, // no junit output
         coordinator_endpoint,
         disable_daemon_autostart,
+        false, // include template dependencies (test the final composed state)
         registry_client,
     )?;
 

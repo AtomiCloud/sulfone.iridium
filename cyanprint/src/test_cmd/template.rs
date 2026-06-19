@@ -21,7 +21,12 @@ use bollard::Docker;
 use reqwest::blocking::Client;
 
 use cyancoordinator::client::CyanCoordinatorClient;
+use cyancoordinator::fs::{
+    DefaultVfs, DiskFileLoader, DiskFileWriter, GitLikeMerger, TarGzUnpacker,
+};
+use cyancoordinator::operations::TemplateOperator;
 use cyancoordinator::session::{DefaultSessionIdGenerator, SessionIdGenerator};
+use cyancoordinator::template::DefaultTemplateExecutor;
 use cyanprompt::domain::models::answer::Answer;
 use cyanprompt::domain::models::cyan::Cyan;
 use cyanprompt::domain::models::question::QuestionTrait;
@@ -146,6 +151,9 @@ impl Clone for TemplateWarmup {
 /// * `junit_path` - Optional path for JUnit XML report
 /// * `coordinator_endpoint` - Coordinator endpoint
 /// * `disable_daemon_autostart` - Skip automatic daemon start
+/// * `skip_deps` - Skip template dependencies and test the root template in
+///   isolation. When `false` (the default), template dependencies are composed
+///   in so the final merged state is tested.
 ///
 /// # Returns
 ///
@@ -168,6 +176,7 @@ pub fn run_template_tests(
     junit_path: Option<&str>,
     coordinator_endpoint: &str,
     disable_daemon_autostart: bool,
+    skip_deps: bool,
     registry_client: &CyanRegistryClient,
 ) -> Result<Vec<TestResult>, Box<dyn Error + Send>> {
     // Create output directory
@@ -207,6 +216,20 @@ pub fn run_template_tests(
 
     println!("Found {} test case(s) to run", test_cases.len());
 
+    // Decide whether to compose template dependencies into the run.
+    // By default we include them so the final merged state is tested; `--skip-deps`
+    // (skip_deps=true) tests the root template in isolation.
+    let has_template_deps = template_has_dependencies(template_path, config)?;
+    let include_deps = !skip_deps && has_template_deps;
+
+    if skip_deps && has_template_deps {
+        println!(
+            "Skipping template dependencies (--skip-deps): testing the root template in isolation"
+        );
+    } else if include_deps {
+        println!("Composing template dependencies in: testing the final merged state");
+    }
+
     // Generate a run-scoped UUID for container ownership and cleanup.
     // All containers created during this run will be labeled with this UUID,
     // and the RunGuard will clean them up when it drops (even on panic).
@@ -214,7 +237,100 @@ pub fn run_template_tests(
     let _run_guard = RunGuard::new(run_id.clone());
     println!("Run ID: {run_id}");
 
-    // Warm up template
+    let start_time = Instant::now();
+    let results_result = if include_deps {
+        run_composition_tests(
+            test_cases,
+            template_path,
+            config,
+            output_dir,
+            update_snapshots,
+            coordinator_endpoint,
+            disable_daemon_autostart,
+            parallel,
+            registry_client,
+        )
+    } else {
+        run_isolated_tests(
+            test_cases,
+            template_path,
+            config,
+            output_dir,
+            update_snapshots,
+            coordinator_endpoint,
+            disable_daemon_autostart,
+            parallel,
+            registry_client,
+            &run_id,
+        )
+    };
+
+    let total_duration = start_time.elapsed();
+
+    // Propagate any test execution error
+    let results = results_result?;
+
+    // Write JUnit report if requested
+    if let Some(junit_path) = junit_path {
+        println!("Writing JUnit report to {junit_path}");
+        crate::test_cmd::report::write_junit_report(&results, junit_path)?;
+    }
+
+    println!(
+        "\nCompleted {} test(s) in {:.2}s",
+        results.len(),
+        total_duration.as_secs_f64()
+    );
+
+    // Clean up temporary output directory
+    if PathBuf::from(output_dir).exists() {
+        if let Err(e) = fs::remove_dir_all(output_dir) {
+            eprintln!("Warning: failed to clean up output directory {output_dir}: {e}");
+        }
+    }
+
+    Ok(results)
+}
+
+/// Read the template's `cyan.yaml` and report whether it declares any template
+/// dependencies (i.e. it is a composition / group with child templates).
+fn template_has_dependencies(
+    template_path: &str,
+    config_path: &str,
+) -> Result<bool, Box<dyn Error + Send>> {
+    let full_config_path = PathBuf::from(template_path).join(config_path);
+    let content = fs::read_to_string(&full_config_path).map_err(|e| {
+        Box::new(std::io::Error::other(format!(
+            "Failed to read config file: {e}"
+        ))) as Box<dyn Error + Send>
+    })?;
+    let template_config: CyanTemplateFileConfig = serde_yaml::from_str(&content).map_err(|e| {
+        Box::new(std::io::Error::other(format!(
+            "Failed to parse config file: {e}"
+        ))) as Box<dyn Error + Send>
+    })?;
+    Ok(!template_config.templates.is_empty())
+}
+
+/// Run the isolated (root-only) test path: warm a single template container and
+/// execute each test case against it without composing template dependencies.
+///
+/// This is the path used when `--skip-deps` is set or when the template has no
+/// dependencies.
+#[allow(clippy::too_many_arguments)]
+fn run_isolated_tests(
+    test_cases: Vec<&TestCase>,
+    template_path: &str,
+    config: &str,
+    output_dir: &str,
+    update_snapshots: bool,
+    coordinator_endpoint: &str,
+    disable_daemon_autostart: bool,
+    parallel: usize,
+    registry_client: &CyanRegistryClient,
+    run_id: &str,
+) -> Result<Vec<TestResult>, Box<dyn Error + Send>> {
+    // Warm up template (build images, start container, health check)
     println!("\nWarming up template...");
     let warmup = template_warmup(
         template_path,
@@ -222,15 +338,13 @@ pub fn run_template_tests(
         coordinator_endpoint,
         disable_daemon_autostart,
         registry_client,
-        &run_id,
+        run_id,
     )?;
 
     println!("Template warmed up successfully");
 
     // Run tests (parallel or sequential based on parallel count)
     println!("\nRunning tests...");
-    let start_time = Instant::now();
-
     let results_result = if parallel > 1 {
         run_tests_parallel(
             test_cases,
@@ -254,8 +368,6 @@ pub fn run_template_tests(
         )
     };
 
-    let total_duration = start_time.elapsed();
-
     // Cleanup warm-up resources (always, even on test failure)
     println!("\nCleaning up template resources...");
     if let Err(e) = cleanup_warmup(&warmup) {
@@ -263,29 +375,431 @@ pub fn run_template_tests(
     }
     println!("Cleanup complete");
 
-    // Propagate any test execution error after cleanup
-    let results = results_result?;
+    results_result
+}
 
-    // Write JUnit report if requested
-    if let Some(junit_path) = junit_path {
-        println!("Writing JUnit report to {junit_path}");
-        crate::test_cmd::report::write_junit_report(&results, junit_path)?;
-    }
+/// Warm-up artifacts for the composition (dependency-inclusive) test path.
+///
+/// Unlike [`TemplateWarmup`], this does not start a long-lived template
+/// container — the [`CompositionOperator`] warms the root and each dependency
+/// itself, per execution. We only need the locally-built images (referenced by
+/// the synthetic template's properties) to exist in the local Docker daemon.
+struct CompositionWarmup {
+    /// Synthetic root template with locally-built image properties.
+    synthetic_template: TemplateVersionRes,
+    /// Built template image reference (for cleanup).
+    template_image_ref: String,
+    /// Built blob image reference (for cleanup).
+    blob_image_ref: String,
+    /// Docker client (for image cleanup).
+    docker: Docker,
+}
 
-    println!(
-        "\nCompleted {} test(s) in {:.2}s",
-        results.len(),
-        total_duration.as_secs_f64()
-    );
+/// Build the images and synthetic template needed for composition execution.
+///
+/// Mirrors the build steps of [`template_warmup`] but stops short of starting a
+/// template container, since composition execution warms templates on demand.
+fn composition_warmup(
+    template_path: &str,
+    config_path: &str,
+    coordinator_endpoint: &str,
+    disable_daemon_autostart: bool,
+    registry_client: &CyanRegistryClient,
+) -> Result<CompositionWarmup, Box<dyn Error + Send>> {
+    // Read configuration
+    let full_config_path = PathBuf::from(template_path).join(config_path);
+    let content = fs::read_to_string(full_config_path).map_err(|e| {
+        Box::new(std::io::Error::other(format!(
+            "Failed to read config file: {e}"
+        ))) as Box<dyn Error + Send>
+    })?;
 
-    // Clean up temporary output directory
-    if PathBuf::from(output_dir).exists() {
-        if let Err(e) = fs::remove_dir_all(output_dir) {
-            eprintln!("Warning: failed to clean up output directory {output_dir}: {e}");
+    let template_config: CyanTemplateFileConfig = serde_yaml::from_str(&content).map_err(|e| {
+        Box::new(std::io::Error::other(format!(
+            "Failed to parse config file: {e}"
+        ))) as Box<dyn Error + Send>
+    })?;
+
+    // Pre-flight validation (tests always build, so dev_mode=false)
+    println!("Running pre-flight validation...");
+    crate::try_cmd::pre_flight_validation(template_path, false)?;
+
+    // Ensure daemon is running
+    println!("Ensuring daemon is running...");
+    let docker =
+        Docker::connect_with_local_defaults().map_err(|e| Box::new(e) as Box<dyn Error + Send>)?;
+    ensure_daemon_running(&docker, disable_daemon_autostart, coordinator_endpoint)?;
+
+    // Resolve and pin dependencies (root images are local; deps come from registry)
+    println!("Resolving and pinning dependencies...");
+    let pinned = crate::try_cmd::resolve_and_pin_dependencies(registry_client, &template_config)?;
+
+    // Build images
+    println!("Building template and blob images...");
+    let build_config_path = PathBuf::from(template_path).join(config_path);
+    let build_config = read_build_config(build_config_path.to_string_lossy().to_string())?;
+
+    let registry = build_config.registry.as_ref().ok_or_else(|| {
+        Box::new(std::io::Error::other("No registry configured in cyan.yaml"))
+            as Box<dyn Error + Send>
+    })?;
+
+    let images = build_config.images.as_ref().ok_or_else(|| {
+        Box::new(std::io::Error::other("No images configured in cyan.yaml"))
+            as Box<dyn Error + Send>
+    })?;
+
+    let (blob_docker_ref, template_docker_ref) =
+        build_template_images(registry, images, template_path)?;
+
+    println!("Images built successfully");
+
+    // Create synthetic root template with locally-built image properties.
+    println!("Creating synthetic template object...");
+    let local_template_id = uuid::Uuid::new_v4().to_string();
+    let build_result = Some((
+        Some(blob_docker_ref.clone()),
+        Some(template_docker_ref.clone()),
+    ));
+
+    let synthetic_template = crate::try_cmd::build_synthetic_template(
+        &local_template_id,
+        &template_config,
+        &pinned,
+        false, // dev_mode=false — root has real, locally-built images
+        build_result.as_ref(),
+    )?;
+
+    println!("Synthetic template created");
+
+    Ok(CompositionWarmup {
+        synthetic_template,
+        template_image_ref: template_docker_ref,
+        blob_image_ref: blob_docker_ref,
+        docker,
+    })
+}
+
+/// Remove the images built for the composition warmup.
+fn cleanup_composition_warmup(warmup: &CompositionWarmup) -> Result<(), Box<dyn Error + Send>> {
+    let runtime = Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .map_err(|e| Box::new(e) as Box<dyn Error + Send>)?;
+
+    for image_ref in [&warmup.template_image_ref, &warmup.blob_image_ref] {
+        println!("  Removing image: {image_ref}");
+        if let Err(e) = runtime.block_on(async {
+            warmup
+                .docker
+                .remove_image(
+                    image_ref,
+                    None::<bollard::query_parameters::RemoveImageOptions>,
+                    None::<bollard::auth::DockerCredentials>,
+                )
+                .await
+                .map(|_| ())
+                .map_err(|e| Box::new(e) as Box<dyn Error + Send>)
+        }) {
+            eprintln!("  Warning: failed to remove image {image_ref}: {e}");
         }
     }
 
+    Ok(())
+}
+
+/// Run the composition (dependency-inclusive) test path.
+///
+/// Builds the root template's images once, then for each test case executes the
+/// full dependency tree (root + dependencies) via the [`CompositionOperator`]
+/// and compares the layered, final state against the snapshot.
+#[allow(clippy::too_many_arguments)]
+fn run_composition_tests(
+    test_cases: Vec<&TestCase>,
+    template_path: &str,
+    config: &str,
+    output_dir: &str,
+    update_snapshots: bool,
+    coordinator_endpoint: &str,
+    disable_daemon_autostart: bool,
+    parallel: usize,
+    registry_client: &CyanRegistryClient,
+) -> Result<Vec<TestResult>, Box<dyn Error + Send>> {
+    println!("\nWarming up template (composition mode)...");
+    let warmup = composition_warmup(
+        template_path,
+        config,
+        coordinator_endpoint,
+        disable_daemon_autostart,
+        registry_client,
+    )?;
+    println!("Template warmed up successfully");
+
+    println!("\nRunning tests...");
+    let results_result = if parallel > 1 {
+        run_composition_tests_parallel(
+            test_cases,
+            &warmup.synthetic_template,
+            template_path,
+            output_dir,
+            update_snapshots,
+            coordinator_endpoint,
+            parallel,
+            registry_client,
+        )
+    } else {
+        let mut results = Vec::new();
+        for test_case in test_cases {
+            let result = run_single_composition_test_case(
+                test_case,
+                &warmup.synthetic_template,
+                template_path,
+                output_dir,
+                update_snapshots,
+                coordinator_endpoint,
+                registry_client,
+            )?;
+            results.push(result);
+        }
+        Ok(results)
+    };
+
+    // Cleanup built images (always, even on failure)
+    println!("\nCleaning up template resources...");
+    if let Err(e) = cleanup_composition_warmup(&warmup) {
+        eprintln!("Warning: composition warmup cleanup failed: {e}");
+    }
+    println!("Cleanup complete");
+
+    results_result
+}
+
+/// Run composition test cases in parallel, bounded by `parallel_count`.
+///
+/// Each test case is fully independent (own coordinator sessions and
+/// composition operator), so it is safe to run concurrently.
+#[allow(clippy::too_many_arguments)]
+fn run_composition_tests_parallel(
+    test_cases: Vec<&TestCase>,
+    synthetic_template: &TemplateVersionRes,
+    template_path: &str,
+    output_dir: &str,
+    update_snapshots: bool,
+    coordinator_endpoint: &str,
+    parallel_count: usize,
+    registry_client: &CyanRegistryClient,
+) -> Result<Vec<TestResult>, Box<dyn Error + Send>> {
+    let semaphore = Arc::new(Semaphore::new(parallel_count));
+    let results_mutex = Arc::new(Mutex::new(Vec::new()));
+    let mut handles = Vec::new();
+    let registry_endpoint = Arc::new(registry_client.endpoint.clone());
+    let registry_version = Arc::new(registry_client.version.clone());
+
+    for test_case in test_cases {
+        let test_case = test_case.clone();
+        let synthetic_template = synthetic_template.clone();
+        let template_path = template_path.to_string();
+        let output_dir = output_dir.to_string();
+        let coordinator_endpoint = coordinator_endpoint.to_string();
+        let semaphore = Arc::clone(&semaphore);
+        let results_mutex = Arc::clone(&results_mutex);
+        let registry_endpoint = Arc::clone(&registry_endpoint);
+        let registry_version = Arc::clone(&registry_version);
+
+        let handle = thread::spawn(move || {
+            let _permit = semaphore.acquire();
+
+            // Create a per-thread registry client (Rc is not Send, so build in-thread)
+            let thread_registry = CyanRegistryClient {
+                endpoint: (*registry_endpoint).clone(),
+                version: (*registry_version).clone(),
+                client: Rc::new(reqwest::blocking::Client::builder().build().unwrap()),
+            };
+
+            let result = run_single_composition_test_case(
+                &test_case,
+                &synthetic_template,
+                &template_path,
+                &output_dir,
+                update_snapshots,
+                &coordinator_endpoint,
+                &thread_registry,
+            );
+
+            let mut results = results_mutex.lock().unwrap();
+            match result {
+                Ok(test_result) => results.push(test_result),
+                Err(e) => results.push(TestResult {
+                    name: test_case.name.clone(),
+                    passed: false,
+                    duration: Duration::from_secs(0),
+                    failure_message: Some(format!("Test failed: {e:?}")),
+                }),
+            }
+        });
+
+        handles.push(handle);
+    }
+
+    for handle in handles {
+        handle.join().map_err(|e| {
+            Box::new(std::io::Error::other(format!("Thread panicked: {e:?}")))
+                as Box<dyn Error + Send>
+        })?;
+    }
+
+    let results = Arc::try_unwrap(results_mutex)
+        .map_err(|_| {
+            Box::new(std::io::Error::other("Failed to unwrap Arc")) as Box<dyn Error + Send>
+        })?
+        .into_inner()
+        .map_err(|e| {
+            Box::new(std::io::Error::other(format!("Mutex poisoned: {e}"))) as Box<dyn Error + Send>
+        })?;
+
     Ok(results)
+}
+
+/// Run a single composition test case: execute the full dependency tree and
+/// compare the layered output against the expected snapshot.
+fn run_single_composition_test_case(
+    test_case: &TestCase,
+    synthetic_template: &TemplateVersionRes,
+    template_path: &str,
+    output_dir: &str,
+    update_snapshots: bool,
+    coordinator_endpoint: &str,
+    registry_client: &CyanRegistryClient,
+) -> Result<TestResult, Box<dyn Error + Send>> {
+    let start_time = Instant::now();
+    println!("Running test case (with dependencies): {}", test_case.name);
+
+    // Build answers + deterministic state from the test case
+    let mut answers: HashMap<String, Answer> = HashMap::new();
+    let mut deterministic_state: HashMap<String, String> = HashMap::new();
+
+    for (key, value) in &test_case.deterministic_state {
+        deterministic_state.insert(key.clone(), value.clone());
+    }
+    for (question_id, answer_entry) in &test_case.answer_state {
+        match answer_entry {
+            AnswerStateEntry::String(s) => {
+                answers.insert(question_id.clone(), Answer::String(s.clone()));
+            }
+            AnswerStateEntry::StringArray(arr) => {
+                answers.insert(question_id.clone(), Answer::StringArray(arr.clone()));
+            }
+            AnswerStateEntry::Bool(b) => {
+                answers.insert(question_id.clone(), Answer::Bool(*b));
+            }
+        }
+    }
+
+    // Build the composition operator (same wiring as `try group` / `run`)
+    let coord_client = CyanCoordinatorClient::new(coordinator_endpoint.to_string());
+    let rc_registry = Rc::new(CyanRegistryClient {
+        endpoint: registry_client.endpoint.clone(),
+        version: registry_client.version.clone(),
+        client: Rc::clone(&registry_client.client),
+    });
+
+    let unpacker = Box::new(TarGzUnpacker);
+    let loader = Box::new(DiskFileLoader);
+    let merger = Box::new(GitLikeMerger::new(false, 50));
+    let writer = Box::new(DiskFileWriter);
+    let template_executor = Box::new(DefaultTemplateExecutor::new(coord_client.endpoint.clone()));
+    let vfs = Box::new(DefaultVfs::new(unpacker, loader, merger, writer));
+    let session_id_generator: Box<dyn SessionIdGenerator> = Box::new(DefaultSessionIdGenerator);
+    let template_history = Box::new(cyancoordinator::template::DefaultTemplateHistory::new());
+
+    let template_operator = TemplateOperator::new(
+        session_id_generator,
+        template_executor,
+        template_history,
+        vfs,
+        rc_registry.clone(),
+    );
+    let dependency_resolver = Box::new(DefaultDependencyResolver::new(rc_registry));
+    let mut composition_operator = CompositionOperator::with_client(
+        template_operator,
+        dependency_resolver,
+        coord_client.clone(),
+    );
+
+    // Execute composition (resolves deps, warms each, runs non-interactive Q&A, layers)
+    println!("  Executing composition for {}...", test_case.name);
+    let (vfs_output, _final_state, session_ids, resolved_commands) = composition_operator
+        .execute_template(synthetic_template, &answers, &deterministic_state)?;
+
+    // Clean up coordinator sessions created during composition (before any
+    // further fallible step so sessions are never leaked on a later error)
+    for sid in &session_ids {
+        if let Err(e) = coord_client.clean(sid.clone()) {
+            eprintln!("  Warning: failed to cleanup session {sid}: {e}");
+        }
+    }
+
+    // Prepare clean output directory
+    let test_output_dir = PathBuf::from(output_dir).join(&test_case.name);
+    if test_output_dir.exists() {
+        fs::remove_dir_all(&test_output_dir).map_err(|e| {
+            Box::new(std::io::Error::other(format!(
+                "Failed to clear test output directory {}: {}",
+                test_output_dir.display(),
+                e
+            ))) as Box<dyn Error + Send>
+        })?;
+    }
+    fs::create_dir_all(&test_output_dir).map_err(|e| Box::new(e) as Box<dyn Error + Send>)?;
+
+    // Write the layered (final) state to disk
+    composition_operator
+        .get_vfs()
+        .write_to_disk(&test_output_dir, &vfs_output)?;
+
+    println!("  Output written successfully");
+
+    // Execute post-template commands (collected from the full dependency tree)
+    if !resolved_commands.is_empty() {
+        println!(
+            "  Executing {} post-template command(s)...",
+            resolved_commands.len()
+        );
+        let exec_result = CommandExecutor::execute_commands_non_interactive(
+            &resolved_commands,
+            &test_output_dir,
+        )?;
+        if !exec_result.all_succeeded() {
+            let cmd_msg = format!(
+                "Command execution failed: {}/{} succeeded, {}/{} failed",
+                exec_result.succeeded, exec_result.total, exec_result.failed, exec_result.total
+            );
+            return Ok(TestResult {
+                name: test_case.name.clone(),
+                passed: false,
+                duration: start_time.elapsed(),
+                failure_message: Some(cmd_msg),
+            });
+        }
+    }
+
+    // Compare with expected snapshot, then run validate commands
+    let failure_message =
+        compare_and_validate(test_case, &test_output_dir, template_path, update_snapshots)?;
+
+    let duration = start_time.elapsed();
+    println!(
+        "  Test case '{}' completed in {:.2}s",
+        test_case.name,
+        duration.as_secs_f64()
+    );
+
+    Ok(TestResult {
+        name: test_case.name.clone(),
+        passed: failure_message.is_none(),
+        duration,
+        failure_message,
+    })
 }
 
 /// Warm up the template for testing.
@@ -786,6 +1300,37 @@ fn run_single_test_case(
         }
     }
 
+    // Compare with expected snapshot, then run validate commands
+    let failure_message =
+        compare_and_validate(test_case, &test_output_dir, template_path, update_snapshots)?;
+
+    let duration = start_time.elapsed();
+
+    println!(
+        "  Test case '{}' completed in {:.2}s",
+        test_case.name,
+        duration.as_secs_f64()
+    );
+
+    Ok(TestResult {
+        name: test_case.name.clone(),
+        passed: failure_message.is_none(),
+        duration,
+        failure_message,
+    })
+}
+
+/// Compare the produced output against the expected snapshot (updating it if
+/// requested) and run any validate commands.
+///
+/// Returns `Some(message)` describing the failure(s), or `None` if everything
+/// passed. Shared by the isolated and composition test paths.
+fn compare_and_validate(
+    test_case: &TestCase,
+    test_output_dir: &Path,
+    template_path: &str,
+    update_snapshots: bool,
+) -> Result<Option<String>, Box<dyn Error + Send>> {
     // Compare with expected snapshot first
     let mut failure_message: Option<String> = None;
 
@@ -837,7 +1382,7 @@ fn run_single_test_case(
             // Update snapshots if requested
             if update_snapshots {
                 println!("  Updating snapshot...");
-                copy_to_snapshot(&test_output_dir, &expected_path)?;
+                copy_to_snapshot(test_output_dir, &expected_path)?;
                 println!("  Snapshot updated");
             } else {
                 failure_message = Some(format!(
@@ -879,20 +1424,7 @@ fn run_single_test_case(
         }
     }
 
-    let duration = start_time.elapsed();
-
-    println!(
-        "  Test case '{}' completed in {:.2}s",
-        test_case.name,
-        duration.as_secs_f64()
-    );
-
-    Ok(TestResult {
-        name: test_case.name.clone(),
-        passed: failure_message.is_none(),
-        duration,
-        failure_message,
-    })
+    Ok(failure_message)
 }
 
 /// Run non-interactive Q&A loop against template server.

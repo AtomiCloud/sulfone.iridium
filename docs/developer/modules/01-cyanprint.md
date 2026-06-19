@@ -169,6 +169,15 @@ This approach prevents nested test runs from killing parent containers — each 
 
 **Key File**: `cyanprint/src/test_cmd/container.rs` (`RunGuard` struct)
 
+### Test Command — Template Dependency Composition
+
+`test template` composes the template's declared dependencies by **default**, so the snapshot/validation runs against the **final merged state** (root template layered with all dependency templates), matching what `create` would actually produce.
+
+- **Default (dependencies included)**: when `cyan.yaml` declares template dependencies, execution is routed through the `CompositionOperator` (the same path used by `create` and `try group`). It resolves the dependency tree, executes the root plus each dependency with the test case's answers/deterministic state, and layers the outputs before comparison.
+- **`--skip-deps`**: tests the root template in isolation using the pre-warmed single-container path. Use this for faster, focused tests of a single template's output. Templates with no dependencies always use the isolated path regardless of the flag.
+
+**Key Files**: `cyanprint/src/test_cmd/template.rs` (`run_composition_tests`, `run_isolated_tests`), `cyancoordinator/src/operations/composition/operator.rs` (`CompositionOperator`)
+
 ## Related
 
 - [CLI Commands](../surfaces/cli/) - Detailed command reference

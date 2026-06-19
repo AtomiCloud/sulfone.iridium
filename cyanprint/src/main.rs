@@ -557,6 +557,7 @@ fn run() -> Result<(), Box<dyn Error + Send>> {
                 junit,
                 coordinator_endpoint,
                 disable_daemon_autostart,
+                skip_deps,
             } => {
                 println!("Running template tests");
                 let results = run_template_tests(
@@ -569,6 +570,7 @@ fn run() -> Result<(), Box<dyn Error + Send>> {
                     junit.as_deref(),
                     &coordinator_endpoint,
                     disable_daemon_autostart,
+                    skip_deps,
                     &registry,
                 )?;
 
