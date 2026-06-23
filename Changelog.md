@@ -1,3 +1,10 @@
+## [2.22.0](https://github.com/AtomiCloud/sulfone.iridium/compare/v2.21.1...v2.22.0) (2026-06-23)
+
+
+### ✨ Features ✨
+
+* **state:** record cyanprint-managed files in cyan state ([a0c684b](https://github.com/AtomiCloud/sulfone.iridium/commit/a0c684b3a52a0960c838098a05266a4b69dd174b))
+
 ## [2.21.1](https://github.com/AtomiCloud/sulfone.iridium/compare/v2.21.0...v2.21.1) (2026-06-19)
 
 
