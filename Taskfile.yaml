@@ -16,6 +16,10 @@ tasks:
     desc: 'Run the application'
     cmds:
       - cargo run {{.CLI_ARGS}}
+  test:
+    desc: 'Run unit tests'
+    cmds:
+      - cargo test
   lint:
     desc: 'Lint the code'
     cmds:

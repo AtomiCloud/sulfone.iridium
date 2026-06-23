@@ -23,8 +23,64 @@ use cyancoordinator::session::SessionIdGenerator;
 use cyancoordinator::template::DefaultTemplateExecutor;
 use cyancoordinator::template::{DefaultTemplateHistory, TemplateUpdateType};
 
+use cyancoordinator::fs::VirtualFileSystem;
+
 use crate::command_executor::CommandExecutor;
 use crate::update::spec::{TemplateSpec, TemplateSpecManager, sort_specs};
+
+/// cyanprint's own bookkeeping artifacts, excluded from the managed-files manifest.
+/// `.cyan_state.yaml` is the state file the loader already special-cases
+/// (`fs/loader.rs:25,79`); `.cyan_output` is the default output artifact
+/// (`commands.rs`). Matched by exact path (after normalization) or top-level entry.
+const CYANPRINT_INTERNAL_FILES: &[&str] = &[".cyan_state.yaml", ".cyan_output"];
+
+/// Normalize a VFS path to the manifest's canonical form: forward-slash separators,
+/// no leading `./` or `/`, no trailing `/`. VFS paths are already stored relative
+/// (the loader/unpacker strip the target-dir prefix), so this is normalization, not
+/// relativization.
+fn normalize_path(path: &Path) -> String {
+    // Render with '/' regardless of OS separator, using lossy UTF-8 for each component.
+    let joined = path
+        .components()
+        .map(|c| c.as_os_str().to_string_lossy().into_owned())
+        .collect::<Vec<_>>()
+        .join("/");
+
+    // On non-Windows targets, Path::components() does NOT treat '\' as a separator,
+    // so literal backslashes (e.g. a Windows-authored "dir\sub\file.txt") survive in
+    // the joined string. Replace them explicitly so backslash separators normalize to
+    // forward slashes on every platform — AC7/FR7 requires this canonical form.
+    let forward = joined.replace('\\', "/");
+
+    // Strip leading "./" and any leading '/', then any trailing '/'.
+    let trimmed = forward.trim_start_matches("./");
+    let trimmed = trimmed.trim_start_matches('/');
+    trimmed.trim_end_matches('/').to_string()
+}
+
+/// True when `path` (already normalized) is one of cyanprint's bookkeeping files —
+/// either as an exact path or as a top-level entry.
+fn is_cyanprint_internal(path: &str) -> bool {
+    let top_level = path.split('/').next().unwrap_or(path);
+    CYANPRINT_INTERNAL_FILES
+        .iter()
+        .any(|internal| path == *internal || top_level == *internal)
+}
+
+/// Collect a template's output paths from its VFS as a normalized, filtered, sorted,
+/// de-duplicated list of relative paths suitable for the managed-files manifest.
+fn normalize_managed_paths(vfs: &VirtualFileSystem) -> Vec<String> {
+    let mut v: Vec<String> = vfs
+        .get_paths()
+        .iter()
+        .map(|p| normalize_path(p))
+        .filter(|p| !p.is_empty())
+        .filter(|p| !is_cyanprint_internal(p))
+        .collect();
+    v.sort();
+    v.dedup();
+    v
+}
 
 /// Check if a template has execution artifacts (Docker properties)
 fn has_execution_artifacts(template: &TemplateVersionRes) -> bool {
@@ -48,7 +104,15 @@ pub fn batch_process(
     registry: &CyanRegistryClient,
     coord_client: &CyanCoordinatorClient,
     operator: &mut CompositionOperator,
-) -> Result<(Vec<String>, Vec<FileConflictEntry>, Vec<String>), Box<dyn Error + Send>> {
+) -> Result<
+    (
+        Vec<String>,
+        Vec<FileConflictEntry>,
+        Vec<String>,
+        HashMap<String, Vec<String>>,
+    ),
+    Box<dyn Error + Send>,
+> {
     // PHASE 2: MAP (execute each template spec → VFS)
     println!(
         "\n📦 PHASE 2: MAP - Executing {} prev + {} curr templates",
@@ -82,6 +146,10 @@ pub fn batch_process(
     let mut final_answers_map: HashMap<String, HashMap<String, Answer>> = HashMap::new();
     let mut curr_template_res_list = Vec::new();
     let mut curr_resolved_commands = Vec::new();
+    // Per-template managed-files manifest, keyed by "<user>/<template>". Sourced from
+    // each ACTIVE template's own output VFS BEFORE the LAYER/MERGE phases consume it,
+    // so it reflects template output — never the merged result or the user's local files.
+    let mut managed_by_template: HashMap<String, Vec<String>> = HashMap::new();
 
     for spec in curr_specs {
         println!("  🔄 Executing curr: {} v{}", spec.key(), spec.version);
@@ -93,6 +161,12 @@ pub fn batch_process(
         let (vfs, final_state, session_ids, commands) =
             operator.execute_template(&template_res, &spec.answers, &spec.deterministic_states)?;
         curr_vfs_list.push(vfs);
+        // Collect this template's normalized output paths from its own VFS (the active
+        // set), before layering merges them into one.
+        managed_by_template.insert(
+            spec.key(),
+            normalize_managed_paths(curr_vfs_list.last().unwrap()),
+        );
         curr_session_ids.extend(session_ids);
         // Store the final answers for this template (includes Q&A answers)
         final_answers_map.insert(spec.key(), final_state.shared_answers);
@@ -198,7 +272,12 @@ pub fn batch_process(
     let all_commands = curr_resolved_commands;
 
     println!("✅ Batch process complete");
-    Ok((all_session_ids, file_conflicts, all_commands))
+    Ok((
+        all_session_ids,
+        file_conflicts,
+        all_commands,
+        managed_by_template,
+    ))
 }
 
 /// Run the cyan template generation process with automatic composition detection
@@ -451,7 +530,7 @@ pub fn cyan_run(
     let upgraded_refs: Vec<&TemplateSpec> = upgraded_specs.iter().collect();
 
     // Execute unified batch processing
-    let (session_ids, file_conflicts, commands) = batch_process(
+    let (session_ids, file_conflicts, commands, managed_by_template) = batch_process(
         &prev_specs,
         &curr_specs,
         &upgraded_refs,
@@ -468,9 +547,17 @@ pub fn cyan_run(
         .unwrap_or_default();
     let conflicts_count = file_conflicts.len();
     cyan_state.file_conflicts = file_conflicts;
+    // Recompute the managed-files manifest wholesale from this run's active
+    // templates: sets each template's `files` and the top-level `managed_files`
+    // union, clearing stale entries (e.g. for now-deactivated templates).
+    cyan_state.set_managed_files(&managed_by_template);
+    let managed_count = cyan_state.managed_files.len();
     state_manager.save_state_file(&cyan_state, &state_file_path)?;
     if conflicts_count > 0 {
         println!("📝 Saved {conflicts_count} file conflict(s) to state");
+    }
+    if managed_count > 0 {
+        println!("📝 Recorded {managed_count} managed file(s) in state");
     }
 
     // Execute commands if any were collected
@@ -508,4 +595,93 @@ pub fn cyan_run(
 fn parse_template_key(template_key: &str) -> Option<(String, String)> {
     let parts: Vec<&str> = template_key.split('/').collect();
     (parts.len() == 2).then(|| (parts[0].to_string(), parts[1].to_string()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // AC7 (FR7): paths are relative, forward-slash, no leading "./" or '/', no
+    // trailing '/'; backslash / "./"-prefixed inputs normalize to canonical form.
+    #[test]
+    fn normalize_path_canonicalizes() {
+        let cases = [
+            ("a.txt", "a.txt"),
+            ("./a.txt", "a.txt"),
+            ("/a.txt", "a.txt"),
+            ("dir/b.txt", "dir/b.txt"),
+            ("./dir/b.txt", "dir/b.txt"),
+            ("dir/", "dir"),
+            ("./nested/deep/c.txt", "nested/deep/c.txt"),
+        ];
+        for (input, expected) in cases {
+            assert_eq!(
+                normalize_path(Path::new(input)),
+                expected,
+                "normalize_path({input:?})"
+            );
+        }
+    }
+
+    // AC7 (FR7): a path built from separate components renders with forward-slash
+    // separators (the join uses '/' regardless of the OS separator).
+    #[test]
+    fn normalize_path_uses_forward_slashes() {
+        let p: PathBuf = ["dir", "sub", "file.txt"].iter().collect();
+        assert_eq!(normalize_path(&p), "dir/sub/file.txt");
+    }
+
+    // AC7 (FR7): a LITERAL backslash-separated input (Windows-style, authored as a
+    // single string) normalizes to forward-slash form on every platform. This is the
+    // case `normalize_path_uses_forward_slashes` does NOT cover: on Unix,
+    // `Path::components()` does not split on '\', so the raw backslashes reach the
+    // explicit `\` -> `/` substitution rather than being pre-split into components.
+    #[test]
+    fn normalize_path_converts_literal_backslashes() {
+        assert_eq!(
+            normalize_path(&PathBuf::from(r"dir\sub\file.txt")),
+            "dir/sub/file.txt"
+        );
+        // A leading ".\" (backslash form) also normalizes away to the canonical form.
+        assert_eq!(
+            normalize_path(&PathBuf::from(r".\dir\file.txt")),
+            "dir/file.txt"
+        );
+    }
+
+    // AC6 (FR6): cyanprint bookkeeping files are recognized as internal; ordinary
+    // files are not.
+    #[test]
+    fn is_cyanprint_internal_matches_bookkeeping() {
+        assert!(is_cyanprint_internal(".cyan_state.yaml"));
+        assert!(is_cyanprint_internal(".cyan_output"));
+        // Top-level bookkeeping directory entries are excluded too.
+        assert!(is_cyanprint_internal(".cyan_output/foo.txt"));
+
+        assert!(!is_cyanprint_internal("a.txt"));
+        assert!(!is_cyanprint_internal("src/.cyan_state.yaml"));
+        assert!(!is_cyanprint_internal("dir/normal.txt"));
+    }
+
+    // AC6 + AC7: normalize_managed_paths excludes bookkeeping, normalizes,
+    // sorts, and de-duplicates.
+    #[test]
+    fn normalize_managed_paths_filters_and_sorts() {
+        let mut vfs = VirtualFileSystem::new();
+        vfs.add_file(PathBuf::from("./b.txt"), vec![]);
+        vfs.add_file(PathBuf::from("a.txt"), vec![]);
+        vfs.add_file(PathBuf::from(".cyan_state.yaml"), vec![]);
+        vfs.add_file(PathBuf::from(".cyan_output"), vec![]);
+        vfs.add_file(PathBuf::from("dir/c.txt"), vec![]);
+
+        let paths = normalize_managed_paths(&vfs);
+        assert_eq!(
+            paths,
+            vec![
+                "a.txt".to_string(),
+                "b.txt".to_string(),
+                "dir/c.txt".to_string()
+            ]
+        );
+    }
 }

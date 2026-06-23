@@ -187,7 +187,7 @@ impl UpdateOrchestrator {
         let upgraded_refs: Vec<&TemplateSpec> = upgraded.iter().collect();
 
         // PHASE 2-4: BATCH PROCESS
-        let (session_ids, file_conflicts, commands) = batch_process(
+        let (session_ids, file_conflicts, commands, managed_by_template) = batch_process(
             &prev_specs,
             &curr_specs,
             &upgraded_refs,
@@ -200,9 +200,15 @@ impl UpdateOrchestrator {
         // Persist file conflicts to state file (always update to clear stale entries)
         let conflicts_count = file_conflicts.len();
         cyan_state.file_conflicts = file_conflicts;
+        // Recompute the managed-files manifest wholesale from this run's active templates.
+        cyan_state.set_managed_files(&managed_by_template);
+        let managed_count = cyan_state.managed_files.len();
         state_manager.save_state_file(&cyan_state, &state_file_path)?;
         if conflicts_count > 0 {
             println!("📝 Saved {conflicts_count} file conflict(s) to state");
+        }
+        if managed_count > 0 {
+            println!("📝 Recorded {managed_count} managed file(s) in state");
         }
 
         // Execute commands if any were collected
