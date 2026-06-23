@@ -2,7 +2,7 @@
 
 ## Summary
 
-cyanprint's state file records *what answers* each template was run with, but never *which files*
+cyanprint's state file records _what answers_ each template was run with, but never _which files_
 cyanprint produces. This change adds a path-only manifest of cyanprint-owned files to the state
 file — a whole-project list plus a per-template list — recomputed on every run from each template's
 own output. The outcome: anyone (a developer, a script, a future cyanprint feature) can read the
@@ -13,7 +13,7 @@ state file and know exactly which files cyanprint manages, separate from the use
 cyanprint scaffolds and updates projects by running one or more templates and merging their outputs
 into the working directory. It persists a state file in each project that, today, captures each
 template's active status and a version history of the answers it was run with. That history is
-enough to *re-run* a template, but it says nothing about the template's *footprint* — the actual
+enough to _re-run_ a template, but it says nothing about the template's _footprint_ — the actual
 files it placed in the project.
 
 This is a real gap. Because cyanprint output and hand-written files live side by side in the same
@@ -25,7 +25,7 @@ memory before everything is merged — it simply is never recorded.
 
 A key subtlety drives the design: cyanprint merges every template's output together with the
 project's existing local files to produce the final tree. A trustworthy "what cyanprint manages"
-manifest must be derived from the *template outputs themselves*, before that merge — otherwise it
+manifest must be derived from the _template outputs themselves_, before that merge — otherwise it
 would conflate cyanprint's footprint with the user's own files and with merge artifacts, defeating
 the purpose.
 
@@ -33,7 +33,7 @@ the purpose.
 
 - **G1** — From the state file alone, a person or tool can see exactly which files cyanprint
   manages in a project, both as a whole (one project-wide list) and broken down per template.
-- **G2** — That manifest is trustworthy and current: it reflects cyanprint's *own* output only
+- **G2** — That manifest is trustworthy and current: it reflects cyanprint's _own_ output only
   (never the user's files or post-merge artifacts), and is complete and accurate after every run.
 
 ## Approach (high level)
@@ -60,7 +60,7 @@ Three decisions shape what goes into the lists and how paths are written:
 - **cyanprint's own bookkeeping files are excluded.** Files that are cyanprint's own control/metadata
   artifacts — the state file itself (`.cyan_state.yaml`), cyanprint output/bookkeeping files such as
   `.cyan_output`, and similar cyanprint-internal files — never appear in the manifest. The manifest
-  describes the *project* files cyanprint produces, not cyanprint's own machinery.
+  describes the _project_ files cyanprint produces, not cyanprint's own machinery.
 - **Paths are normalized to a stable, portable form:** relative to the project root, using forward
   slashes on every platform, with no leading `./` or `/` and no trailing slash; the lists are sorted
   lexicographically and de-duplicated. This guarantees identical, clean diffs across operating
@@ -76,7 +76,7 @@ valid, and gain the new information the next time cyanprint runs.
 - **FR2** (→ G1) — Each template's entry in the state file carries its own list of the files that
   template produced, reflecting what it currently manages (a current view refreshed each run, not a
   historical accumulation).
-- **FR3** (→ G2) — Both lists are derived from template *output* — each template's own produced
+- **FR3** (→ G2) — Both lists are derived from template _output_ — each template's own produced
   files — and never include the user's pre-existing local files or files that only exist as a
   result of merging.
 - **FR4** (→ G2) — Only currently-active templates are considered. A deactivated template is ignored
@@ -99,7 +99,7 @@ valid, and gain the new information the next time cyanprint runs.
 
 - No per-file content, hashes, timestamps, or ownership metadata — the manifest is path-only.
 - No enforcement or protection of managed files (e.g. refusing to overwrite user edits, or
-  auto-deleting removed files based on the manifest) — this change *records*, it does not police.
+  auto-deleting removed files based on the manifest) — this change _records_, it does not police.
 - No change to how cyanprint writes files to disk, resolves conflicts, or merges template outputs.
 - No new commands or UI to query the manifest — it is simply present in the state file for now.
 

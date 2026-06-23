@@ -77,6 +77,7 @@ impl StateWriter for DefaultStateManager {
                 .or_insert(YamlTemplateState {
                     active: true,
                     history: Vec::new(),
+                    files: Vec::new(),
                 });
 
         template_state_entry.history.push(history_entry);
