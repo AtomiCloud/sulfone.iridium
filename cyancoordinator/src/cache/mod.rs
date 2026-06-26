@@ -33,7 +33,7 @@ pub struct CacheConfig {
 impl CacheConfig {
     /// Resolve the effective configuration from CLI overrides + environment.
     ///
-    /// Precedence for *enabled*: `--no-cache` flag OR `CYANPRINT_NO_CACHE` (truthy)
+    /// Precedence for *enabled*: `--no-output-cache` flag OR `CYANPRINT_NO_CACHE` (truthy)
     /// disables the cache (FR6). Precedence for *dir*: delegated to
     /// [`resolve_cache_dir`] — `--cache-dir` flag → `CYANPRINT_CACHE` env → the
     /// OS-standard cache dir (via the `directories` crate) joined with `cyanprint`
@@ -302,14 +302,16 @@ mod tests {
             archive: b"hello".to_vec(),
             state: HashMap::new(),
         };
+        // A valid 64-char lowercase-hex key (the only shape the store accepts).
+        let k = "deadbeef".repeat(8);
         // First lookup: a miss. Total counts the attempt; hits stays 0.
-        assert!(cache.lookup(&t, "k").is_none(), "first lookup is a miss");
+        assert!(cache.lookup(&t, &k).is_none(), "first lookup is a miss");
         assert_eq!(cache.total(), 1, "miss still counts as an attempt");
         assert_eq!(cache.hits(), 0, "a miss is not a hit");
-        cache.store(&t, "k", &entry);
+        cache.store(&t, &k, &entry);
         // Second lookup: a hit. Total counts the attempt; hits only rises once
         // the caller confirms the entry was served.
-        let got = cache.lookup(&t, "k").expect("second lookup is a hit");
+        let got = cache.lookup(&t, &k).expect("second lookup is a hit");
         assert_eq!(got, entry);
         assert_eq!(cache.total(), 2);
         assert_eq!(
@@ -321,14 +323,27 @@ mod tests {
         assert_eq!(cache.hits(), 1, "record_hit counts the served entry");
     }
 
-    // FR6: CYANPRINT_NO_CACHE / --no-cache disable; flag wins over env-off.
+    // FR6: CYANPRINT_NO_CACHE / --no-output-cache disable; flag wins over env-off.
     #[test]
     fn resolve_respects_no_cache_flag() {
-        let cfg = CacheConfig::resolve(true, Some(PathBuf::from("/tmp/x")), false);
-        assert!(!cfg.enabled);
-        let cfg = CacheConfig::resolve(false, Some(PathBuf::from("/tmp/x")), false);
-        assert!(cfg.enabled);
-        assert_eq!(cfg.dir, PathBuf::from("/tmp/x"));
+        // `resolve` reads CYANPRINT_NO_CACHE, so scope it for this test: a truthy
+        // value in the ambient environment would otherwise flip `enabled` and make
+        // the assertions non-deterministic. Resolve both configs while it is
+        // cleared, restore the original value, then assert.
+        let prev = std::env::var_os(ENV_NO_CACHE);
+        std::env::remove_var(ENV_NO_CACHE);
+
+        let disabled = CacheConfig::resolve(true, Some(PathBuf::from("/tmp/x")), false);
+        let enabled = CacheConfig::resolve(false, Some(PathBuf::from("/tmp/x")), false);
+
+        match prev {
+            Some(v) => std::env::set_var(ENV_NO_CACHE, v),
+            None => std::env::remove_var(ENV_NO_CACHE),
+        }
+
+        assert!(!disabled.enabled);
+        assert!(enabled.enabled);
+        assert_eq!(enabled.dir, PathBuf::from("/tmp/x"));
     }
 
     #[test]

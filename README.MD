@@ -33,17 +33,19 @@ always safe. There is **no automatic eviction** — use `cyanprint cache clear`
 
 | Flag / variable        | Effect                                                            |
 | ---------------------- | ----------------------------------------------------------------- |
-| `--no-cache`           | Disable the cache for this run (always execute, never store).     |
+| `--no-output-cache`    | Disable the cache for this run (always execute, never store).     |
 | `--cache-dir <PATH>`   | Use a different cache directory.                                  |
 | `CYANPRINT_NO_CACHE`   | Set to a truthy value (`1`/`true`/`yes`/`on`) to disable caching. |
 | `CYANPRINT_CACHE`      | Override the cache directory.                                     |
 
 Both flags are global, so they work on any command (e.g.
-`cyanprint --no-cache update` or `cyanprint create user/template --cache-dir /tmp/cc`).
+`cyanprint --no-output-cache update` or `cyanprint create user/template --cache-dir /tmp/cc`).
+(`--no-output-cache` is deliberately distinct from the `build`/`push` `--no-cache`,
+which controls the Docker buildx cache.)
 
 ### The `cyanprint cache` command
 
-```
+```text
 cyanprint cache path    # print the resolved cache directory
 cyanprint cache size    # print the total cache size (human-readable)
 cyanprint cache clear   # remove all cached entries
@@ -58,8 +60,8 @@ and anything without a published version) are **never cached**, so a changed
 local source is never served stale. Note that `cyanprint try group` resolves its
 dependencies from the registry — those published sub-templates *are* cached, so
 re-running a group try reuses unchanged dependencies. If you ever suspect a
-template is non-deterministic and want to bypass the cache, run with `--no-cache`
-(or `CYANPRINT_NO_CACHE=1`).
+template is non-deterministic and want to bypass the cache, run with
+`--no-output-cache` (or `CYANPRINT_NO_CACHE=1`).
 
 ## Installation
 

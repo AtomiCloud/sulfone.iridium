@@ -457,7 +457,7 @@ fn errors_are_never_cached() {
     );
 }
 
-// AC7: `--no-cache` (disabled cache) forces execution and skips store; an
+// AC7: `--no-output-cache` (disabled cache) forces execution and skips store; an
 // unwritable cache dir still completes the run (degrades, no abort).
 #[test]
 fn bypass_and_nonfatal_fallback() {

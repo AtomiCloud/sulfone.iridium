@@ -36,6 +36,15 @@ const CHECKSUM_LEN: usize = 32;
 const LEN_FIELD: usize = 8;
 const HEADER_LEN: usize = CHECKSUM_LEN + LEN_FIELD;
 
+/// Name + contents of the ownership marker dropped into every directory this
+/// cache creates. It follows the Cache Directory Tagging Specification, so
+/// `clear()` can distinguish a directory this cache actually owns from one it was
+/// merely pointed at (and standard backup tools also know to skip it).
+const CACHEDIR_TAG_NAME: &str = "CACHEDIR.TAG";
+const CACHEDIR_TAG_CONTENTS: &[u8] = b"Signature: 8a477f597d28d172789f06886806bc55\n\
+# This file marks this directory as a cyanprint execution-output cache.\n\
+# For information about cache directory tags see https://bford.info/cachedir/\n";
+
 /// A content-addressed store rooted at a directory.
 pub struct CacheStore {
     dir: PathBuf,
@@ -50,18 +59,52 @@ impl CacheStore {
         &self.dir
     }
 
-    /// Create the cache directory (owner-only `0700`) if it does not exist. (FR9)
+    /// Create the cache directory (owner-only `0700`) if it does not exist, and
+    /// drop our ownership marker so [`clear`](Self::clear) can tell this cache's
+    /// own directory apart from an unrelated one it was merely pointed at. (FR9)
     fn ensure_dir(&self) -> std::io::Result<()> {
-        if self.dir.exists() {
-            return Ok(());
+        if !self.dir.exists() {
+            fs::create_dir_all(&self.dir)?;
+            set_dir_perms_0700(&self.dir)?;
         }
-        fs::create_dir_all(&self.dir)?;
-        set_dir_perms_0700(&self.dir)?;
+        self.ensure_marker()?;
         Ok(())
     }
 
-    fn entry_path(&self, key: &str) -> PathBuf {
-        self.dir.join(key)
+    /// Path to the ownership marker this cache writes into every directory it owns.
+    fn marker_path(&self) -> PathBuf {
+        self.dir.join(CACHEDIR_TAG_NAME)
+    }
+
+    /// Whether this directory carries our ownership marker, i.e. it was created by
+    /// this cache rather than merely pointed at an existing directory.
+    fn is_owned(&self) -> bool {
+        self.marker_path().is_file()
+    }
+
+    /// Write the ownership marker if it is absent (owner-only `0600`).
+    fn ensure_marker(&self) -> std::io::Result<()> {
+        let marker = self.marker_path();
+        if !marker.exists() {
+            fs::write(&marker, CACHEDIR_TAG_CONTENTS)?;
+            set_file_perms_0600(&marker)?;
+        }
+        Ok(())
+    }
+
+    /// Map a key to its on-disk path, rejecting anything that is not one of this
+    /// cache's own 64-char lowercase-hex digest names. This stops a hostile or
+    /// buggy `key` (`..`, absolute paths, separators) from escaping `self.dir`
+    /// when the path is constructed. (FR11, security)
+    fn entry_path(&self, key: &str) -> std::io::Result<PathBuf> {
+        if is_cache_key(key) {
+            Ok(self.dir.join(key))
+        } else {
+            Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "invalid cache key (expected a 64-char lowercase hex digest)",
+            ))
+        }
     }
 
     fn encode(entry: &CacheEntry) -> Vec<u8> {
@@ -117,7 +160,7 @@ impl CacheStore {
     /// Look up an entry by key. Any IO error / checksum mismatch / decode error
     /// is treated as a miss (`None`), never an error. (FR8)
     pub fn get(&self, key: &str) -> Option<CacheEntry> {
-        let path = self.entry_path(key);
+        let path = self.entry_path(key).ok()?;
         let mut file = fs::File::open(&path).ok()?;
         let mut bytes = Vec::new();
         file.read_to_end(&mut bytes).ok()?;
@@ -136,7 +179,12 @@ impl CacheStore {
     /// cache fault never aborts a run. Used to self-heal a poisoned entry whose
     /// archive can't be unpacked. (FR8)
     pub fn remove(&self, key: &str) {
-        if let Err(e) = fs::remove_file(self.entry_path(key)) {
+        // An invalid key can never name an entry this cache wrote, so there is
+        // nothing to evict: no-op.
+        let Ok(path) = self.entry_path(key) else {
+            return;
+        };
+        if let Err(e) = fs::remove_file(path) {
             // NotFound is expected (nothing to evict); other errors are non-fatal.
             if e.kind() != std::io::ErrorKind::NotFound {
                 tracing::debug!("cache remove for {key} failed (non-fatal): {e}");
@@ -145,6 +193,9 @@ impl CacheStore {
     }
 
     fn put_inner(&self, key: &str, entry: &CacheEntry) -> std::io::Result<()> {
+        // Validate the key BEFORE any filesystem work so an invalid key never
+        // creates the directory or a temp file. (security)
+        let dest = self.entry_path(key)?;
         self.ensure_dir()?;
         let encoded = Self::encode(entry);
 
@@ -155,7 +206,6 @@ impl CacheStore {
         tmp.flush()?;
         tmp.as_file().sync_all()?;
 
-        let dest = self.entry_path(key);
         tmp.persist(&dest)
             .map_err(|e| std::io::Error::other(format!("persist failed: {e}")))?;
 
@@ -168,12 +218,21 @@ impl CacheStore {
 
     /// Remove every entry, leaving the (empty) cache directory in place. (FR15)
     ///
-    /// Only entries whose name is a lowercase-hex digest (the cache's own naming
-    /// scheme) are removed, so a cache dir that has been pointed at (or shares
-    /// with) an unrelated directory never loses non-cache files. A safety guard:
-    /// it refuses to descend into a directory it did not create.
+    /// Refuses to touch a directory this cache does not own: it only proceeds when
+    /// our `CACHEDIR.TAG` ownership marker is present (written by [`ensure_dir`]
+    /// whenever the cache creates/uses a directory). So a `--cache-dir` pointed at
+    /// an existing, unrelated directory is never cleared, even if it happens to
+    /// contain files named like a digest. Within an owned directory, only entries
+    /// whose name is a lowercase-hex digest (the cache's own naming scheme) are
+    /// removed, so the marker and any other files are left intact.
+    ///
+    /// [`ensure_dir`]: CacheStore::ensure_dir
     pub fn clear(&self) -> std::io::Result<()> {
         if !self.dir.exists() {
+            return Ok(());
+        }
+        // Never clear a directory we did not create (no ownership marker).
+        if !self.is_owned() {
             return Ok(());
         }
         for entry in fs::read_dir(&self.dir)? {
@@ -235,17 +294,21 @@ fn set_file_perms_0600(_path: &Path) -> std::io::Result<()> {
     Ok(())
 }
 
-/// True when `name` looks like a cache entry: a SHA-256 hex digest (64 lowercase
-/// hex chars), the only names this store ever writes. Used by `clear()` as a
-/// content guard so it never deletes unrelated files.
-fn is_cache_entry_name(name: std::ffi::OsString) -> bool {
-    let s = match name.to_str() {
-        Some(s) => s,
-        None => return false,
-    };
-    s.len() == 64
-        && s.chars()
+/// True when `key` is a valid cache key: a SHA-256 hex digest (64 lowercase hex
+/// chars), the only key shape [`compute_key`](super::key::compute_key) produces
+/// and the only names this store ever writes. Used to validate keys before they
+/// are turned into filesystem paths (path-traversal guard) and as the content
+/// guard for `clear()`/`size()`.
+fn is_cache_key(key: &str) -> bool {
+    key.len() == 64
+        && key
+            .chars()
             .all(|c| c.is_ascii_hexdigit() && !c.is_uppercase())
+}
+
+/// True when a directory entry's `name` is a cache entry (a digest-shaped name).
+fn is_cache_entry_name(name: std::ffi::OsString) -> bool {
+    name.to_str().is_some_and(is_cache_key)
 }
 
 #[cfg(test)]
@@ -262,14 +325,21 @@ mod tests {
         }
     }
 
+    /// A valid (64-char lowercase hex) cache key — the only shape the store
+    /// accepts now that keys are validated before becoming paths.
+    fn key() -> String {
+        "deadbeef".repeat(8)
+    }
+
     // AC2: put then get returns identical (archive, state).
     #[test]
     fn round_trips() {
         let dir = tempfile::tempdir().unwrap();
         let store = CacheStore::new(dir.path().join("cyanprint"));
         let e = entry();
-        store.put("deadbeef", &e);
-        let got = store.get("deadbeef").expect("entry should be present");
+        let k = key();
+        store.put(&k, &e);
+        let got = store.get(&k).expect("entry should be present");
         assert_eq!(got, e);
     }
 
@@ -279,9 +349,10 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let store = CacheStore::new(dir.path().join("cyanprint"));
         let e = entry();
-        store.put("key1", &e);
+        let k = key();
+        store.put(&k, &e);
 
-        let path = store.entry_path("key1");
+        let path = store.entry_path(&k).unwrap();
         let mut bytes = fs::read(&path).unwrap();
         // Flip a byte well inside the payload (past the header).
         let idx = bytes.len() - 1;
@@ -289,7 +360,7 @@ mod tests {
         fs::write(&path, &bytes).unwrap();
 
         assert!(
-            store.get("key1").is_none(),
+            store.get(&k).is_none(),
             "a corrupted entry must read back as a miss"
         );
     }
@@ -299,11 +370,12 @@ mod tests {
     fn truncation_is_a_miss() {
         let dir = tempfile::tempdir().unwrap();
         let store = CacheStore::new(dir.path().join("cyanprint"));
-        store.put("k", &entry());
-        let path = store.entry_path("k");
+        let k = key();
+        store.put(&k, &entry());
+        let path = store.entry_path(&k).unwrap();
         let bytes = fs::read(&path).unwrap();
         fs::write(&path, &bytes[..bytes.len() / 2]).unwrap();
-        assert!(store.get("k").is_none());
+        assert!(store.get(&k).is_none());
     }
 
     // AC2: a missing entry is a miss, not an error.
@@ -311,7 +383,26 @@ mod tests {
     fn missing_is_a_miss() {
         let dir = tempfile::tempdir().unwrap();
         let store = CacheStore::new(dir.path().join("cyanprint"));
-        assert!(store.get("never-written").is_none());
+        assert!(store.get(&key()).is_none());
+    }
+
+    // Security: a key that is not a 64-char hex digest can never escape the cache
+    // dir — get is a miss, remove a no-op, and put stores nothing.
+    #[test]
+    fn invalid_keys_are_rejected() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = CacheStore::new(dir.path().join("cyanprint"));
+        for bad in ["../escape", "/etc/passwd", "deadbeef", &"AB".repeat(32)] {
+            assert!(store.entry_path(bad).is_err(), "{bad} must be rejected");
+            store.put(bad, &entry());
+            assert!(store.get(bad).is_none(), "{bad} must never be served");
+            store.remove(bad); // must not panic
+        }
+        // Nothing escaped: no stray files were created next to the cache dir.
+        assert!(
+            !dir.path().join("escape").exists(),
+            "a traversal key must not write outside the cache dir"
+        );
     }
 
     // AC9: clear empties the cache; size reflects contents. Uses real hex-digest
@@ -345,7 +436,10 @@ mod tests {
         fs::write(&intruder, "do not delete me").unwrap();
 
         store.clear().unwrap();
-        assert!(!store.entry_path(&key).exists(), "cache entry removed");
+        assert!(
+            !store.entry_path(&key).unwrap().exists(),
+            "cache entry removed"
+        );
         assert!(
             intruder.exists(),
             "clear() must not delete non-cache files (content guard)"
@@ -366,7 +460,7 @@ mod tests {
         fs::create_dir_all(store.path()).unwrap();
         fs::write(store.path().join(".tmpABCD"), b"orphaned bytes").unwrap();
 
-        let entry_size = fs::metadata(store.entry_path(&key)).unwrap().len();
+        let entry_size = fs::metadata(store.entry_path(&key).unwrap()).unwrap().len();
         assert_eq!(
             store.size(),
             entry_size,
@@ -395,12 +489,13 @@ mod tests {
         use std::os::unix::fs::PermissionsExt;
         let dir = tempfile::tempdir().unwrap();
         let store = CacheStore::new(dir.path().join("cyanprint"));
-        store.put("k", &entry());
+        let k = key();
+        store.put(&k, &entry());
 
         let dir_mode = fs::metadata(store.path()).unwrap().permissions().mode() & 0o777;
         assert_eq!(dir_mode, 0o700, "cache dir must be 0700");
 
-        let file_mode = fs::metadata(store.entry_path("k"))
+        let file_mode = fs::metadata(store.entry_path(&k).unwrap())
             .unwrap()
             .permissions()
             .mode()
@@ -421,8 +516,9 @@ mod tests {
 
         let store = CacheStore::new(ro_parent.join("cyanprint"));
         // Must not panic.
-        store.put("k", &entry());
-        assert!(store.get("k").is_none());
+        let k = key();
+        store.put(&k, &entry());
+        assert!(store.get(&k).is_none());
 
         // Restore perms so tempdir cleanup succeeds.
         fs::set_permissions(&ro_parent, fs::Permissions::from_mode(0o700)).unwrap();

@@ -71,8 +71,10 @@ struct CacheKeyMaterial<'a> {
 }
 
 /// Map a list of pinned plugin/processor versions into the canonical
-/// `PinnedArtifact` form and sort it by (id, version) so ordering does not
-/// affect the key. (L7)
+/// `PinnedArtifact` form and sort it by the full serialized tuple
+/// `(id, version, docker_reference, docker_tag)` so input ordering never affects
+/// the key — even when the same `id`+`version` appears twice with different image
+/// pins. (L7)
 fn pinned_artifacts<'a, T>(
     items: &'a [T],
     extract: impl Fn(&'a T) -> (&'a str, i64, &'a str, &'a str),
@@ -89,7 +91,14 @@ fn pinned_artifacts<'a, T>(
             }
         })
         .collect();
-    out.sort_by(|a, b| (a.id, a.version).cmp(&(b.id, b.version)));
+    out.sort_by(|a, b| {
+        (a.id, a.version, a.docker_reference, a.docker_tag).cmp(&(
+            b.id,
+            b.version,
+            b.docker_reference,
+            b.docker_tag,
+        ))
+    });
     out
 }
 

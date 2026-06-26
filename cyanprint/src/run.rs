@@ -335,7 +335,7 @@ pub fn cyan_run(
         dependency_resolver,
         coord_client.clone(),
     );
-    // Inject the per-node execution cache (honors --no-cache / --cache-dir / env).
+    // Inject the per-node execution cache (honors --no-output-cache / --cache-dir / env).
     composition_operator.set_cache(cyancoordinator::cache::Cache::new(cache_config));
 
     // Check if this is a composition template (has dependencies)

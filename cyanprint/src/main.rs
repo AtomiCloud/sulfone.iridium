@@ -763,7 +763,7 @@ fn run() -> Result<(), Box<dyn Error + Send>> {
 /// command path that drives a caching composition operator (create / update /
 /// try group). (L17)
 fn cli_cache_config(cli: &Cli) -> CacheConfig {
-    CacheConfig::resolve(cli.no_cache, cli.cache_dir.clone(), cli.debug)
+    CacheConfig::resolve(cli.no_output_cache, cli.cache_dir.clone(), cli.debug)
 }
 
 fn handle_build(

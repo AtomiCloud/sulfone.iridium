@@ -167,13 +167,6 @@ impl CompositionOperator {
                 continue;
             }
 
-            println!(
-                "🚀 Executing template: {}/{} (v{})",
-                template.template.name,
-                template.template.name, // TODO: Need username
-                template.principal.version
-            );
-
             // Generate session for this template
             let session_id = self.template_operator.session_id_generator.generate();
 
@@ -261,7 +254,17 @@ impl CompositionOperator {
             }
 
             if !served_from_cache {
-                // CACHE MISS: execute as today. (FR3)
+                // CACHE MISS: execute as today. (FR3) The "Executing" line lives
+                // here (not before the cache check) so a cache HIT is never
+                // reported as an execution; a non-cached run still prints it for
+                // every node, exactly as before.
+                println!(
+                    "🚀 Executing template: {}/{} (v{})",
+                    template.template.name,
+                    template.template.name, // TODO: Need username
+                    template.principal.version
+                );
+
                 let (archive_data, template_state, actual_session_id) =
                     self.template_operator.template_executor.execute_template(
                         template,

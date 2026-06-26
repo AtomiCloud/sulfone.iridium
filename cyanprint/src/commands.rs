@@ -28,9 +28,10 @@ pub struct Cli {
         long,
         global = true,
         help = "Disable the per-node execution output cache for this run \
-                (also via CYANPRINT_NO_CACHE)"
+                (also via CYANPRINT_NO_CACHE). Distinct from `build`/`push` \
+                `--no-cache`, which controls the Docker buildx cache."
     )]
-    pub no_cache: bool,
+    pub no_output_cache: bool,
 
     #[arg(
         long,
@@ -803,20 +804,39 @@ mod tests {
         }
     }
 
-    // NFC4 / FR6: the global --no-cache and --cache-dir flags parse on a subcommand.
+    // NFC4 / FR6: the global --no-output-cache and --cache-dir flags parse on a
+    // subcommand. (`--no-output-cache`, not `--no-cache`, so it never collides
+    // with the Docker buildx `--no-cache` on `build`/`push`.)
     #[test]
     fn test_global_cache_flags_parse() {
         let cli = Cli::try_parse_from([
             "cyanprint",
             "create",
             "user/template",
-            "--no-cache",
+            "--no-output-cache",
             "--cache-dir",
             "/tmp/mycache",
         ])
         .expect("global cache flags should parse");
-        assert!(cli.no_cache);
+        assert!(cli.no_output_cache);
         assert_eq!(cli.cache_dir, Some(PathBuf::from("/tmp/mycache")));
+    }
+
+    // FR6 / regression: the global execution-cache flag must NOT collide with the
+    // Docker buildx `--no-cache` that `build` and `push` define. Both surfaces must
+    // parse, and their `--no-cache` must remain the buildx switch.
+    #[test]
+    fn test_no_cache_flags_do_not_collide() {
+        let build = Cli::try_parse_from(["cyanprint", "build", "v1", "--no-cache"])
+            .expect("build --no-cache should parse");
+        match build.command {
+            Commands::Build { no_cache, .. } => assert!(no_cache, "build --no-cache is buildx"),
+            _ => panic!("expected Commands::Build"),
+        }
+        // The execution-cache opt-out is a separate, global flag.
+        let run = Cli::try_parse_from(["cyanprint", "create", "user/t", "--no-output-cache"])
+            .expect("--no-output-cache should parse");
+        assert!(run.no_output_cache);
     }
 
     // FR15: the `cache` subcommand exposes path / size / clear.

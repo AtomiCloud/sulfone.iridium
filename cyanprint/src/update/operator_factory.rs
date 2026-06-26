@@ -43,7 +43,7 @@ impl OperatorFactory {
         // Use with_client to enable resolver-aware layering
         let mut operator =
             CompositionOperator::with_client(template_operator, dependency_resolver, coord_client);
-        // Inject the per-node execution cache (honors --no-cache / --cache-dir / env).
+        // Inject the per-node execution cache (honors --no-output-cache / --cache-dir / env).
         operator.set_cache(cyancoordinator::cache::Cache::new(cache_config));
         operator
     }
