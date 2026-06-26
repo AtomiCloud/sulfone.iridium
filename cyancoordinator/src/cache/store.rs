@@ -78,8 +78,14 @@ impl CacheStore {
 
     /// Whether this directory carries our ownership marker, i.e. it was created by
     /// this cache rather than merely pointed at an existing directory.
+    ///
+    /// `CACHEDIR.TAG` is a shared standard, so the filename alone is not proof of
+    /// ownership — another tool could have tagged the same directory. We therefore
+    /// require the marker's *contents* to byte-match what this cache writes (its
+    /// cyanprint-specific comment lines act as the sentinel), so `clear()` never
+    /// deletes digest-shaped files from a directory another tool tagged.
     fn is_owned(&self) -> bool {
-        self.marker_path().is_file()
+        fs::read(self.marker_path()).is_ok_and(|contents| contents == CACHEDIR_TAG_CONTENTS)
     }
 
     /// Write the ownership marker if it is absent (owner-only `0600`).

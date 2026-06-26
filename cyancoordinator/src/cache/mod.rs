@@ -205,6 +205,13 @@ mod tests {
         TemplatePrincipalRes, TemplatePropertyRes, TemplateVersionPrincipalRes, TemplateVersionRes,
     };
     use std::collections::HashMap;
+    use std::sync::Mutex;
+
+    /// Serializes any test that mutates the process-wide `CYANPRINT_NO_CACHE`
+    /// env var, so cargo's parallel test runner can't observe a half-applied
+    /// value from another test. Any future test touching that env var must hold
+    /// this lock for its duration.
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
 
     fn make_template(id: &str, version: i64, has_props: bool) -> TemplateVersionRes {
         TemplateVersionRes {
@@ -329,7 +336,9 @@ mod tests {
         // `resolve` reads CYANPRINT_NO_CACHE, so scope it for this test: a truthy
         // value in the ambient environment would otherwise flip `enabled` and make
         // the assertions non-deterministic. Resolve both configs while it is
-        // cleared, restore the original value, then assert.
+        // cleared, restore the original value, then assert. Hold ENV_LOCK so a
+        // parallel test can't observe the cleared value mid-flight.
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let prev = std::env::var_os(ENV_NO_CACHE);
         std::env::remove_var(ENV_NO_CACHE);
 
