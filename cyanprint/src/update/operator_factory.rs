@@ -18,6 +18,7 @@ impl OperatorFactory {
         coord_client: CyanCoordinatorClient,
         registry_client: Rc<CyanRegistryClient>,
         debug: bool,
+        cache_config: cyancoordinator::cache::CacheConfig,
     ) -> CompositionOperator {
         let unpacker = Box::new(TarGzUnpacker);
         let loader = Box::new(DiskFileLoader);
@@ -40,6 +41,10 @@ impl OperatorFactory {
         let dependency_resolver = Box::new(DefaultDependencyResolver::new(registry_client.clone()));
 
         // Use with_client to enable resolver-aware layering
-        CompositionOperator::with_client(template_operator, dependency_resolver, coord_client)
+        let mut operator =
+            CompositionOperator::with_client(template_operator, dependency_resolver, coord_client);
+        // Inject the per-node execution cache (honors --no-cache / --cache-dir / env).
+        operator.set_cache(cyancoordinator::cache::Cache::new(cache_config));
+        operator
     }
 }

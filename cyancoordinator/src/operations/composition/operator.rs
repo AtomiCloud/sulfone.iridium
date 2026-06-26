@@ -1,9 +1,12 @@
 use cyanprompt::domain::models::answer::Answer;
+use cyanprompt::domain::models::cyan::Cyan;
+use cyanprompt::domain::services::template::states::TemplateState;
 use cyanregistry::http::models::template_res::TemplateVersionRes;
 use std::collections::HashMap;
 use std::error::Error;
 use std::path::Path;
 
+use crate::cache::{Cache, CacheEntry};
 use crate::client::CyanCoordinatorClient;
 use crate::conflict_file_resolver::{
     ConflictFileResolverRegistry, FileConflictEntry, ResolverInstance, TemplateInfo,
@@ -24,6 +27,8 @@ pub struct CompositionOperator {
     client: Option<CyanCoordinatorClient>,
     /// File conflicts tracked during the last composition
     file_conflicts: Vec<FileConflictEntry>,
+    /// Per-node output cache. Disabled by default; injected via [`Self::set_cache`].
+    cache: Cache,
 }
 
 impl CompositionOperator {
@@ -38,6 +43,7 @@ impl CompositionOperator {
             vfs_layerer,
             client: None,
             file_conflicts: Vec::new(),
+            cache: Cache::disabled(),
         }
     }
 
@@ -53,7 +59,14 @@ impl CompositionOperator {
             vfs_layerer: Box::new(DefaultVfsLayerer),
             client: Some(client),
             file_conflicts: Vec::new(),
+            cache: Cache::disabled(),
         }
+    }
+
+    /// Inject the per-node output cache. Defaults to a disabled cache, so callers
+    /// that want caching (create / update) call this with a resolved [`Cache`].
+    pub fn set_cache(&mut self, cache: Cache) {
+        self.cache = cache;
     }
 
     /// Build a resolver registry from template response data
@@ -101,6 +114,26 @@ impl CompositionOperator {
     /// Get file conflicts from the last composition
     pub fn get_file_conflicts(&self) -> &[FileConflictEntry] {
         &self.file_conflicts
+    }
+
+    /// Cache hit/total summary across this operator's lifetime, or `None` when the
+    /// cache is disabled. Backs [`Self::print_cache_summary`] (the only external
+    /// caller) and the crate's composition tests; not part of the public API. (FR15)
+    pub(crate) fn cache_summary(&self) -> Option<(usize, usize)> {
+        if self.cache.enabled() {
+            Some((self.cache.hits(), self.cache.total()))
+        } else {
+            None
+        }
+    }
+
+    /// Print the one-line `N/M nodes served from cache` summary when caching is
+    /// enabled. Shared by every command path that drives an operator (create,
+    /// update, try group). (FR15, L6)
+    pub fn print_cache_summary(&self) {
+        if let Some((hits, total)) = self.cache_summary() {
+            println!("♻️  Cache: {hits}/{total} nodes served from cache");
+        }
     }
 
     /// Execute a composition of templates (recursive dependencies)
@@ -152,24 +185,121 @@ impl CompositionOperator {
                     .or_insert(answer.clone());
             }
 
-            // Execute template with current shared state (preset answers fill gaps)
-            let (archive_data, template_state, actual_session_id) =
-                self.template_operator.template_executor.execute_template(
+            // Compute the content-addressed key only when the node can be cached,
+            // so a disabled / non-cacheable run pays nothing for keying. (FR5, L5)
+            let cache_key = if self.cache.enabled() && crate::cache::is_cacheable(template) {
+                Some(crate::cache::compute_key(
                     template,
-                    &session_id,
-                    Some(&template_answers),
-                    Some(&shared_state.shared_deterministic_states),
-                )?;
+                    &template_answers,
+                    &shared_state.shared_deterministic_states,
+                ))
+            } else {
+                None
+            };
 
-            // Unpack to VFS
-            let vfs = self.template_operator.vfs.unpack_archive(archive_data)?;
-            vfs_outputs.push(vfs);
+            // CACHE HIT: skip Docker, replay the cached output + downstream state.
+            // (FR1, FR2, FR4, FR12) — all cache touchpoints use match/if let, never
+            // `?`, so a cache fault degrades to execution rather than failing.
+            let mut served_from_cache = false;
+            if let Some(key) = cache_key.as_ref() {
+                if let Some(entry) = self.cache.lookup(template, key) {
+                    if self.cache.debug() {
+                        println!(
+                            "  ♻️  cache HIT for {} (key {}…)",
+                            template.template.name,
+                            &key[..key.len().min(12)]
+                        );
+                    }
+                    // Unpack the cached archive. If it fails to unpack (the framing
+                    // checksummed OK, but the inner archive is bad) we do NOT abort:
+                    // treat it as a miss, evict the poisoned entry so it self-heals,
+                    // and fall through to live execution. (FR8, C1)
+                    match self.template_operator.vfs.unpack_archive(entry.archive) {
+                        Ok(vfs) => {
+                            vfs_outputs.push(vfs);
 
-            // Update shared state with results
-            shared_state.update_from_template_state(&template_state, template.principal.id.clone());
+                            // Replay the contributed downstream state: feed the
+                            // cached answers through the same merge path so later
+                            // nodes' template_answers and the saved
+                            // .cyan_state.yaml are identical to a fresh run. (FR12)
+                            let replay_state = TemplateState::Complete(
+                                Cyan {
+                                    processors: Vec::new(),
+                                    plugins: Vec::new(),
+                                },
+                                entry.state,
+                            );
+                            shared_state.update_from_template_state(
+                                &replay_state,
+                                template.principal.id.clone(),
+                            );
+                            served_from_cache = true;
+                            // The entry was genuinely served: count it now, AFTER
+                            // the archive unpacked and state replayed, so a
+                            // poisoned entry that fell back to execution is not
+                            // reported as a served hit. (FR15, H2)
+                            self.cache.record_hit();
+                        }
+                        Err(e) => {
+                            tracing::debug!(
+                                "cache hit for {} unpacked invalid, evicting and re-executing: {e}",
+                                template.principal.id
+                            );
+                            self.cache.evict(key);
+                            // Do NOT record a hit: `lookup` already counted this
+                            // node toward the *attempt* total, but it was NOT
+                            // served from cache. Fall through to live execution.
+                        }
+                    }
+                } else if self.cache.debug() {
+                    println!(
+                        "  🔍 cache MISS for {} (key {}…)",
+                        template.template.name,
+                        &key[..key.len().min(12)]
+                    );
+                }
+            }
 
-            // Track session for cleanup
-            all_session_ids.push(actual_session_id);
+            if !served_from_cache {
+                // CACHE MISS: execute as today. (FR3)
+                let (archive_data, template_state, actual_session_id) =
+                    self.template_operator.template_executor.execute_template(
+                        template,
+                        &session_id,
+                        Some(&template_answers),
+                        Some(&shared_state.shared_deterministic_states),
+                    )?;
+
+                // Validate the archive can actually unpack BEFORE caching it, so a
+                // bad (Ok((invalid_bytes, Complete(..)))) result is never persisted.
+                // (FR13, C1) The to-store copy is taken only when this node will be
+                // cached, so a disabled / non-cacheable run never clones the full
+                // archive bytes. (L16) `unpack_archive` consumes the bytes by value,
+                // so the clone must precede the move.
+                let to_store = cache_key.as_ref().map(|_| archive_data.clone());
+                let vfs = self.template_operator.vfs.unpack_archive(archive_data)?;
+                vfs_outputs.push(vfs);
+
+                // Store ONLY a non-interactive Complete result, and only after the
+                // archive has unpacked cleanly. QnA panics upstream and Err
+                // short-circuits via `?` above, so failures are never cached. (FR13)
+                if let (Some(key), TemplateState::Complete(_, ref answers)) =
+                    (cache_key.as_ref(), &template_state)
+                {
+                    let entry = CacheEntry {
+                        archive: to_store.expect("to_store is Some iff cache_key is Some"),
+                        state: answers.clone(),
+                    };
+                    self.cache.store(template, key, &entry);
+                }
+
+                // Update shared state with results
+                shared_state
+                    .update_from_template_state(&template_state, template.principal.id.clone());
+
+                // Track session for cleanup
+                all_session_ids.push(actual_session_id);
+            }
         }
 
         // Layer all VFS outputs

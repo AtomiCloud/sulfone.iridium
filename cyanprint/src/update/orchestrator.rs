@@ -35,6 +35,7 @@ impl UpdateOrchestrator {
     /// Uses unified batch VFS processing: MAP -> LAYER -> MERGE+WRITE
     /// Returns all session IDs that were created and need to be cleaned up
     #[allow(unused_variables)]
+    #[allow(clippy::too_many_arguments)]
     pub fn update_templates(
         session_id_generator: Box<dyn SessionIdGenerator>,
         path: String,
@@ -43,6 +44,7 @@ impl UpdateOrchestrator {
         debug: bool,
         interactive: bool,
         force: bool,
+        cache_config: cyancoordinator::cache::CacheConfig,
     ) -> Result<Vec<String>, Box<dyn Error + Send>> {
         let target_dir = Path::new(&path);
 
@@ -123,6 +125,7 @@ impl UpdateOrchestrator {
             coord_client.clone(),
             registry_client.clone(),
             debug,
+            cache_config,
         );
 
         // PHASE 1: BUILD SPEC LISTS
@@ -196,6 +199,9 @@ impl UpdateOrchestrator {
             &coord_client,
             &mut composition_operator,
         )?;
+
+        // One-line cache summary (always printed when caching is enabled). (FR15)
+        composition_operator.print_cache_summary();
 
         // Persist file conflicts to state file (always update to clear stale entries)
         let conflicts_count = file_conflicts.len();
