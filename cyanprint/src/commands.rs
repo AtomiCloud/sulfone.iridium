@@ -1,4 +1,5 @@
 use clap::{Args, Parser, Subcommand};
+use std::path::PathBuf;
 
 #[derive(Parser)]
 #[command(author, version, about = "Next-generation templating platform", long_about = None)]
@@ -22,6 +23,26 @@ pub struct Cli {
         default_value_t = false
     )]
     pub debug: bool,
+
+    #[arg(
+        long,
+        global = true,
+        help = "Disable the per-node execution output cache for this run \
+                (also via CYANPRINT_NO_CACHE). Distinct from `build`/`push` \
+                `--no-cache`, which controls the Docker buildx cache."
+    )]
+    pub no_output_cache: bool,
+
+    #[arg(
+        long,
+        global = true,
+        value_name = "CACHE_DIR",
+        help = "Override the execution cache directory \
+                (default: the OS cache dir / cyanprint, e.g. \
+                $XDG_CACHE_HOME/cyanprint on Linux or \
+                ~/Library/Caches/cyanprint on macOS; also via CYANPRINT_CACHE)"
+    )]
+    pub cache_dir: Option<PathBuf>,
 }
 
 #[derive(Subcommand)]
@@ -124,6 +145,22 @@ pub enum Commands {
         #[command(subcommand)]
         command: DaemonCommands,
     },
+
+    #[command(about = "Inspect and manage the per-node execution output cache")]
+    Cache {
+        #[command(subcommand)]
+        command: CacheCommands,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum CacheCommands {
+    #[command(about = "Print the resolved cache directory")]
+    Path,
+    #[command(about = "Print the total size of the cache (human-readable)")]
+    Size,
+    #[command(about = "Remove all cached entries")]
+    Clear,
 }
 
 #[derive(Subcommand)]
@@ -764,6 +801,61 @@ mod tests {
             }
         } else {
             panic!("Expected Commands::Test");
+        }
+    }
+
+    // NFC4 / FR6: the global --no-output-cache and --cache-dir flags parse on a
+    // subcommand. (`--no-output-cache`, not `--no-cache`, so it never collides
+    // with the Docker buildx `--no-cache` on `build`/`push`.)
+    #[test]
+    fn test_global_cache_flags_parse() {
+        let cli = Cli::try_parse_from([
+            "cyanprint",
+            "create",
+            "user/template",
+            "--no-output-cache",
+            "--cache-dir",
+            "/tmp/mycache",
+        ])
+        .expect("global cache flags should parse");
+        assert!(cli.no_output_cache);
+        assert_eq!(cli.cache_dir, Some(PathBuf::from("/tmp/mycache")));
+    }
+
+    // FR6 / regression: the global execution-cache flag must NOT collide with the
+    // Docker buildx `--no-cache` that `build` and `push` define. Both surfaces must
+    // parse, and their `--no-cache` must remain the buildx switch.
+    #[test]
+    fn test_no_cache_flags_do_not_collide() {
+        let build = Cli::try_parse_from(["cyanprint", "build", "v1", "--no-cache"])
+            .expect("build --no-cache should parse");
+        match build.command {
+            Commands::Build { no_cache, .. } => assert!(no_cache, "build --no-cache is buildx"),
+            _ => panic!("expected Commands::Build"),
+        }
+        // The execution-cache opt-out is a separate, global flag.
+        let run = Cli::try_parse_from(["cyanprint", "create", "user/t", "--no-output-cache"])
+            .expect("--no-output-cache should parse");
+        assert!(run.no_output_cache);
+    }
+
+    // FR15: the `cache` subcommand exposes path / size / clear.
+    #[test]
+    fn test_cache_subcommands_parse() {
+        for (args, want_path, want_size, want_clear) in [
+            (vec!["cyanprint", "cache", "path"], true, false, false),
+            (vec!["cyanprint", "cache", "size"], false, true, false),
+            (vec!["cyanprint", "cache", "clear"], false, false, true),
+        ] {
+            let cli = Cli::try_parse_from(args).expect("cache subcommand should parse");
+            match cli.command {
+                Commands::Cache { command } => match command {
+                    CacheCommands::Path => assert!(want_path),
+                    CacheCommands::Size => assert!(want_size),
+                    CacheCommands::Clear => assert!(want_clear),
+                },
+                _ => panic!("expected Commands::Cache"),
+            }
         }
     }
 

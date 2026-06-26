@@ -1287,12 +1287,14 @@ fn cleanup(
 }
 
 /// Execute try group command — for group templates (no build, dependencies from registry)
+#[allow(clippy::too_many_arguments)]
 pub fn execute_try_group_command(
     template_path: String,
     output_path: String,
     disable_daemon_autostart: bool,
     coordinator_endpoint: String,
     registry_client: Rc<CyanRegistryClient>,
+    cache_config: cyancoordinator::cache::CacheConfig,
 ) -> Result<(), Box<dyn Error + Send>> {
     println!("🔗 Starting cyanprint try group...");
     println!("  Template path: {template_path}");
@@ -1394,6 +1396,11 @@ pub fn execute_try_group_command(
         dependency_resolver,
         coord_client.clone(),
     );
+    // Inject the per-node execution cache. The synthetic root node is a local
+    // template and is filtered out by `is_cacheable`, but its published registry
+    // dependencies are cacheable — so a group re-try reuses unchanged sub-templates.
+    // (FR6, FR7, FR14, C3)
+    composition_operator.set_cache(cyancoordinator::cache::Cache::new(cache_config));
 
     // Step 8: Execute composition (resolves deps, warms each, runs Q&A, builds, layers)
     println!("🚀 Executing group composition...");
@@ -1402,6 +1409,9 @@ pub fn execute_try_group_command(
 
     let (vfs_output, _final_state, session_ids, resolved_commands) = composition_operator
         .execute_template(&synthetic_template, &empty_answers, &empty_states)?;
+
+    // One-line cache summary (always printed when caching is enabled). (FR15)
+    composition_operator.print_cache_summary();
 
     // Step 9: Write output to disk
     println!("📝 Writing output to {output_path}...");

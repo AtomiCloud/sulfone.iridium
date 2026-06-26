@@ -22,6 +22,7 @@ pub use version_manager::{TemplateVersionInfo, format_friendly_date, select_vers
 
 /// Update all templates in a project to their latest versions with automatic composition detection
 /// Returns all session IDs that were created and need to be cleaned up
+#[allow(clippy::too_many_arguments)]
 pub fn cyan_update(
     session_id_generator: Box<dyn SessionIdGenerator>,
     path: String,
@@ -30,6 +31,7 @@ pub fn cyan_update(
     debug: bool,
     interactive: bool,
     force: bool,
+    cache_config: cyancoordinator::cache::CacheConfig,
 ) -> Result<Vec<String>, Box<dyn Error + Send>> {
     UpdateOrchestrator::update_templates(
         session_id_generator,
@@ -39,5 +41,6 @@ pub fn cyan_update(
         debug,
         interactive,
         force,
+        cache_config,
     )
 }

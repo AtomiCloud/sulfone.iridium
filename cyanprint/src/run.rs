@@ -282,6 +282,7 @@ pub fn batch_process(
 
 /// Run the cyan template generation process with automatic composition detection
 /// Returns all session IDs that were created and need to be cleaned up
+#[allow(clippy::too_many_arguments)]
 pub fn cyan_run(
     session_id_generator: Box<dyn SessionIdGenerator>,
     path: Option<String>,
@@ -290,6 +291,7 @@ pub fn cyan_run(
     username: String,
     registry_client: Rc<CyanRegistryClient>,
     debug: bool,
+    cache_config: cyancoordinator::cache::CacheConfig,
 ) -> Result<Vec<String>, Box<dyn Error + Send>> {
     // Handle the target directory
     let path = path.unwrap_or(".".to_string());
@@ -333,6 +335,8 @@ pub fn cyan_run(
         dependency_resolver,
         coord_client.clone(),
     );
+    // Inject the per-node execution cache (honors --no-output-cache / --cache-dir / env).
+    composition_operator.set_cache(cyancoordinator::cache::Cache::new(cache_config));
 
     // Check if this is a composition template (has dependencies)
     let is_composition = has_dependencies(&template);
@@ -539,6 +543,9 @@ pub fn cyan_run(
         &coord_client,
         &mut composition_operator,
     )?;
+
+    // One-line cache summary (always printed when caching is enabled). (FR15)
+    composition_operator.print_cache_summary();
 
     // Persist file conflicts to state file (always update to clear stale entries)
     let state_manager = DefaultStateManager::new();

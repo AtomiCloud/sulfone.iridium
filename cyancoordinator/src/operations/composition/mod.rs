@@ -1,3 +1,5 @@
+#[cfg(test)]
+mod cache_test;
 pub mod layerer;
 pub mod operator;
 pub mod resolver;

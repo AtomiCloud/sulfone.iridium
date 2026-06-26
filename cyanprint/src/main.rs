@@ -6,13 +6,14 @@ use std::rc::Rc;
 use bollard::Docker;
 use clap::Parser;
 
+use cyancoordinator::cache::{CacheConfig, CacheStore, resolve_cache_dir};
 use cyancoordinator::client::{CyanCoordinatorClient, new_client};
 use cyancoordinator::session::DefaultSessionIdGenerator;
 use cyanregistry::cli::mapper::read_build_config;
 use cyanregistry::http::client::CyanRegistryClient;
 
 use crate::commands::{
-    Cli, Commands, DaemonCommands, PushArgs, PushCommands, TestCommands, TryCommands,
+    CacheCommands, Cli, Commands, DaemonCommands, PushArgs, PushCommands, TestCommands, TryCommands,
 };
 use crate::coord::{start_coordinator, stop_coordinator};
 use crate::docker::{BuildOptions, BuildOutput, BuildxBuilder};
@@ -60,6 +61,9 @@ fn run() -> Result<(), Box<dyn Error + Send>> {
         version: "1.0".to_string(),
         client: Rc::clone(&http),
     };
+    // Resolved once here (cheap) so the create / update / try-group arms can read
+    // it by reference instead of recomputing it inside the move-destructured match.
+    let cache_config = cli_cache_config(&cli);
     match cli.command {
         Commands::Build {
             tag,
@@ -403,6 +407,7 @@ fn run() -> Result<(), Box<dyn Error + Send>> {
                 .and_then(|tv| {
                     let coord_client = CyanCoordinatorClient::new(coordinator_endpoint.clone());
                     let registry_ref = Rc::new(registry);
+                    let cache_config = cache_config.clone();
 
                     cyan_run(
                         session_id_generator,
@@ -412,6 +417,7 @@ fn run() -> Result<(), Box<dyn Error + Send>> {
                         username.clone(),
                         Rc::clone(&registry_ref),
                         cli.debug,
+                        cache_config,
                     )
                 });
 
@@ -453,6 +459,7 @@ fn run() -> Result<(), Box<dyn Error + Send>> {
                 cli.debug,
                 interactive,
                 force,
+                cache_config,
             );
 
             match r {
@@ -507,6 +514,29 @@ fn run() -> Result<(), Box<dyn Error + Send>> {
 
             result
         }
+        Commands::Cache { command } => {
+            let store = CacheStore::new(resolve_cache_dir(cli.cache_dir.clone()));
+            match command {
+                CacheCommands::Path => {
+                    println!("{}", store.path().display());
+                    Ok(())
+                }
+                CacheCommands::Size => {
+                    println!("{}", format_size(store.size()));
+                    Ok(())
+                }
+                CacheCommands::Clear => {
+                    store.clear().map_err(|e| {
+                        Box::new(std::io::Error::other(format!(
+                            "Failed to clear cache at {}: {e}",
+                            store.path().display()
+                        ))) as Box<dyn Error + Send>
+                    })?;
+                    println!("Cleared cache at {}", store.path().display());
+                    Ok(())
+                }
+            }
+        }
         Commands::Try { command } => match command {
             TryCommands::Template {
                 template_path,
@@ -542,6 +572,7 @@ fn run() -> Result<(), Box<dyn Error + Send>> {
                     disable_daemon_autostart,
                     coordinator_endpoint,
                     registry_ref,
+                    cache_config.clone(),
                 )?;
                 Ok(())
             }
@@ -726,6 +757,13 @@ fn run() -> Result<(), Box<dyn Error + Send>> {
             }
         },
     }
+}
+
+/// Resolve the per-node cache config from the global CLI flags. Shared by every
+/// command path that drives a caching composition operator (create / update /
+/// try group). (L17)
+fn cli_cache_config(cli: &Cli) -> CacheConfig {
+    CacheConfig::resolve(cli.no_output_cache, cli.cache_dir.clone(), cli.debug)
 }
 
 fn handle_build(
@@ -1024,6 +1062,25 @@ fn build_for_push(
     Ok(result)
 }
 
+/// Render a byte count as a human-readable size (e.g. `0 B`, `1.5 KiB`).
+fn format_size(bytes: u64) -> String {
+    const UNITS: [&str; 6] = ["B", "KiB", "MiB", "GiB", "TiB", "PiB"];
+    if bytes == 0 {
+        return "0 B".to_string();
+    }
+    let mut size = bytes as f64;
+    let mut unit = 0;
+    while size >= 1024.0 && unit < UNITS.len() - 1 {
+        size /= 1024.0;
+        unit += 1;
+    }
+    if unit == 0 {
+        format!("{bytes} {}", UNITS[unit])
+    } else {
+        format!("{size:.1} {}", UNITS[unit])
+    }
+}
+
 fn get_current_platform() -> Vec<String> {
     let current = std::env::consts::ARCH;
     let os = std::env::consts::OS;
@@ -1066,6 +1123,17 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // FR15: cache size renders human-readable.
+    #[test]
+    fn test_format_size_human_readable() {
+        assert_eq!(format_size(0), "0 B");
+        assert_eq!(format_size(512), "512 B");
+        assert_eq!(format_size(1024), "1.0 KiB");
+        assert_eq!(format_size(1536), "1.5 KiB");
+        assert_eq!(format_size(1024 * 1024), "1.0 MiB");
+        assert_eq!(format_size(3 * 1024 * 1024 * 1024), "3.0 GiB");
+    }
 
     #[test]
     fn test_resolve_platforms_cli_override() {
