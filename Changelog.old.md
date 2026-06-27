@@ -1,3 +1,17 @@
+## [2.23.0](https://github.com/AtomiCloud/sulfone.iridium/compare/v2.22.0...v2.23.0) (2026-06-26)
+
+
+### ✨ Features ✨
+
+* **cache:** add per-node content-addressed template output cache ([2e61c80](https://github.com/AtomiCloud/sulfone.iridium/commit/2e61c80b8932edb173a42291bbd4ac93210421ba))
+* cache template execution output (per-node, content-addressed) ([#93](https://github.com/AtomiCloud/sulfone.iridium/issues/93)) ([142bb66](https://github.com/AtomiCloud/sulfone.iridium/commit/142bb669df96169d11236644a74667cba0f6b7b5)), closes [#92](https://github.com/AtomiCloud/sulfone.iridium/issues/92)
+
+
+### 🐛 Bug Fixes 🐛
+
+* **cache:** address CodeRabbit review findings on PR [#92](https://github.com/AtomiCloud/sulfone.iridium/issues/92) ([0afcf19](https://github.com/AtomiCloud/sulfone.iridium/commit/0afcf1976c96d2f4b3316dceda39ba49d24bc676))
+* **cache:** harden cache ownership marker + serialize env test ([8362b66](https://github.com/AtomiCloud/sulfone.iridium/commit/8362b663c1565aa356741df034317e5ed84cd6f6))
+
 ## [2.22.0](https://github.com/AtomiCloud/sulfone.iridium/compare/v2.21.1...v2.22.0) (2026-06-23)
 
 

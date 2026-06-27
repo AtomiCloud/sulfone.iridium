@@ -1,3 +1,16 @@
+## [2.24.0](https://github.com/AtomiCloud/sulfone.iridium/compare/v2.23.0...v2.24.0) (2026-06-27)
+
+
+### ✨ Features ✨
+
+* **headless:** add non-interactive headless mode for create/update/try ([f698e88](https://github.com/AtomiCloud/sulfone.iridium/commit/f698e882ca0d11d23a2415e203baba9aa3ab525f))
+* headless (non-interactive) mode for create / update / try ([#94](https://github.com/AtomiCloud/sulfone.iridium/issues/94)) ([26461b6](https://github.com/AtomiCloud/sulfone.iridium/commit/26461b6cec6f57e96498a498726c79895c0d416e))
+
+
+### 🐛 Bug Fixes 🐛
+
+* **headless:** address review on cache summary, timeout, ns count ([24eb5cf](https://github.com/AtomiCloud/sulfone.iridium/commit/24eb5cfbe6417ef73dfc692b724451c4648c4e2d))
+
 ## [2.23.0](https://github.com/AtomiCloud/sulfone.iridium/compare/v2.22.0...v2.23.0) (2026-06-26)
 
 
