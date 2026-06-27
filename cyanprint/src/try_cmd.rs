@@ -59,12 +59,218 @@ struct TryConfig {
     pub coordinator_endpoint: String,
 }
 
-/// Result of try command
-pub struct TryResult {
-    pub session_id: String,
-    pub output_path: String,
-    pub template_container_name: Option<String>,
-    pub template_image_ref: Option<String>,
+/// Outcome of a `try template` / `try group` run, returned to the CLI boundary.
+///
+/// In headless mode the boundary ([`crate::headless::finish_headless_try`]) maps this onto
+/// the JSON envelope + exit code, so `execute_try_command` / `execute_try_group_command`
+/// never print the envelope themselves — they hand the outcome up and the single CLI
+/// boundary emits it. This mirrors the create/update flow, where `cyan_run` returns a
+/// `CyanRunResult` and `finish_headless` emits at the boundary (no split emission, no hidden
+/// "already printed elsewhere" contract). Errors are the `Err` arm of the enclosing `Result`.
+pub enum TryHeadlessOutcome {
+    /// The run completed; the boundary emits `done` (exit 0).
+    Done,
+    /// The headless Q&A walk stopped on an unanswered question; the boundary emits
+    /// `need_input` (exit 2) carrying this question. Holds the DOMAIN [`Question`] — the
+    /// conversion to the JSON wire DTO is owned solely by the CLI boundary
+    /// ([`crate::headless::finish_headless_try`]), mirroring `create`/`update`'s
+    /// `CyanRunResult`. Command execution must not depend on the headless serialization
+    /// representation; only the emission point does.
+    NeedInput(cyanprompt::domain::models::question::Question),
+}
+
+/// Pure tracker for the resources created during `try template` setup: the Docker
+/// artifacts (blob image, template image, container) and the coordinator try session.
+///
+/// This holds only the bookkeeping — the slots populated as each resource is produced,
+/// the `armed` flag, and the `keep_containers` gate — and the pure decision of what to
+/// tear down. It deliberately has NO live handle to Docker or the coordinator client
+/// (the coordinator session is stored as a plain `(endpoint, id)` pair), so its decision
+/// logic is unit-testable without a daemon or a coordinator. `SetupArtifactsGuard` wraps
+/// it with the Docker handle and performs the actual best-effort removal on `Drop`.
+///
+/// The setup phase of `execute_try_command` (normal mode) builds a uniquely-tagged
+/// blob image and template image, and then starts a template container. Several
+/// fallible steps run *before* the post-Q&A cleanup closures exist — the template
+/// image build, the coordinator `try_setup`, the container start, and the health
+/// check. A bare `?` (or the `last_err` return after three failed port attempts)
+/// on any of them used to unwind the function and orphan those artifacts: a blob
+/// image alone, or a still-running container holding a port plus both images.
+///
+/// Rather than patch each `?` site (the per-path approach that has repeatedly missed
+/// siblings), the artifacts are tracked here and torn down on `Drop` while armed.
+/// The tracker is created before the first artifact and each slot is noted as the
+/// corresponding resource is produced; it is `disarm()`-ed once control reaches the
+/// Q&A loop, at which point the `cleanup_setup_session` (Q&A stop) and
+/// `cleanup_executor_session` (post-Q&A) closures own teardown from there. So no window
+/// is left unguarded: creation → Q&A hand-off is the guard's responsibility, Q&A → finish
+/// is the closures'.
+///
+/// Tearing down on a setup failure is correct in BOTH interactive and headless modes
+/// (it only adds cleanup of artifacts that would otherwise leak; it changes no output
+/// and no prompt), so — like the shared `cleanup` helper — the guard is gated
+/// on `keep_containers`, not `headless`: when `--keep-containers` is set the artifacts
+/// are intentionally preserved for debugging, otherwise they are best-effort removed.
+/// All removals are best-effort (a failed cleanup never masks the original error).
+struct SetupArtifactsTracker {
+    keep_containers: bool,
+    armed: bool,
+    blob_image_ref: Option<String>,
+    template_image_ref: Option<String>,
+    container_name: Option<String>,
+    /// The coordinator try session (its endpoint + id) allocated by `try_setup`. Tracked
+    /// here so a setup failure AFTER `try_setup` succeeds (e.g. the container start /
+    /// health-check loop) releases the Boron session via `DELETE /executor/{id}` on drop,
+    /// not just the local Docker artifacts. `None` until `try_setup` succeeds.
+    coordinator_session: Option<(String, String)>,
+}
+
+impl SetupArtifactsTracker {
+    fn new(keep_containers: bool) -> Self {
+        Self {
+            keep_containers,
+            armed: true,
+            blob_image_ref: None,
+            template_image_ref: None,
+            container_name: None,
+            coordinator_session: None,
+        }
+    }
+
+    /// Record the coordinator try session created by `try_setup` so a later setup failure
+    /// releases it instead of leaking it on Boron. Stored as `(endpoint, session_id)` so
+    /// the drop can build a throwaway client without borrowing the in-flight one.
+    fn note_coordinator_session(&mut self, endpoint: String, session_id: String) {
+        self.coordinator_session = Some((endpoint, session_id));
+    }
+
+    /// Record the built blob image so it is removed on a setup failure.
+    fn note_blob_image(&mut self, image_ref: String) {
+        self.blob_image_ref = Some(image_ref);
+    }
+
+    /// Record the built template image so it is removed on a setup failure.
+    fn note_template_image(&mut self, image_ref: String) {
+        self.template_image_ref = Some(image_ref);
+    }
+
+    /// Record a successfully started container so it is removed on a setup failure
+    /// (e.g. a subsequent health-check timeout) that leaves it running.
+    fn note_container(&mut self, name: String) {
+        self.container_name = Some(name);
+    }
+
+    /// Clear the tracked container after it has already been removed inline (e.g. a
+    /// failed `start_template_container` that retried with a fresh name). Keeps the
+    /// tracker from removing a name that no longer resolves.
+    fn clear_container(&mut self) {
+        self.container_name = None;
+    }
+
+    /// Mark the setup phase as complete so dropping the guard no longer removes the
+    /// artifacts. Called once the Q&A loop is about to run and teardown is handed off
+    /// to the post-Q&A cleanup closures.
+    fn disarm(&mut self) {
+        self.armed = false;
+    }
+
+    /// Pure decision: which artifacts would be removed on drop right now. Returns
+    /// `None` when the guard is inert (`keep_containers` set, or disarmed once setup
+    /// completed). This is what `Drop` acts on, so asserting it pins the leak-closing
+    /// behavior without needing a Docker daemon.
+    fn removal_targets(&self) -> Option<SetupRemoval<'_>> {
+        if self.keep_containers || !self.armed {
+            return None;
+        }
+        Some(SetupRemoval {
+            container_name: self.container_name.as_deref(),
+            template_image_ref: self.template_image_ref.as_deref(),
+            blob_image_ref: self.blob_image_ref.as_deref(),
+            coordinator_session: self
+                .coordinator_session
+                .as_ref()
+                .map(|(e, s)| (e.as_str(), s.as_str())),
+        })
+    }
+}
+
+/// RAII guard for the resources created during `try template` setup (Docker artifacts +
+/// the coordinator try session). Wraps a `SetupArtifactsTracker` with the Docker handle so
+/// the best-effort removal happens automatically on `Drop` while armed; the coordinator
+/// session is released by building a throwaway client from the stored endpoint. See
+/// `SetupArtifactsTracker` for the lifecycle.
+struct SetupArtifactsGuard<'a> {
+    docker: &'a Docker,
+    tracker: SetupArtifactsTracker,
+}
+
+impl<'a> SetupArtifactsGuard<'a> {
+    fn new(docker: &'a Docker, keep_containers: bool) -> Self {
+        Self {
+            docker,
+            tracker: SetupArtifactsTracker::new(keep_containers),
+        }
+    }
+
+    fn note_blob_image(&mut self, image_ref: String) {
+        self.tracker.note_blob_image(image_ref);
+    }
+
+    fn note_template_image(&mut self, image_ref: String) {
+        self.tracker.note_template_image(image_ref);
+    }
+
+    fn note_container(&mut self, name: String) {
+        self.tracker.note_container(name);
+    }
+
+    fn note_coordinator_session(&mut self, endpoint: String, session_id: String) {
+        self.tracker.note_coordinator_session(endpoint, session_id);
+    }
+
+    fn clear_container(&mut self) {
+        self.tracker.clear_container();
+    }
+
+    fn disarm(&mut self) {
+        self.tracker.disarm();
+    }
+}
+
+/// The resources a still-armed guard would tear down on drop: the local Docker artifacts
+/// plus the coordinator try session (`endpoint`, `session_id`) if `try_setup` had run.
+struct SetupRemoval<'a> {
+    container_name: Option<&'a str>,
+    template_image_ref: Option<&'a str>,
+    blob_image_ref: Option<&'a str>,
+    coordinator_session: Option<(&'a str, &'a str)>,
+}
+
+impl Drop for SetupArtifactsGuard<'_> {
+    fn drop(&mut self) {
+        let Some(targets) = self.tracker.removal_targets() else {
+            return;
+        };
+        // Release the coordinator try session first (it lives on Boron, not locally), then
+        // tear down the local Docker artifacts. A throwaway client is built from the stored
+        // endpoint so the drop borrows nothing from the in-flight client. Best-effort: a
+        // failed release is logged to stderr and never masks the original setup error.
+        if let Some((endpoint, session_id)) = targets.coordinator_session {
+            let client = CyanCoordinatorClient::new(endpoint.to_string());
+            if let Err(e) = client.try_cleanup(session_id) {
+                eprintln!("  ⚠️ Failed to release coordinator session on setup failure: {e}");
+            }
+        }
+        if let Some(name) = targets.container_name {
+            stop_and_remove_container(self.docker, name);
+        }
+        if let Some(image) = targets.template_image_ref {
+            remove_image_best_effort(self.docker, image);
+        }
+        if let Some(image) = targets.blob_image_ref {
+            remove_image_best_effort(self.docker, image);
+        }
+    }
 }
 
 /// Execute try command
@@ -78,19 +284,39 @@ pub fn execute_try_command(
     _registry: String,
     coordinator_endpoint: String,
     registry_client: Rc<CyanRegistryClient>,
-) -> Result<TryResult, Box<dyn Error + Send>> {
-    println!("🚀 Starting cyanprint try...");
-    println!("  Template path: {template_path}");
-    println!("  Output path: {output_path}");
-    println!("  Mode: {}", if dev_mode { "dev" } else { "normal" });
+    headless: bool,
+    headless_answers: HashMap<String, Answer>,
+) -> Result<TryHeadlessOutcome, Box<dyn Error + Send>> {
+    crate::hprogress!(headless, "🚀 Starting cyanprint try...");
+    crate::hprogress!(headless, "  Template path: {template_path}");
+    crate::hprogress!(headless, "  Output path: {output_path}");
+    crate::hprogress!(
+        headless,
+        "  Mode: {}",
+        if dev_mode { "dev" } else { "normal" }
+    );
 
     // Step 1: Pre-flight validation (mode-aware)
-    pre_flight_validation(&template_path, dev_mode)?;
+    pre_flight_validation(&template_path, dev_mode, headless)?;
 
     // Step 3: Ensure daemon is running with health check
     let docker =
         Docker::connect_with_local_defaults().map_err(|e| Box::new(e) as Box<dyn Error + Send>)?;
-    ensure_daemon_running(&docker, disable_daemon_autostart, &coordinator_endpoint)?;
+    ensure_daemon_running(
+        &docker,
+        disable_daemon_autostart,
+        &coordinator_endpoint,
+        headless,
+    )?;
+
+    // Track the resources created during setup — the Docker artifacts (blob image,
+    // template image, running template container) AND the coordinator try session — so a
+    // failure on any fallible setup step (the template image build, the container start, or
+    // the health check, all of which run before the post-Q&A cleanup closures exist) tears
+    // them down instead of leaking them. The coordinator session is registered after
+    // `try_setup` succeeds (below). The guard is disarmed once the Q&A loop takes over; from
+    // there the post-Q&A closures own teardown.
+    let mut setup_guard = SetupArtifactsGuard::new(&docker, keep_containers);
 
     // Step 4: Generate IDs — match cyan_run formats
     let id_gen = DefaultSessionIdGenerator;
@@ -99,8 +325,8 @@ pub fn execute_try_command(
     let session_id = id_gen.generate(); // 10-char alphanumeric, same as DefaultSessionIdGenerator in cyan_run
     let merger_id = uuid::Uuid::new_v4().to_string(); // UUID, same as coordinator's executor.rs
 
-    println!("  Session ID: {session_id}");
-    println!("  Local template ID: {local_template_id}");
+    crate::hprogress!(headless, "  Session ID: {session_id}");
+    crate::hprogress!(headless, "  Local template ID: {local_template_id}");
 
     // Step 5: Read and validate config (mode-aware)
     let template_path_abs = Path::new(&template_path)
@@ -123,13 +349,17 @@ pub fn execute_try_command(
     }
 
     // Step 6: Resolve and pin dependencies (including resolvers)
-    println!("📦 Resolving and pinning dependencies...");
+    crate::hprogress!(headless, "📦 Resolving and pinning dependencies...");
     let pinned_deps = resolve_and_pin_dependencies(&registry_client, &template_config)?;
-    println!("  Pinned {} dependencies", pinned_deps.total_count());
+    crate::hprogress!(
+        headless,
+        "  Pinned {} dependencies",
+        pinned_deps.total_count()
+    );
 
     // Step 7: Mode-specific setup and image building
     let build_result = if !dev_mode {
-        println!("🔨 Building template images...");
+        crate::hprogress!(headless, "🔨 Building template images...");
         let build_config = read_build_config(cyan_yaml_path.to_string_lossy().to_string())?;
         let registry = build_config.registry.as_ref().ok_or_else(|| {
             Box::new(std::io::Error::other(
@@ -156,7 +386,7 @@ pub fn execute_try_command(
                 "blob image not configured in cyan.yaml build section (required in normal mode)",
             )) as Box<dyn Error + Send>
         })?;
-        println!("  Building blob image...");
+        crate::hprogress!(headless, "  Building blob image...");
         let blob_name = blob.image.as_ref().ok_or_else(|| {
             Box::new(std::io::Error::other(
                 "blob image name not specified in build config",
@@ -165,7 +395,7 @@ pub fn execute_try_command(
         let dockerfile_path = template_path_abs.join(&blob.dockerfile);
         let context_path = template_path_abs.join(&blob.context);
         build_image(
-            &BuildxBuilder::new(),
+            &BuildxBuilder::new().with_headless(headless),
             registry,
             blob_name,
             &tag,
@@ -174,10 +404,11 @@ pub fn execute_try_command(
             &[],
         )?;
         let blob_ref = Some(format!("{registry}/{blob_name}:{tag}"));
+        setup_guard.note_blob_image(blob_ref.clone().unwrap_or_default());
 
         // Build template image if specified
         if let Some(ref tmpl) = images.template {
-            println!("  Building template image...");
+            crate::hprogress!(headless, "  Building template image...");
             let template_name = tmpl.image.as_ref().ok_or_else(|| {
                 Box::new(std::io::Error::other(
                     "template image name not specified in build config",
@@ -186,7 +417,7 @@ pub fn execute_try_command(
             let dockerfile_path = template_path_abs.join(&tmpl.dockerfile);
             let context_path = template_path_abs.join(&tmpl.context);
             build_image(
-                &BuildxBuilder::new(),
+                &BuildxBuilder::new().with_headless(headless),
                 registry,
                 template_name,
                 &tag,
@@ -195,11 +426,12 @@ pub fn execute_try_command(
                 &[],
             )?;
             template_ref = Some(format!("{registry}/{template_name}:{tag}"));
+            setup_guard.note_template_image(template_ref.clone().unwrap_or_default());
         }
 
         Some((blob_ref, template_ref))
     } else {
-        println!("  Dev mode: skipping image build");
+        crate::hprogress!(headless, "  Dev mode: skipping image build");
         None
     };
 
@@ -225,13 +457,21 @@ pub fn execute_try_command(
         };
 
     // Step 9: Setup try environment with Boron (blob volume, images, resolvers)
-    println!("🔧 Setting up try environment with Boron...");
+    crate::hprogress!(headless, "🔧 Setting up try environment with Boron...");
     let coord_client = CyanCoordinatorClient::new(coordinator_endpoint.clone());
 
     // Use template image for image_ref in normal mode (not blob image)
     let image_ref = build_result
         .as_ref()
         .and_then(|(_, template_ref)| template_ref.clone());
+    // The blob image is built with the SAME unique `{uuid}` tag as the template image
+    // (normal mode only). It must be cleaned up alongside the template image on every
+    // headless NeedInput round — headless `try template` is iterative, so each
+    // unanswered round builds both images and leaking the blob image would accumulate one
+    // orphaned image per question per session.
+    let blob_ref = build_result
+        .as_ref()
+        .and_then(|(blob_ref, _)| blob_ref.clone());
 
     let try_setup_req = if dev_mode {
         let dev_config = read_dev_config(cyan_yaml_path.to_string_lossy().to_string())?;
@@ -278,6 +518,13 @@ pub fn execute_try_command(
 
     coord_client.try_setup(&try_setup_req)?;
 
+    // `try_setup` allocated a coordinator session — hand it to the setup guard so a failure
+    // on a later setup step (container start, health check) releases it on Boron via the
+    // guard's Drop, not just the local Docker artifacts. From the Q&A loop onward the
+    // post-Q&A cleanup closures (which also call `try_cleanup`) own this once the guard is
+    // disarmed.
+    setup_guard.note_coordinator_session(coordinator_endpoint.clone(), session_id.clone());
+
     // Step 10: Start template container (normal mode only)
     let (template_container_name, allocated_port) = if !dev_mode {
         // Use template image (not blob) for container startup
@@ -304,7 +551,7 @@ pub fn execute_try_command(
             };
             let port = port_alloc.release();
 
-            println!("🐳 Starting template container on port {port}...");
+            crate::hprogress!(headless, "🐳 Starting template container on port {port}...");
             match start_template_container(
                 &docker,
                 &container_name,
@@ -313,16 +560,24 @@ pub fn execute_try_command(
                 &coordinator_endpoint,
                 "cyanprint.dev",
                 None,
+                headless,
             ) {
                 Ok(()) => {
-                    health_check_template_container(port, 60, 1)?;
+                    // The container is now running — track it so a health-check
+                    // timeout (or any later setup failure) tears it down via the guard
+                    // instead of leaving it running on an allocated port.
+                    setup_guard.note_container(container_name.clone());
+                    health_check_template_container(port, 60, 1, headless)?;
                     bound_port = Some(port);
                     last_err = None;
                     break;
                 }
                 Err(e) => {
-                    // Clean up any partially created container before retrying
+                    // Clean up any partially created container before retrying. The
+                    // name is gone, so drop it from the guard too (the next iteration
+                    // mints a fresh name).
                     stop_and_remove_container(&docker, &container_name);
+                    setup_guard.clear_container();
                     last_err = Some(e);
                 }
             }
@@ -336,26 +591,121 @@ pub fn execute_try_command(
         (None, None)
     };
 
+    // Setup is complete: the coordinator try session, blob image, template image, and (in
+    // normal mode) the running template container all exist. From here the Q&A outcomes and
+    // the post-Q&A steps own their own teardown (the `cleanup_setup_session` and
+    // `cleanup_executor_session` closures below, both of which release the coordinator
+    // session via the shared `cleanup` helper), so disarm the setup guard — otherwise it
+    // would remove the artifacts the Q&A need_input path and the success path still rely on.
+    // Any error return above already dropped it while armed and cleaned up.
+    setup_guard.disarm();
+
     // Step 11: Run Q&A loop and collect cyan, answers, and states
-    println!("🤖 Starting interactive Q&A...");
     // Collect Q&A answers and deterministic states - these are preserved through
     // the execution flow and used to build the execution payload sent to Boron
-    let (cyan, answers, states) =
-        run_qa_loop(dev_mode, &template_config, &cyan_yaml_path, allocated_port)?;
+    //
+    // By this point `try_setup` (POST /executor/try) has allocated a coordinator try
+    // session keyed by `session_id`, and the template image, blob image, and (in normal
+    // mode) the running template container all exist. The executor session has not been
+    // *warmed* yet, but the coordinator session already exists, so a Q&A that stops here
+    // (need_input) or errors MUST release the coordinator session in addition to the
+    // Docker artifacts — otherwise every headless need_input round (headless is iterative:
+    // empty → q1 → … → done) leaks a Boron try session plus a uniquely-tagged template AND
+    // blob image. Route both terminal outcomes through the same shared `cleanup` helper the
+    // post-Q&A error/success paths use (it calls `try_cleanup` + tears down the container
+    // and both images), so there is exactly one teardown implementation and image-removal
+    // style. Best-effort: a teardown hiccup must not stop us emitting the need_input
+    // envelope or mask the original Q&A error.
+    // Best-effort teardown: swallow errors so a teardown hiccup does not stop the
+    // need_input envelope from being emitted or mask the original Q&A error. Same teardown
+    // call + argument list as `cleanup_executor_session` below; that one propagates the
+    // `Result` (post-Q&A errors are real), this one swallows it (the Q&A-stop path must
+    // emit regardless). Defined here — before the Q&A loop that uses it — rather than
+    // delegating to `cleanup_executor_session` (which is defined later, after the loop).
+    let cleanup_setup_session = || {
+        if let Err(e) = cleanup(
+            &coord_client,
+            &session_id,
+            keep_containers,
+            &docker,
+            &template_container_name,
+            image_ref.as_deref(),
+            blob_ref.as_deref(),
+            headless,
+        ) {
+            eprintln!("  ⚠️ Failed to clean up after Q&A stop: {e}");
+        }
+    };
+    let (cyan, answers, states) = if headless {
+        match run_qa_loop_headless(dev_mode, &cyan_yaml_path, allocated_port, headless_answers) {
+            Ok(HeadlessQaOutcome::Complete(cyan, answers, states)) => (cyan, answers, states),
+            Ok(HeadlessQaOutcome::NeedInput(question)) => {
+                // Stop before executing. Release the coordinator try session and Docker
+                // artifacts allocated during setup, then hand the question up to the CLI
+                // boundary, which emits the need_input envelope and exits 2. The envelope is
+                // NOT printed here — emission lives solely at the boundary.
+                cleanup_setup_session();
+                return Ok(TryHeadlessOutcome::NeedInput(question));
+            }
+            Err(e) => {
+                // A headless Q&A error (e.g. a malformed answer or a transport error
+                // surfaced as TemplateState::Err). The coordinator try session, template/blob
+                // images, and running container were already created — clean them all before
+                // propagating so a failed Q&A leaks neither the Boron session nor Docker
+                // artifacts, exactly as the need_input arm does.
+                cleanup_setup_session();
+                return Err(e);
+            }
+        }
+    } else {
+        println!("🤖 Starting interactive Q&A...");
+        run_qa_loop(dev_mode, &template_config, &cyan_yaml_path, allocated_port)?
+    };
+
+    // Steps 12-13 warm the executor session, bootstrap it, and execute the template.
+    // The coordinator session already exists (allocated by `try_setup`); the warm call
+    // warms it (and these steps rely on the template container/images built during setup).
+    // An error on ANY of them — and the success path and every post-command arm below —
+    // must run the SAME teardown: release the coordinator session and tear down the Docker
+    // artifacts. Otherwise the session and Docker artifacts leak on a post-Q&A failure
+    // (bootstrap error, execution failure, non-2xx coordinator response, output-dir create
+    // failure, or archive-unpack failure). This single shared closure is the one teardown
+    // implementation for every terminal path from here on, so they cannot drift apart.
+    let cleanup_executor_session = || {
+        cleanup(
+            &coord_client,
+            &session_id,
+            keep_containers,
+            &docker,
+            &template_container_name,
+            image_ref.as_deref(),
+            blob_ref.as_deref(),
+            headless,
+        )
+    };
 
     // Step 12: Warm executor session (creates session volume)
-    println!("🔧 Warming executor session...");
-    let warm_res = coord_client.warn_executor(session_id.clone(), &synthetic_template)?;
+    crate::hprogress!(headless, "🔧 Warming executor session...");
+    let warm_res = match coord_client.warn_executor(session_id.clone(), &synthetic_template) {
+        Ok(res) => res,
+        Err(e) => {
+            cleanup_executor_session()?;
+            return Err(e);
+        }
+    };
 
     // Step 13: Bootstrap executor with StartExecutorReq
-    println!("🚀 Bootstrapping executor...");
+    crate::hprogress!(headless, "🚀 Bootstrapping executor...");
     let start_executor_req =
         build_bootstrap_req(&session_id, &synthetic_template, &warm_res, &merger_id);
-    coord_client.bootstrap(&start_executor_req)?;
+    if let Err(e) = coord_client.bootstrap(&start_executor_req) {
+        cleanup_executor_session()?;
+        return Err(e);
+    }
 
     // Step 13: Execute and stream output using BuildReq with Cyan from Q&A
-    println!("🚀 Executing template and streaming output...");
-    execute_and_stream_output(
+    crate::hprogress!(headless, "🚀 Executing template and streaming output...");
+    if let Err(e) = execute_and_stream_output(
         &coord_client,
         &session_id,
         &output_path,
@@ -364,67 +714,64 @@ pub fn execute_try_command(
         answers,
         states,
         merger_id,
-    )?;
+        headless,
+    ) {
+        cleanup_executor_session()?;
+        return Err(e);
+    }
 
     // Step 13.5: Execute post-template commands (resolved from all dependency templates)
     if !resolved_commands.is_empty() {
-        println!(
+        crate::hprogress!(
+            headless,
             "\n⚡ Executing {} post-template command(s)...",
             resolved_commands.len()
         );
-        let exec_result =
-            match CommandExecutor::execute_commands(&resolved_commands, Path::new(&output_path)) {
-                Ok(result) => result,
-                Err(err) => {
-                    // Clean up coordinator session before propagating the error
-                    cleanup(
-                        &coord_client,
-                        &session_id,
-                        keep_containers,
-                        &docker,
-                        &template_container_name,
-                        image_ref.as_deref(),
-                    )?;
-                    return Err(err);
-                }
-            };
+        let exec_result = match CommandExecutor::execute_commands_for_mode(
+            &resolved_commands,
+            Path::new(&output_path),
+            headless,
+        ) {
+            Ok(result) => result,
+            Err(err) => {
+                // Clean up coordinator session before propagating the error
+                cleanup_executor_session()?;
+                return Err(err);
+            }
+        };
         if exec_result.aborted {
             // Clean up coordinator session before returning on abort
-            cleanup(
-                &coord_client,
-                &session_id,
-                keep_containers,
-                &docker,
-                &template_container_name,
-                image_ref.as_deref(),
-            )?;
+            cleanup_executor_session()?;
             return Err(Box::new(std::io::Error::other(format!(
                 "Command execution aborted: {}/{} succeeded, {}/{} failed before abort",
                 exec_result.succeeded, exec_result.total, exec_result.failed, exec_result.total
             ))));
         }
+        if headless && !exec_result.all_succeeded() {
+            // The non-interactive path runs every command and records failures in
+            // the result but returns Ok — it never sets `aborted`. Without this check a
+            // failed post-template command (e.g. one exiting non-zero) would be silently
+            // ignored and the try would report `done` / exit 0. In headless mode there is
+            // no interactive "continue?" prompt to surface the failure, so treat any
+            // partial failure as an error (clean up the session first, same as the abort
+            // path) → error envelope / exit 1. Interactive mode keeps its existing
+            // behavior (the user already chose whether to continue).
+            cleanup_executor_session()?;
+            return Err(Box::new(std::io::Error::other(format!(
+                "Command execution failed: {}/{} succeeded, {}/{} failed",
+                exec_result.succeeded, exec_result.total, exec_result.failed, exec_result.total
+            ))));
+        }
     }
 
-    // Step 14: Cleanup (best-effort, including built image)
-    println!("🧹 Cleaning up...");
-    cleanup(
-        &coord_client,
-        &session_id,
-        keep_containers,
-        &docker,
-        &template_container_name,
-        image_ref.as_deref(),
-    )?;
+    // Step 14: Cleanup (best-effort, including built template and blob images)
+    crate::hprogress!(headless, "🧹 Cleaning up...");
+    cleanup_executor_session()?;
 
-    println!("✅ Try completed successfully");
-    println!("  Output written to: {output_path}");
+    crate::hprogress!(headless, "✅ Try completed successfully");
+    crate::hprogress!(headless, "  Output written to: {output_path}");
 
-    Ok(TryResult {
-        session_id,
-        output_path,
-        template_container_name,
-        template_image_ref: image_ref,
-    })
+    Ok(TryHeadlessOutcome::Done)
 }
 
 pub(crate) fn split_image_ref(image_ref: &str) -> (String, String) {
@@ -448,13 +795,14 @@ pub(crate) fn split_image_ref(image_ref: &str) -> (String, String) {
 pub(crate) fn pre_flight_validation(
     template_path: &str,
     dev_mode: bool,
+    headless: bool,
 ) -> Result<(), Box<dyn Error + Send>> {
-    println!("🔍 Running pre-flight checks...");
+    crate::hprogress!(headless, "🔍 Running pre-flight checks...");
     BuildxBuilder::check_docker().map_err(|e| {
         Box::new(std::io::Error::other(format!("Docker check failed: {e}")))
             as Box<dyn Error + Send>
     })?;
-    println!("  ✓ Docker daemon is running");
+    crate::hprogress!(headless, "  ✓ Docker daemon is running");
 
     let cyan_yaml_path = Path::new(template_path).join("cyan.yaml");
     if !cyan_yaml_path.exists() {
@@ -463,7 +811,11 @@ pub(crate) fn pre_flight_validation(
             format!("cyan.yaml not found at: {}", cyan_yaml_path.display()),
         )) as Box<dyn Error + Send>);
     }
-    println!("  ✓ cyan.yaml found at: {}", cyan_yaml_path.display());
+    crate::hprogress!(
+        headless,
+        "  ✓ cyan.yaml found at: {}",
+        cyan_yaml_path.display()
+    );
 
     // Mode-specific validation
     if dev_mode {
@@ -475,7 +827,7 @@ pub(crate) fn pre_flight_validation(
             })?;
 
         // Verify template_url is reachable during pre-flight
-        println!("  Checking template URL reachability...");
+        crate::hprogress!(headless, "  Checking template URL reachability...");
         let http_client = reqwest::blocking::Client::builder()
             .timeout(std::time::Duration::from_secs(5))
             .build()
@@ -486,7 +838,7 @@ pub(crate) fn pre_flight_validation(
 
         match http_client.get(&health_url).send() {
             Ok(resp) if resp.status().is_success() => {
-                println!("  ✓ Template URL is reachable: {template_url}");
+                crate::hprogress!(headless, "  ✓ Template URL is reachable: {template_url}");
             }
             Ok(resp) => {
                 return Err(Box::new(std::io::Error::other(format!(
@@ -501,7 +853,10 @@ pub(crate) fn pre_flight_validation(
             }
         }
 
-        println!("  ✓ dev section validated and template URL is reachable");
+        crate::hprogress!(
+            headless,
+            "  ✓ dev section validated and template URL is reachable"
+        );
     } else {
         let _build_config = read_build_config(cyan_yaml_path.to_string_lossy().to_string())
             .map_err(|e| {
@@ -509,7 +864,7 @@ pub(crate) fn pre_flight_validation(
                     "failed to read build config from cyan.yaml: {e}"
                 ))) as Box<dyn Error + Send>
             })?;
-        println!("  ✓ build section validated");
+        crate::hprogress!(headless, "  ✓ build section validated");
     }
 
     Ok(())
@@ -519,6 +874,7 @@ pub(crate) fn ensure_daemon_running(
     docker: &Docker,
     disable_autostart: bool,
     coordinator_endpoint: &str,
+    headless: bool,
 ) -> Result<(), Box<dyn Error + Send>> {
     let coord_filter = "^cyanprint-coordinator$";
 
@@ -546,9 +902,9 @@ pub(crate) fn ensure_daemon_running(
     })?;
 
     if coordinator_already_running {
-        println!("  ✓ Coordinator daemon is already running");
+        crate::hprogress!(headless, "  ✓ Coordinator daemon is already running");
         // Perform health check even if already running
-        return health_check_daemon(coordinator_endpoint);
+        return health_check_daemon(coordinator_endpoint, headless);
     }
 
     if disable_autostart {
@@ -557,18 +913,22 @@ pub(crate) fn ensure_daemon_running(
         )) as Box<dyn Error + Send>);
     }
 
-    println!("🚀 Starting coordinator daemon...");
+    crate::hprogress!(headless, "🚀 Starting coordinator daemon...");
     let img = "ghcr.io/atomicloud/sulfone.boron/sulfone-boron:latest".to_string();
-    runtime.block_on(async { start_coordinator(docker.clone(), img, 9000, None).await })?;
+    runtime
+        .block_on(async { start_coordinator(docker.clone(), img, 9000, None, headless).await })?;
 
     // Health check after starting
-    health_check_daemon(coordinator_endpoint)?;
+    health_check_daemon(coordinator_endpoint, headless)?;
 
-    println!("  ✓ Coordinator daemon started and ready");
+    crate::hprogress!(headless, "  ✓ Coordinator daemon started and ready");
     Ok(())
 }
 
-fn health_check_daemon(coordinator_endpoint: &str) -> Result<(), Box<dyn Error + Send>> {
+fn health_check_daemon(
+    coordinator_endpoint: &str,
+    headless: bool,
+) -> Result<(), Box<dyn Error + Send>> {
     let http_client = reqwest::blocking::Client::builder()
         .timeout(std::time::Duration::from_secs(1))
         .build()
@@ -576,12 +936,12 @@ fn health_check_daemon(coordinator_endpoint: &str) -> Result<(), Box<dyn Error +
 
     let health_url = format!("{}/", coordinator_endpoint.trim_end_matches('/'));
 
-    println!("  Checking daemon health...");
+    crate::hprogress!(headless, "  Checking daemon health...");
     for attempt in 1..=60 {
         let resp = http_client.get(&health_url).send();
         match resp {
             Ok(r) if r.status().is_success() => {
-                println!("  ✓ Daemon is healthy");
+                crate::hprogress!(headless, "  ✓ Daemon is healthy");
                 return Ok(());
             }
             Ok(r) if attempt == 60 => {
@@ -827,6 +1187,48 @@ pub(crate) fn stop_and_remove_container(docker: &Docker, container_name: &str) {
     });
 }
 
+/// Best-effort removal of a built Docker image.
+///
+/// Used by the headless `try template` NeedInput path: because headless Q&A is
+/// iterative, every unanswered round rebuilds a uniquely-tagged image, so leaving the
+/// image behind leaks one image per question. Errors are silently ignored (cleanup).
+/// Remove a Docker image best-effort using a caller-supplied Tokio runtime. This is the
+/// ONE image-removal mechanism in the teardown subsystem: both the template image and the
+/// blob image go through it, so there is a single code path (no second inline
+/// `runtime.block_on(docker.remove_image(...))` style to drift from it). Errors are
+/// swallowed on purpose — teardown is best-effort and a remove hiccup must not mask the
+/// original error that triggered cleanup.
+pub(crate) fn remove_image_with_runtime(
+    runtime: &tokio::runtime::Runtime,
+    docker: &Docker,
+    image_ref: &str,
+) {
+    runtime.block_on(async {
+        let _ = docker
+            .remove_image(
+                image_ref,
+                None::<bollard::query_parameters::RemoveImageOptions>,
+                None::<bollard::auth::DockerCredentials>,
+            )
+            .await;
+    });
+}
+
+/// Remove a Docker image best-effort when no runtime is already in scope (e.g. from a
+/// `Drop` implementation that cannot borrow one). Builds a throwaway runtime and delegates
+/// to [`remove_image_with_runtime`] so the actual removal logic stays in one place.
+pub(crate) fn remove_image_best_effort(docker: &Docker, image_ref: &str) {
+    let rt = match tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+    {
+        Ok(rt) => rt,
+        Err(_) => return,
+    };
+    remove_image_with_runtime(&rt, docker, image_ref);
+}
+
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn start_template_container(
     docker: &Docker,
     container_name: &str,
@@ -835,6 +1237,7 @@ pub(crate) fn start_template_container(
     _coordinator_endpoint: &str,
     label: &str,
     run_id: Option<&str>,
+    headless: bool,
 ) -> Result<(), Box<dyn Error + Send>> {
     let mut port_bindings = HashMap::new();
     port_bindings.insert(
@@ -890,7 +1293,8 @@ pub(crate) fn start_template_container(
             .await
             .map_err(|e| Box::new(e) as Box<dyn Error + Send>)?;
 
-        println!("  ✓ Template container started: {container_name}");
+        // progress goes to stderr in headless so stdout stays the sole JSON stream.
+        crate::hprogress!(headless, "  ✓ Template container started: {container_name}");
 
         Ok(())
     })
@@ -900,6 +1304,7 @@ pub(crate) fn health_check_template_container(
     port: u16,
     max_attempts: u32,
     interval_secs: u64,
+    headless: bool,
 ) -> Result<(), Box<dyn Error + Send>> {
     let http_client = reqwest::blocking::Client::builder()
         .timeout(std::time::Duration::from_secs(1))
@@ -908,12 +1313,13 @@ pub(crate) fn health_check_template_container(
 
     let health_url = format!("http://localhost:{port}/");
 
-    println!("  Checking template container health...");
+    // progress goes to stderr in headless so stdout stays the sole JSON stream.
+    crate::hprogress!(headless, "  Checking template container health...");
     for attempt in 1..=max_attempts {
         let resp = http_client.get(&health_url).send();
         match resp {
             Ok(r) if r.status().is_success() => {
-                println!("  ✓ Template container is healthy");
+                crate::hprogress!(headless, "  ✓ Template container is healthy");
                 return Ok(());
             }
             Ok(r) if attempt == max_attempts => {
@@ -941,177 +1347,119 @@ pub(crate) fn health_check_template_container(
     unreachable!("Loop should have returned by max_attempts")
 }
 
+/// Resolve the template-service endpoint for the Q&A walk.
+///
+/// In dev mode the endpoint comes from the cyan.yaml `dev.template_url`; in normal
+/// mode it is the locally-started template container's port. Shared by the
+/// interactive and headless Q&A loops.
+fn template_endpoint(
+    dev_mode: bool,
+    cyan_yaml_path: &Path,
+    port: Option<u16>,
+) -> Result<String, Box<dyn Error + Send>> {
+    if dev_mode {
+        let dev_config = read_dev_config(cyan_yaml_path.to_string_lossy().to_string())?;
+        Ok(dev_config.template_url.trim_end_matches('/').to_string())
+    } else {
+        Ok(format!("http://localhost:{}", port.unwrap()))
+    }
+}
+
+/// Build a [`TemplateEngine`] pointed at the template-service endpoint. Shared by
+/// the interactive and headless Q&A loops (the only difference between them is
+/// `start_with` vs `start_headless`).
+fn build_template_prompter(endpoint: String) -> TemplateEngine {
+    let c = Rc::new(reqwest::blocking::Client::new());
+    TemplateEngine {
+        client: Rc::new(CyanHttpRepo {
+            client: CyanClient {
+                endpoint,
+                client: c,
+            },
+        }),
+    }
+}
+
+/// Extract deterministic states from Q&A answers: each `String` answer value is
+/// treated as a deterministic-state entry (matching the original loop behavior).
+fn extract_deterministic_states(answers: &HashMap<String, Answer>) -> HashMap<String, String> {
+    let mut states = HashMap::new();
+    for (key, answer) in answers.iter() {
+        if let Answer::String(s) = answer {
+            states.insert(key.clone(), s.clone());
+        }
+    }
+    states
+}
+
 fn run_qa_loop(
     dev_mode: bool,
     _config: &CyanTemplateFileConfig,
     cyan_yaml_path: &Path,
     port: Option<u16>,
 ) -> QaLoopResult {
-    let template_endpoint = if dev_mode {
-        let dev_config = read_dev_config(cyan_yaml_path.to_string_lossy().to_string())?;
-        dev_config.template_url.trim_end_matches('/').to_string()
-    } else {
-        format!("http://localhost:{}", port.unwrap())
-    };
-
-    let c = Rc::new(reqwest::blocking::Client::new());
-    let prompter = TemplateEngine {
-        client: Rc::new(CyanHttpRepo {
-            client: CyanClient {
-                endpoint: template_endpoint,
-                client: c.clone(),
-            },
-        }),
-    };
-
+    let prompter = build_template_prompter(template_endpoint(dev_mode, cyan_yaml_path, port)?);
     let state = prompter.start_with(None, None);
 
     match state {
         TemplateState::Complete(cyan, answers) => {
-            // Extract deterministic states from answers
-            let mut states = HashMap::new();
-            for (key, answer) in answers.iter() {
-                if let Answer::String(s) = answer {
-                    states.insert(key.clone(), s.clone());
-                }
-            }
+            let states = extract_deterministic_states(&answers);
             Ok((cyan, answers, states))
         }
         TemplateState::QnA() => Err(Box::new(std::io::Error::other(
             "Q&A terminated in QnA state".to_string(),
         )) as Box<dyn Error + Send>),
+        TemplateState::NeedInput(_, _) => Err(Box::new(std::io::Error::other(
+            "interactive Q&A unexpectedly produced a NeedInput state".to_string(),
+        )) as Box<dyn Error + Send>),
         TemplateState::Err(e) => Err(Box::new(std::io::Error::other(e)) as Box<dyn Error + Send>),
     }
 }
 
-/// Verify that the Cyan object's configs contain data derived from Q&A answers.
+/// Outcome of the headless `try template` Q&A walk.
+//
+// `Complete` is intentionally the larger variant: clippy's `large_enum_variant` lint
+// flags enums where one variant is much bigger than the others (the enum's size is
+// bounded by its largest variant, so `HeadlessQaOutcome` is ~the size of `Complete`).
+// This is fine here — the enum is a single-shot return value from
+// `run_qa_loop_headless`, never stored in a collection or passed by value through a hot
+// path, so the inflated size carries no performance or memory cost. Boxing `Complete`
+// would just add an indirection for no benefit.
+#[allow(clippy::large_enum_variant)]
+enum HeadlessQaOutcome {
+    /// All answers supplied — proceed to execution with the finalized payload.
+    Complete(Cyan, HashMap<String, Answer>, HashMap<String, String>),
+    /// A question is still unanswered — emit it and stop. Carries the DOMAIN question;
+    /// conversion to the wire DTO happens at the CLI emission boundary, not here.
+    NeedInput(cyanprompt::domain::models::question::Question),
+}
+
+/// Headless variant of [`run_qa_loop`]: replays `answers` against the template
+/// server via the non-interactive driver instead of prompting. Shares
+/// endpoint derivation and prompter construction with the interactive loop.
 ///
-/// This function makes the template service contract explicit: the template service
-/// applies Q&A answers to processor/plugin configs, and we verify that the resulting
-/// configs contain actual data (not just empty objects) before using them in the
-/// execution payload.
-///
-/// This verification demonstrates that the execution payload is "demonstrably derived"
-/// from the collected Q&A answers because we confirm that the configs were populated
-/// before including them in the request.
-fn verify_qa_applied_to_configs(
-    cyan: &Cyan,
-    answers: &HashMap<String, Answer>,
-    states: &HashMap<String, String>,
-) -> Result<(), Box<dyn Error + Send>> {
-    use serde_json::Value;
+/// Returns the DOMAIN [`Question`] on `need_input` (not the wire DTO): the
+/// serialization representation is the CLI boundary's concern, so the run layer
+/// stays decoupled from it, matching `create`/`update`.
+fn run_qa_loop_headless(
+    dev_mode: bool,
+    cyan_yaml_path: &Path,
+    port: Option<u16>,
+    answers: HashMap<String, Answer>,
+) -> Result<HeadlessQaOutcome, Box<dyn Error + Send>> {
+    let prompter = build_template_prompter(template_endpoint(dev_mode, cyan_yaml_path, port)?);
 
-    let mut total_config_entries = 0usize;
-    let mut non_empty_configs = 0usize;
-    let mut total_string_value_bytes = 0usize;
-
-    // Collect all config values from processors
-    for proc in &cyan.processors {
-        match &proc.config {
-            Value::Object(map) if !map.is_empty() => {
-                total_config_entries += map.len();
-                non_empty_configs += 1;
-                // Serialize config values to count actual data bytes
-                for (_, v) in map {
-                    if let Ok(s) = serde_json::to_string(v) {
-                        total_string_value_bytes += s.len();
-                    }
-                }
-            }
-            Value::Object(_) => {
-                // Empty object - no config applied
-            }
-            Value::String(s) if !s.is_empty() => {
-                total_string_value_bytes += s.len();
-                non_empty_configs += 1;
-            }
-            Value::Array(arr) if !arr.is_empty() => {
-                total_config_entries += arr.len();
-                non_empty_configs += 1;
-            }
-            Value::Bool(_) | Value::Number(_) => {
-                non_empty_configs += 1;
-                total_config_entries += 1;
-            }
-            _ => {
-                // Null or other - no config
-            }
+    match prompter.start_headless(Some(answers)) {
+        TemplateState::Complete(cyan, answers) => {
+            let states = extract_deterministic_states(&answers);
+            Ok(HeadlessQaOutcome::Complete(cyan, answers, states))
         }
+        TemplateState::NeedInput(question, _) => Ok(HeadlessQaOutcome::NeedInput(question)),
+        TemplateState::QnA() => Err(Box::new(std::io::Error::other(
+            "headless Q&A terminated in QnA state".to_string(),
+        )) as Box<dyn Error + Send>),
+        TemplateState::Err(e) => Err(Box::new(std::io::Error::other(e)) as Box<dyn Error + Send>),
     }
-
-    // Collect all config values from plugins
-    for plugin in &cyan.plugins {
-        match &plugin.config {
-            Value::Object(map) if !map.is_empty() => {
-                total_config_entries += map.len();
-                non_empty_configs += 1;
-                for (_, v) in map {
-                    if let Ok(s) = serde_json::to_string(v) {
-                        total_string_value_bytes += s.len();
-                    }
-                }
-            }
-            Value::Object(_) => {
-                // Empty object - no config applied
-            }
-            Value::String(s) if !s.is_empty() => {
-                total_string_value_bytes += s.len();
-                non_empty_configs += 1;
-            }
-            Value::Array(arr) if !arr.is_empty() => {
-                total_config_entries += arr.len();
-                non_empty_configs += 1;
-            }
-            Value::Bool(_) | Value::Number(_) => {
-                non_empty_configs += 1;
-                total_config_entries += 1;
-            }
-            _ => {
-                // Null or other - no config
-            }
-        }
-    }
-
-    // Verify the configs contain data
-    if non_empty_configs == 0 && !answers.is_empty() {
-        eprintln!(
-            "  WARNING: Q&A verification: collected {} answers but configs appear empty. \
-                 This may indicate the template service did not apply answers to the Cyan object.",
-            answers.len()
-        );
-    }
-
-    // Log the verification results to demonstrate the derivation
-    println!("  ✓ Q&A verification passed:");
-    println!(
-        "    - Collected {} answers and {} deterministic states",
-        answers.len(),
-        states.len()
-    );
-    println!(
-        "    - Configs contain {total_config_entries} entries across {non_empty_configs} non-empty configs"
-    );
-    println!("    - Total config data size: {total_string_value_bytes} bytes");
-
-    // Optional: Verify that answer keys appear in the serialized configs
-    // This provides stronger evidence that configs were derived from answers
-    if !states.is_empty() {
-        let serialized_configs = format!("{:?}{:?}", cyan.processors, cyan.plugins);
-        let matching_keys = states
-            .keys()
-            .filter(|k| serialized_configs.contains(k.as_str()))
-            .count();
-
-        if matching_keys > 0 {
-            println!(
-                "    - {} of {} answer keys found in configs",
-                matching_keys,
-                states.len()
-            );
-        }
-    }
-
-    Ok(())
 }
 
 /// Build a StartExecutorReq from executor warm response data.
@@ -1196,16 +1544,17 @@ pub(crate) fn execute_and_stream_output(
     answers: HashMap<String, Answer>,
     states: HashMap<String, String>,
     merger_id: String,
+    headless: bool,
 ) -> Result<(), Box<dyn Error + Send>> {
-    verify_qa_applied_to_configs(&cyan, &answers, &states)?;
-
-    println!(
+    // progress goes to stderr in headless so stdout stays the sole JSON stream.
+    crate::hprogress!(
+        headless,
         "  Q&A data collected: {} answers and {} deterministic states",
         answers.len(),
         states.len()
     );
 
-    println!("  Unpacking output to {output_path}...");
+    crate::hprogress!(headless, "  Unpacking output to {output_path}...");
     execute_and_unpack(
         &coord_client.endpoint,
         session_id,
@@ -1215,11 +1564,12 @@ pub(crate) fn execute_and_stream_output(
         &merger_id,
     )?;
 
-    println!("  ✓ Output unpacked successfully");
+    crate::hprogress!(headless, "  ✓ Output unpacked successfully");
 
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 fn cleanup(
     coord_client: &CyanCoordinatorClient,
     session_id: &str,
@@ -1227,23 +1577,30 @@ fn cleanup(
     docker: &Docker,
     template_container_name: &Option<String>,
     template_image_ref: Option<&str>,
+    blob_image_ref: Option<&str>,
+    headless: bool,
 ) -> Result<(), Box<dyn Error + Send>> {
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
         .unwrap();
 
-    // Stop and remove template container and cleanup session
+    // Stop and remove template container and cleanup session. progress goes to
+    // stderr in headless so stdout stays the sole JSON stream. Warnings are always
+    // stderr (never on the stdout contract).
     if !keep_containers {
         // Cleanup session with Boron (synchronous call, no runtime needed)
         if let Err(e) = coord_client.try_cleanup(session_id) {
             eprintln!("  ⚠️ Failed to cleanup session: {e}");
         } else {
-            println!("  ✓ Session cleaned up with Boron");
+            crate::hprogress!(headless, "  ✓ Session cleaned up with Boron");
         }
 
         if let Some(container_name) = template_container_name {
-            println!("  Removing template container: {container_name}...");
+            crate::hprogress!(
+                headless,
+                "  Removing template container: {container_name}..."
+            );
             if let Err(e) = runtime.block_on(async {
                 docker
                     .stop_container(container_name, None)
@@ -1257,30 +1614,34 @@ fn cleanup(
             }) {
                 eprintln!("  ⚠️ Failed to remove container: {e}");
             } else {
-                println!("  ✓ Template container removed");
+                crate::hprogress!(headless, "  ✓ Template container removed");
             }
         }
 
-        // Best-effort removal of built template image
+        // Best-effort removal of built template image. Both image types go through the
+        // same `remove_image_with_runtime` helper so there is one removal code path.
         if let Some(image_ref) = template_image_ref {
-            println!("  Removing template image: {image_ref}...");
-            if let Err(e) = runtime.block_on(async {
-                docker
-                    .remove_image(
-                        image_ref,
-                        None::<bollard::query_parameters::RemoveImageOptions>,
-                        None::<bollard::auth::DockerCredentials>,
-                    )
-                    .await
-                    .map_err(|e| Box::new(e) as Box<dyn Error + Send>)
-            }) {
-                eprintln!("  ⚠️ Failed to remove image: {e}");
-            } else {
-                println!("  ✓ Template image removed");
-            }
+            crate::hprogress!(headless, "  Removing template image: {image_ref}...");
+            remove_image_with_runtime(&runtime, docker, image_ref);
+            crate::hprogress!(headless, "  ✓ Template image removed");
+        }
+
+        // Best-effort removal of the built blob image. In normal mode the blob image is
+        // built with the SAME unique tag as the template image, so it is a per-try
+        // artifact that must be torn down alongside the template image. Removing it here
+        // keeps every post-Q&A path (success, post-command failure, abort, and the
+        // warm/bootstrap/execute error arms that share this function) from leaking the
+        // blob image — matching the Q&A teardown, which already removes both.
+        if let Some(blob_ref) = blob_image_ref {
+            crate::hprogress!(headless, "  Removing blob image: {blob_ref}...");
+            remove_image_with_runtime(&runtime, docker, blob_ref);
+            crate::hprogress!(headless, "  ✓ Blob image removed");
         }
     } else {
-        println!("  Keeping containers and images (--keep-containers specified)");
+        crate::hprogress!(
+            headless,
+            "  Keeping containers and images (--keep-containers specified)"
+        );
     }
 
     Ok(())
@@ -1295,18 +1656,20 @@ pub fn execute_try_group_command(
     coordinator_endpoint: String,
     registry_client: Rc<CyanRegistryClient>,
     cache_config: cyancoordinator::cache::CacheConfig,
-) -> Result<(), Box<dyn Error + Send>> {
-    println!("🔗 Starting cyanprint try group...");
-    println!("  Template path: {template_path}");
-    println!("  Output path: {output_path}");
+    headless: bool,
+    headless_answers: HashMap<String, Answer>,
+) -> Result<TryHeadlessOutcome, Box<dyn Error + Send>> {
+    crate::hprogress!(headless, "🔗 Starting cyanprint try group...");
+    crate::hprogress!(headless, "  Template path: {template_path}");
+    crate::hprogress!(headless, "  Output path: {output_path}");
 
     // Step 1: Pre-flight validation (Docker + cyan.yaml)
-    println!("🔍 Running pre-flight checks...");
+    crate::hprogress!(headless, "🔍 Running pre-flight checks...");
     BuildxBuilder::check_docker().map_err(|e| {
         Box::new(std::io::Error::other(format!("Docker check failed: {e}")))
             as Box<dyn Error + Send>
     })?;
-    println!("  ✓ Docker daemon is running");
+    crate::hprogress!(headless, "  ✓ Docker daemon is running");
 
     let template_path_abs = Path::new(&template_path)
         .canonicalize()
@@ -1318,7 +1681,7 @@ pub fn execute_try_group_command(
             format!("cyan.yaml not found at: {}", cyan_yaml_path.display()),
         )) as Box<dyn Error + Send>);
     }
-    println!("  ✓ cyan.yaml found");
+    crate::hprogress!(headless, "  ✓ cyan.yaml found");
 
     // Step 2: Parse config
     let config_file =
@@ -1332,7 +1695,8 @@ pub fn execute_try_group_command(
             "Not a group template: no template dependencies declared in cyan.yaml. Use 'try template' instead.",
         )) as Box<dyn Error + Send>);
     }
-    println!(
+    crate::hprogress!(
+        headless,
         "  ✓ Group template with {} dependencies",
         template_config.templates.len()
     );
@@ -1340,17 +1704,23 @@ pub fn execute_try_group_command(
     // Step 3: Ensure daemon is running
     let docker =
         Docker::connect_with_local_defaults().map_err(|e| Box::new(e) as Box<dyn Error + Send>)?;
-    ensure_daemon_running(&docker, disable_daemon_autostart, &coordinator_endpoint)?;
+    ensure_daemon_running(
+        &docker,
+        disable_daemon_autostart,
+        &coordinator_endpoint,
+        headless,
+    )?;
 
     // Step 4: Generate IDs
     let id_gen = DefaultSessionIdGenerator;
     let local_template_id = format!("local-{}", id_gen.generate());
-    println!("  Local template ID: {local_template_id}");
+    crate::hprogress!(headless, "  Local template ID: {local_template_id}");
 
     // Step 5: Resolve and pin dependencies from registry
-    println!("📦 Resolving and pinning dependencies...");
+    crate::hprogress!(headless, "📦 Resolving and pinning dependencies...");
     let pinned_deps = resolve_and_pin_dependencies(&registry_client, &template_config)?;
-    println!(
+    crate::hprogress!(
+        headless,
         "  ✓ Pinned {} dependencies ({} processors, {} plugins, {} templates, {} resolvers)",
         pinned_deps.total_count(),
         pinned_deps.processors.len(),
@@ -1376,7 +1746,10 @@ pub fn execute_try_group_command(
     let merger = Box::new(GitLikeMerger::new(false, 50));
     let writer = Box::new(DiskFileWriter);
 
-    let template_executor = Box::new(DefaultTemplateExecutor::new(coord_client.endpoint.clone()));
+    let template_executor = Box::new(DefaultTemplateExecutor::new_with_headless(
+        coord_client.endpoint.clone(),
+        headless,
+    ));
     let vfs = Box::new(DefaultVfs::new(unpacker, loader, merger, writer));
     let session_id_generator: Box<dyn SessionIdGenerator> = Box::new(DefaultSessionIdGenerator);
     let template_history = Box::new(cyancoordinator::template::DefaultTemplateHistory::new());
@@ -1403,57 +1776,130 @@ pub fn execute_try_group_command(
     composition_operator.set_cache(cyancoordinator::cache::Cache::new(cache_config));
 
     // Step 8: Execute composition (resolves deps, warms each, runs Q&A, builds, layers)
-    println!("🚀 Executing group composition...");
-    let empty_answers: HashMap<String, Answer> = HashMap::new();
+    crate::hprogress!(headless, "🚀 Executing group composition...");
+    // Headless: seed the supplied answers (namespaced per composed template id);
+    // an empty map yields a need_input on the first question.
+    let initial_answers: HashMap<String, Answer> = headless_answers;
     let empty_states: HashMap<String, String> = HashMap::new();
 
-    let (vfs_output, _final_state, session_ids, resolved_commands) = composition_operator
-        .execute_template(&synthetic_template, &empty_answers, &empty_states)?;
+    let (vfs_output, final_state, session_ids, resolved_commands) = composition_operator
+        .execute_template(
+            &synthetic_template,
+            &initial_answers,
+            &empty_states,
+            headless,
+        )?;
+
+    // Once the composed dependency executions have acquired coordinator sessions, EVERY
+    // return path before the final teardown must clean them — otherwise an error between
+    // here and Step 10 (output-dir create, write-to-disk, or a post-command failure)
+    // returns to `main` with no access to `session_ids` and leaks them. A single
+    // best-effort closure keeps need_input, the write/command error arms, the abort /
+    // partial-failure arms, and the success teardown from drifting apart.
+    let cleanup_group_sessions = || {
+        for sid in &session_ids {
+            if let Err(e) = coord_client.clean(sid.clone()) {
+                eprintln!("  ⚠️ Failed to cleanup session {sid}: {e}");
+            }
+        }
+    };
+
+    // Headless: a composed template stopped on an unanswered question. Clean up sessions and
+    // hand the DOMAIN question up to the CLI boundary, which converts it to the JSON wire DTO
+    // and emits the need_input envelope (exit 2) — no files are written and nothing is printed
+    // here. The composition layer already carries the domain `Question`; the run layer keeps
+    // it that way, so only the emission point depends on the wire representation.
+    if let Some(question) = final_state.need_input {
+        cleanup_group_sessions();
+        return Ok(TryHeadlessOutcome::NeedInput(question));
+    }
 
     // One-line cache summary (always printed when caching is enabled). (FR15)
     composition_operator.print_cache_summary();
 
     // Step 9: Write output to disk
-    println!("📝 Writing output to {output_path}...");
-    fs::create_dir_all(&output_path).map_err(|e| Box::new(e) as Box<dyn Error + Send>)?;
+    crate::hprogress!(headless, "📝 Writing output to {output_path}...");
+    if let Err(e) =
+        fs::create_dir_all(&output_path).map_err(|e| Box::new(e) as Box<dyn Error + Send>)
+    {
+        cleanup_group_sessions();
+        return Err(e);
+    }
 
     let output_dir = Path::new(&output_path);
-    composition_operator
+    if let Err(e) = composition_operator
         .get_vfs()
-        .write_to_disk(output_dir, &vfs_output)?;
+        .write_to_disk(output_dir, &vfs_output)
+    {
+        cleanup_group_sessions();
+        return Err(e);
+    }
 
     // Step 9.5: Execute post-template commands (resolved from all dependency templates)
     if !resolved_commands.is_empty() {
-        println!(
+        crate::hprogress!(
+            headless,
             "\n⚡ Executing {} post-template command(s)...",
             resolved_commands.len()
         );
-        let exec_result = CommandExecutor::execute_commands(&resolved_commands, output_dir)?;
+        let exec_result = match CommandExecutor::execute_commands_for_mode(
+            &resolved_commands,
+            output_dir,
+            headless,
+        ) {
+            Ok(result) => result,
+            Err(err) => {
+                cleanup_group_sessions();
+                return Err(err);
+            }
+        };
         if exec_result.aborted {
             // Clean up sessions before bailing out (same as Step 10 below)
-            println!("🧹 Cleaning up {} session(s)...", session_ids.len());
-            for sid in &session_ids {
-                let _ = coord_client.clean(sid.clone());
-            }
+            crate::hprogress!(
+                headless,
+                "🧹 Cleaning up {} session(s)...",
+                session_ids.len()
+            );
+            cleanup_group_sessions();
             return Err(Box::new(std::io::Error::other(format!(
                 "Command execution aborted: {}/{} succeeded, {}/{} failed before abort",
+                exec_result.succeeded, exec_result.total, exec_result.failed, exec_result.total
+            ))));
+        }
+        if headless && !exec_result.all_succeeded() {
+            // The non-interactive path runs every command and records failures in
+            // the result but returns Ok — it never sets `aborted`. Without this check a
+            // failed post-template command (e.g. one exiting non-zero) would be silently
+            // ignored and the try group would report `done` / exit 0. In headless mode
+            // there is no interactive "continue?" prompt to surface the failure, so treat
+            // any partial failure as an error (clean up sessions first, same as the abort
+            // path) → error envelope / exit 1. Interactive mode keeps its existing
+            // behavior (the user already chose whether to continue).
+            crate::hprogress!(
+                headless,
+                "🧹 Cleaning up {} session(s)...",
+                session_ids.len()
+            );
+            cleanup_group_sessions();
+            return Err(Box::new(std::io::Error::other(format!(
+                "Command execution failed: {}/{} succeeded, {}/{} failed",
                 exec_result.succeeded, exec_result.total, exec_result.failed, exec_result.total
             ))));
         }
     }
 
     // Step 10: Cleanup sessions
-    println!("🧹 Cleaning up {} session(s)...", session_ids.len());
-    for sid in &session_ids {
-        if let Err(e) = coord_client.clean(sid.clone()) {
-            eprintln!("  ⚠️ Failed to cleanup session {sid}: {e}");
-        }
-    }
+    crate::hprogress!(
+        headless,
+        "🧹 Cleaning up {} session(s)...",
+        session_ids.len()
+    );
+    cleanup_group_sessions();
 
-    println!("✅ Try group completed successfully");
-    println!("  Output written to: {output_path}");
+    crate::hprogress!(headless, "✅ Try group completed successfully");
+    crate::hprogress!(headless, "  Output written to: {output_path}");
 
-    Ok(())
+    Ok(TryHeadlessOutcome::Done)
 }
 
 #[cfg(test)]
@@ -1501,6 +1947,142 @@ mod tests {
         assert!(deps.plugins.is_empty());
         assert!(deps.templates.is_empty());
         assert!(deps.resolvers.is_empty());
+    }
+
+    // --- SetupArtifactsTracker decision logic -------------------------------
+    //
+    // These tests cover the GUARD MECHANISM (which artifacts it tracks and when it
+    // decides to remove them), not the Docker removal itself — exercising a real
+    // image/container leak needs a Docker daemon, which is out of scope for this work
+    // (no e2e). The pure `removal_targets()` decision is what makes the leak-closing
+    // behavior provable without infra: it encodes exactly what `Drop` would tear down.
+    // The tracker holds no Docker handle, so it is constructed directly here.
+    fn tracker(keep_containers: bool) -> SetupArtifactsTracker {
+        SetupArtifactsTracker::new(keep_containers)
+    }
+
+    #[test]
+    fn setup_guard_inert_when_keep_containers_set() {
+        // --keep-containers intentionally preserves artifacts for debugging, so the
+        // guard must report nothing to remove even when fully populated and armed.
+        let mut guard = tracker(true);
+        guard.note_blob_image("reg/blob:tag".to_string());
+        guard.note_template_image("reg/template:tag".to_string());
+        guard.note_container("cyan-template-abc".to_string());
+        assert!(guard.removal_targets().is_none());
+    }
+
+    #[test]
+    fn setup_guard_inert_after_disarm() {
+        // Once setup completes and the guard is disarmed, teardown is handed off to the
+        // post-Q&A closures — the guard must remove nothing from that point on, even
+        // when it holds a running container and both images.
+        let mut guard = tracker(false);
+        guard.note_blob_image("reg/blob:tag".to_string());
+        guard.note_template_image("reg/template:tag".to_string());
+        guard.note_container("cyan-template-abc".to_string());
+        guard.disarm();
+        assert!(guard.removal_targets().is_none());
+    }
+
+    #[test]
+    fn setup_guard_targets_blob_only_when_template_build_fails() {
+        // Blob image built, template image build fails. Only the blob image exists to
+        // leak — the guard must report it (no container, no template).
+        let mut guard = tracker(false);
+        guard.note_blob_image("reg/blob:tag".to_string());
+        let targets = guard
+            .removal_targets()
+            .expect("armed guard removes artifacts");
+        assert_eq!(targets.blob_image_ref, Some("reg/blob:tag"));
+        assert_eq!(targets.template_image_ref, None);
+        assert_eq!(targets.container_name, None);
+    }
+
+    #[test]
+    fn setup_guard_targets_running_container_plus_both_images_on_health_check_fail() {
+        // Both images built, container started, health check fails. The guard must report
+        // the RUNNING container plus both images — the worst case, which previously
+        // leaked a live container holding an allocated port too.
+        let mut guard = tracker(false);
+        guard.note_blob_image("reg/blob:tag".to_string());
+        guard.note_template_image("reg/template:tag".to_string());
+        guard.note_container("cyan-template-abc".to_string());
+        let targets = guard
+            .removal_targets()
+            .expect("armed guard removes artifacts");
+        assert_eq!(targets.container_name, Some("cyan-template-abc"));
+        assert_eq!(targets.template_image_ref, Some("reg/template:tag"));
+        assert_eq!(targets.blob_image_ref, Some("reg/blob:tag"));
+    }
+
+    #[test]
+    fn setup_guard_targets_coordinator_session_after_try_setup() {
+        // After `try_setup` succeeds the coordinator session is registered. A subsequent
+        // setup failure (e.g. container start / health check) must release that session on
+        // Boron in addition to the Docker artifacts — otherwise it leaks a try session per
+        // failed setup. The decision must surface the (endpoint, id) pair.
+        let mut guard = tracker(false);
+        guard.note_template_image("reg/template:tag".to_string());
+        guard.note_coordinator_session("http://localhost:9000".to_string(), "sess-xyz".to_string());
+        guard.note_container("cyan-template-abc".to_string());
+        let targets = guard
+            .removal_targets()
+            .expect("armed guard removes artifacts");
+        assert_eq!(
+            targets.coordinator_session,
+            Some(("http://localhost:9000", "sess-xyz")),
+            "an armed guard must release the coordinator session registered by try_setup"
+        );
+        // ...alongside the Docker artifacts.
+        assert_eq!(targets.container_name, Some("cyan-template-abc"));
+        assert_eq!(targets.template_image_ref, Some("reg/template:tag"));
+    }
+
+    #[test]
+    fn setup_guard_session_not_released_before_try_setup_or_when_inert() {
+        // Before `try_setup` runs there is no session to release (a pre-try_setup failure
+        // leaks nothing on Boron).
+        let mut armed_no_session = tracker(false);
+        armed_no_session.note_blob_image("reg/blob:tag".to_string());
+        assert_eq!(
+            armed_no_session
+                .removal_targets()
+                .expect("armed guard removes artifacts")
+                .coordinator_session,
+            None
+        );
+
+        // --keep-containers preserves the session (debugging), matching the Docker gate.
+        let mut keep = tracker(true);
+        keep.note_coordinator_session("http://localhost:9000".to_string(), "sess-xyz".to_string());
+        assert!(keep.removal_targets().is_none());
+
+        // Once disarmed, the post-Q&A closures own the session; the guard releases nothing.
+        let mut disarmed = tracker(false);
+        disarmed
+            .note_coordinator_session("http://localhost:9000".to_string(), "sess-xyz".to_string());
+        disarmed.disarm();
+        assert!(disarmed.removal_targets().is_none());
+    }
+
+    #[test]
+    fn setup_guard_clear_container_drops_a_failed_start_from_targets() {
+        // When `start_template_container` fails the container is removed inline and a
+        // fresh name is minted on retry; `clear_container` keeps the guard from reporting
+        // a name that no longer resolves.
+        let mut guard = tracker(false);
+        guard.note_blob_image("reg/blob:tag".to_string());
+        guard.note_template_image("reg/template:tag".to_string());
+        guard.note_container("cyan-template-failed".to_string());
+        guard.clear_container();
+        let targets = guard
+            .removal_targets()
+            .expect("armed guard removes artifacts");
+        assert_eq!(targets.container_name, None);
+        // Images are still tracked and still removed.
+        assert_eq!(targets.template_image_ref, Some("reg/template:tag"));
+        assert_eq!(targets.blob_image_ref, Some("reg/blob:tag"));
     }
 
     #[test]

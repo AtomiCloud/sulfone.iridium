@@ -99,8 +99,8 @@ mod tests {
         // We expect either Ok(true) or Ok(false) or an appropriate error
         match result {
             Ok(is_dirty) => {
-                // Test passed - we got a boolean result
-                assert!(is_dirty || !is_dirty);
+                // Test passed - we got a boolean result (either true or false is valid).
+                let _ = is_dirty;
             }
             Err(GitError::NotAGitRepository) => {
                 // Also valid if we're not in a git repo

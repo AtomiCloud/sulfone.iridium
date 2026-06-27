@@ -282,7 +282,9 @@ fn cache_hit_skips_execution_and_is_byte_identical() {
         vec![(node.clone(), HashMap::new())],
         enabled_cache(&cache_dir),
     );
-    let (vfs1, state1, _s, _c) = op1.execute_template(&node, &answers, &states).unwrap();
+    let (vfs1, state1, _s, _c) = op1
+        .execute_template(&node, &answers, &states, false)
+        .unwrap();
     assert_eq!(
         calls1.lock().unwrap().len(),
         1,
@@ -296,7 +298,9 @@ fn cache_hit_skips_execution_and_is_byte_identical() {
         vec![(node.clone(), HashMap::new())],
         enabled_cache(&cache_dir),
     );
-    let (vfs2, state2, _s, _c) = op2.execute_template(&node, &answers, &states).unwrap();
+    let (vfs2, state2, _s, _c) = op2
+        .execute_template(&node, &answers, &states, false)
+        .unwrap();
     assert_eq!(
         calls2.lock().unwrap().len(),
         0,
@@ -338,7 +342,7 @@ fn cache_hit_replays_downstream_state() {
         vec![(a.clone(), HashMap::new())],
         enabled_cache(&cache_dir),
     );
-    op1.execute_template(&a, &answers, &states).unwrap();
+    op1.execute_template(&a, &answers, &states, false).unwrap();
 
     // Phase 2: run with [A, B]. A hits (no call) and replays `secret`; B misses
     // and must receive `secret` via the replayed downstream state.
@@ -348,7 +352,7 @@ fn cache_hit_replays_downstream_state() {
         vec![(a.clone(), HashMap::new()), (b.clone(), HashMap::new())],
         enabled_cache(&cache_dir),
     );
-    let (_vfs, state, _s, _c) = op2.execute_template(&a, &answers, &states).unwrap();
+    let (_vfs, state, _s, _c) = op2.execute_template(&a, &answers, &states, false).unwrap();
 
     let calls = calls2.lock().unwrap();
     assert_eq!(calls.len(), 1, "only B should execute (A is a cache hit)");
@@ -389,7 +393,8 @@ fn update_reuses_baseline_and_reexecutes_only_changed_node() {
         enabled_cache(&cache_dir),
     );
     let root = template("root", 1, true);
-    op1.execute_template(&root, &answers, &states).unwrap();
+    op1.execute_template(&root, &answers, &states, false)
+        .unwrap();
     assert_eq!(calls1.lock().unwrap().len(), 3);
 
     // Run 2: identical inputs -> 0 calls (full baseline reuse).
@@ -399,7 +404,8 @@ fn update_reuses_baseline_and_reexecutes_only_changed_node() {
         nodes(1),
         enabled_cache(&cache_dir),
     );
-    op2.execute_template(&root, &answers, &states).unwrap();
+    op2.execute_template(&root, &answers, &states, false)
+        .unwrap();
     assert_eq!(
         calls2.lock().unwrap().len(),
         0,
@@ -413,7 +419,8 @@ fn update_reuses_baseline_and_reexecutes_only_changed_node() {
         nodes(2),
         enabled_cache(&cache_dir),
     );
-    op3.execute_template(&root, &answers, &states).unwrap();
+    op3.execute_template(&root, &answers, &states, false)
+        .unwrap();
     let c3 = calls3.lock().unwrap();
     assert_eq!(c3.len(), 1, "only the changed node re-executes");
     assert_eq!(c3[0].template_id, "node-b");
@@ -436,7 +443,10 @@ fn errors_are_never_cached() {
         vec![(node.clone(), HashMap::new())],
         enabled_cache(&cache_dir),
     );
-    assert!(op1.execute_template(&node, &answers, &states).is_err());
+    assert!(
+        op1.execute_template(&node, &answers, &states, false)
+            .is_err()
+    );
 
     // Nothing was stored.
     let store = crate::cache::CacheStore::new(cache_dir.clone());
@@ -449,7 +459,8 @@ fn errors_are_never_cached() {
         vec![(node.clone(), HashMap::new())],
         enabled_cache(&cache_dir),
     );
-    op2.execute_template(&node, &answers, &states).unwrap();
+    op2.execute_template(&node, &answers, &states, false)
+        .unwrap();
     assert_eq!(
         calls2.lock().unwrap().len(),
         1,
@@ -481,14 +492,16 @@ fn bypass_and_nonfatal_fallback() {
         vec![(node.clone(), HashMap::new())],
         disabled(),
     );
-    op1.execute_template(&node, &answers, &states).unwrap();
+    op1.execute_template(&node, &answers, &states, false)
+        .unwrap();
     let calls2 = Arc::new(Mutex::new(Vec::new()));
     let mut op2 = build_operator(
         CountingExecutor::new(calls2.clone()),
         vec![(node.clone(), HashMap::new())],
         disabled(),
     );
-    op2.execute_template(&node, &answers, &states).unwrap();
+    op2.execute_template(&node, &answers, &states, false)
+        .unwrap();
     assert_eq!(calls1.lock().unwrap().len(), 1);
     assert_eq!(
         calls2.lock().unwrap().len(),
@@ -515,7 +528,7 @@ fn bypass_and_nonfatal_fallback() {
             vec![(node.clone(), HashMap::new())],
             enabled_cache(&ro_parent.join("cyanprint")),
         );
-        let result = op.execute_template(&node, &answers, &states);
+        let result = op.execute_template(&node, &answers, &states, false);
         assert!(
             result.is_ok(),
             "an unwritable cache dir must not abort the run"
@@ -544,7 +557,8 @@ fn dev_mode_local_template_not_cached() {
         vec![(node.clone(), HashMap::new())],
         enabled_cache(&cache_dir),
     );
-    op1.execute_template(&node, &answers, &states).unwrap();
+    op1.execute_template(&node, &answers, &states, false)
+        .unwrap();
 
     let calls2 = Arc::new(Mutex::new(Vec::new()));
     let mut op2 = build_operator(
@@ -552,7 +566,8 @@ fn dev_mode_local_template_not_cached() {
         vec![(node.clone(), HashMap::new())],
         enabled_cache(&cache_dir),
     );
-    op2.execute_template(&node, &answers, &states).unwrap();
+    op2.execute_template(&node, &answers, &states, false)
+        .unwrap();
 
     assert_eq!(calls1.lock().unwrap().len(), 1);
     assert_eq!(
@@ -598,7 +613,7 @@ fn poisoned_entry_self_heals() {
         vec![(node.clone(), HashMap::new())],
         enabled_cache(&cache_dir),
     );
-    let result = op.execute_template(&node, &answers, &states);
+    let result = op.execute_template(&node, &answers, &states, false);
     assert!(
         result.is_ok(),
         "a poisoned cache entry must not abort the run (degrade to miss)"
@@ -635,7 +650,8 @@ fn poisoned_entry_self_heals() {
         vec![(node.clone(), HashMap::new())],
         enabled_cache(&cache_dir),
     );
-    op2.execute_template(&node, &answers, &states).unwrap();
+    op2.execute_template(&node, &answers, &states, false)
+        .unwrap();
     assert_eq!(
         calls2.lock().unwrap().len(),
         0,

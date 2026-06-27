@@ -5,6 +5,8 @@ use cyancoordinator::client::CyanCoordinatorClient;
 use cyancoordinator::session::SessionIdGenerator;
 use cyanregistry::http::client::CyanRegistryClient;
 
+use crate::headless::CyanRunResult;
+
 // Re-export the modular update system
 mod operator_factory;
 mod orchestrator;
@@ -32,7 +34,9 @@ pub fn cyan_update(
     interactive: bool,
     force: bool,
     cache_config: cyancoordinator::cache::CacheConfig,
-) -> Result<Vec<String>, Box<dyn Error + Send>> {
+    headless: bool,
+    headless_answers: std::collections::HashMap<String, cyanprompt::domain::models::answer::Answer>,
+) -> Result<CyanRunResult, Box<dyn Error + Send>> {
     UpdateOrchestrator::update_templates(
         session_id_generator,
         path,
@@ -42,5 +46,7 @@ pub fn cyan_update(
         interactive,
         force,
         cache_config,
+        headless,
+        headless_answers,
     )
 }

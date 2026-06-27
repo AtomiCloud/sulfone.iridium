@@ -589,7 +589,7 @@ mod tests {
         let result = serde_json_value_to_answer(&json_number);
         assert!(result.is_none(), "Number value should return None");
 
-        let json_float = serde_json::json!(3.14);
+        let json_float = serde_json::json!(42.5);
         let result_float = serde_json_value_to_answer(&json_float);
         assert!(result_float.is_none(), "Float value should return None");
     }
@@ -620,163 +620,17 @@ mod tests {
 
     // =========================================================================
     // Preset Answer Injection Tests
+    //
+    // NOTE: the former tests here (`test_preset_answer_fills_gap`,
+    // `test_user_answer_wins_over_preset`, `test_preset_answers_isolated_per_template`,
+    // `test_empty_preset_answers`) RE-IMPLEMENTED the merge logic inline instead of
+    // calling production `execute_composition`. That made them pass vacuously even after
+    // an earlier namespacing refactor inverted the real precedence. They have been replaced by
+    // real-pipeline tests in the "Headless composition-boundary tests" section below
+    // (`caller_answer_wins_over_preset_in_pipeline`, `preset_fills_gap_in_pipeline`,
+    // `preset_answers_isolated_per_dependency_in_pipeline`) which drive the actual
+    // execute_composition → executor boundary via a capturing fake executor.
     // =========================================================================
-
-    /// Test that preset answer fills gap when user hasn't answered
-    #[test]
-    fn test_preset_answer_fills_gap() {
-        // Simulate preset answers from a dependency
-        let mut preset_answers: HashMap<String, Answer> = HashMap::new();
-        preset_answers.insert(
-            "database_host".to_string(),
-            Answer::String("localhost".to_string()),
-        );
-        preset_answers.insert(
-            "database_port".to_string(),
-            Answer::String("5432".to_string()),
-        );
-
-        // Simulate user's existing answers (missing database_host and database_port)
-        let mut shared_answers: HashMap<String, Answer> = HashMap::new();
-        shared_answers.insert("app_name".to_string(), Answer::String("myapp".to_string()));
-
-        // Simulate the injection logic from execute_composition
-        let mut template_answers = shared_answers.clone();
-        for (key, answer) in &preset_answers {
-            template_answers
-                .entry(key.clone())
-                .or_insert(answer.clone());
-        }
-
-        // Verify preset answers are injected
-        assert!(
-            template_answers.contains_key("database_host"),
-            "Preset answer should be injected"
-        );
-        assert!(
-            template_answers.contains_key("database_port"),
-            "Preset answer should be injected"
-        );
-        if let Some(Answer::String(s)) = template_answers.get("database_host") {
-            assert_eq!(
-                s, "localhost",
-                "Injected preset answer should have correct value"
-            );
-        } else {
-            panic!("Expected Answer::String for database_host");
-        }
-
-        // Verify user answers are preserved
-        assert!(
-            template_answers.contains_key("app_name"),
-            "User answer should be preserved"
-        );
-    }
-
-    /// Test that user answer wins when both preset and user answer exist
-    #[test]
-    fn test_user_answer_wins_over_preset() {
-        // Simulate preset answers from a dependency
-        let mut preset_answers: HashMap<String, Answer> = HashMap::new();
-        preset_answers.insert(
-            "database_host".to_string(),
-            Answer::String("preset-host".to_string()),
-        );
-
-        // Simulate user's existing answers (with same key as preset)
-        let mut shared_answers: HashMap<String, Answer> = HashMap::new();
-        shared_answers.insert(
-            "database_host".to_string(),
-            Answer::String("user-host".to_string()),
-        );
-
-        // Simulate the injection logic from execute_composition
-        let mut template_answers = shared_answers.clone();
-        for (key, answer) in &preset_answers {
-            template_answers
-                .entry(key.clone())
-                .or_insert(answer.clone());
-        }
-
-        // Verify user answer takes precedence (entry().or_insert() only inserts if key absent)
-        if let Some(Answer::String(s)) = template_answers.get("database_host") {
-            assert_eq!(s, "user-host", "User answer should win over preset answer");
-        } else {
-            panic!("Expected Answer::String for database_host");
-        }
-    }
-
-    /// Test that preset answers don't leak between templates
-    #[test]
-    fn test_preset_answers_isolated_per_template() {
-        // Simulate preset answers for first dependency
-        let mut preset_answers_1: HashMap<String, Answer> = HashMap::new();
-        preset_answers_1.insert(
-            "dep1_secret".to_string(),
-            Answer::String("secret1".to_string()),
-        );
-
-        // User's shared answers (empty)
-        let shared_answers: HashMap<String, Answer> = HashMap::new();
-
-        // Template 1 execution with preset answers
-        let mut template_1_answers = shared_answers.clone();
-        for (key, answer) in &preset_answers_1 {
-            template_1_answers
-                .entry(key.clone())
-                .or_insert(answer.clone());
-        }
-
-        // Template 2 execution without preset answers (simulating different dep)
-        let preset_answers_2: HashMap<String, Answer> = HashMap::new();
-        let mut template_2_answers = shared_answers.clone();
-        for (key, answer) in &preset_answers_2 {
-            template_2_answers
-                .entry(key.clone())
-                .or_insert(answer.clone());
-        }
-
-        // Verify template 1 has its preset
-        assert!(
-            template_1_answers.contains_key("dep1_secret"),
-            "Template 1 should have its preset answer"
-        );
-
-        // Verify template 2 does NOT have template 1's preset
-        assert!(
-            !template_2_answers.contains_key("dep1_secret"),
-            "Template 2 should NOT have template 1's preset answer (isolation)"
-        );
-    }
-
-    /// Test that empty preset answers work correctly
-    #[test]
-    fn test_empty_preset_answers() {
-        let preset_answers: HashMap<String, Answer> = HashMap::new();
-        let mut shared_answers: HashMap<String, Answer> = HashMap::new();
-        shared_answers.insert("app_name".to_string(), Answer::String("myapp".to_string()));
-
-        let mut template_answers = shared_answers.clone();
-        for (key, answer) in &preset_answers {
-            template_answers
-                .entry(key.clone())
-                .or_insert(answer.clone());
-        }
-
-        if let Some(Answer::String(s)) = template_answers.get("app_name") {
-            assert_eq!(
-                s, "myapp",
-                "User answer should be preserved when preset is empty"
-            );
-        } else {
-            panic!("Expected Answer::String for app_name");
-        }
-        assert_eq!(
-            template_answers.len(),
-            1,
-            "No additional answers should be added"
-        );
-    }
 
     // =========================================================================
     // DefaultDependencyResolver Mock Tests (spec 2.9)
@@ -1060,7 +914,7 @@ mod tests {
     }
 
     // =========================================================================
-    // DefaultDependencyResolver Real Implementation Tests (spec 2.9 R1)
+    // DefaultDependencyResolver real-implementation tests
     // =========================================================================
 
     /// Test that DefaultDependencyResolver::flatten_with_fetcher correctly extracts
@@ -1109,7 +963,7 @@ mod tests {
                 Some(t) => Ok(t),
                 None => Err(Box::new(std::io::Error::new(
                     std::io::ErrorKind::NotFound,
-                    format!("Template not found: {}", id),
+                    format!("Template not found: {id}"),
                 )) as Box<dyn std::error::Error + Send>),
             }),
         )
@@ -1200,7 +1054,7 @@ mod tests {
                 Some(t) => Ok(t),
                 None => Err(Box::new(std::io::Error::new(
                     std::io::ErrorKind::NotFound,
-                    format!("Template not found: {}", id),
+                    format!("Template not found: {id}"),
                 )) as Box<dyn std::error::Error + Send>),
             }),
         )
@@ -1222,7 +1076,7 @@ mod tests {
     }
 
     /// Test that DefaultDependencyResolver::flatten_with_fetcher correctly merges
-    /// preset_answers when the same template is referenced multiple times (R2).
+    /// preset_answers when the same template is referenced multiple times.
     #[test]
     fn test_default_resolver_merges_duplicate_template_preset_answers() {
         // Build: root -> [B (preset: {key1: "first"}), B (preset: {key2: "second"})]
@@ -1262,7 +1116,7 @@ mod tests {
                 Some(t) => Ok(t),
                 None => Err(Box::new(std::io::Error::new(
                     std::io::ErrorKind::NotFound,
-                    format!("Template not found: {}", id),
+                    format!("Template not found: {id}"),
                 )) as Box<dyn std::error::Error + Send>),
             }),
         )
@@ -1300,15 +1154,14 @@ mod tests {
     }
 
     /// Test that DefaultDependencyResolver::flatten_with_fetcher correctly merges
-    /// preset_answers for the cross-branch diamond case (R2 cross-branch fix).
+    /// preset_answers for the cross-branch diamond case.
     ///
     /// Diamond scenario: root → [A, B]; A → X with preset {key1: "first"}; B → X with preset {key2: "second"}
     ///
-    /// Before the R2 cross-branch fix: when processing B's branch, X had a fresh local
-    /// `flattened` (empty), the merge check missed X, and `visited` skipped it silently.
-    ///
-    /// After the fix: X is added to the SHARED `flattened` when processing A's branch.
-    /// When processing B's branch, the merge check finds X and merges {key2} into it.
+    /// The resolver must share one `flattened` accumulator across branches: when processing
+    /// A's branch X is added to it, so when processing B's branch the merge check finds X
+    /// and merges {key2} into it. A per-branch (local, empty) `flattened` would miss X on
+    /// B's branch and silently skip it via `visited`, dropping the {key2} preset.
     #[test]
     fn test_default_resolver_merges_cross_branch_diamond_preset_answers() {
         // Build: root -> [A, B]; A -> X with {key1: "first"}; B -> X with {key2: "second"}
@@ -1369,7 +1222,7 @@ mod tests {
                 Some(t) => Ok(t),
                 None => Err(Box::new(std::io::Error::new(
                     std::io::ErrorKind::NotFound,
-                    format!("Template not found: {}", id),
+                    format!("Template not found: {id}"),
                 )) as Box<dyn std::error::Error + Send>),
             }),
         )
@@ -1450,7 +1303,7 @@ mod tests {
                 Some(t) => Ok(t),
                 None => Err(Box::new(std::io::Error::new(
                     std::io::ErrorKind::NotFound,
-                    format!("Template not found: {}", id),
+                    format!("Template not found: {id}"),
                 )) as Box<dyn std::error::Error + Send>),
             }),
         )
@@ -1507,7 +1360,7 @@ mod tests {
                 Some(t) => Ok(t),
                 None => Err(Box::new(std::io::Error::new(
                     std::io::ErrorKind::NotFound,
-                    format!("Template not found: {}", id),
+                    format!("Template not found: {id}"),
                 )) as Box<dyn std::error::Error + Send>),
             }),
         )
@@ -1788,5 +1641,789 @@ mod tests {
         assert_eq!(result[0], "test");
         assert_eq!(result[1], "deploy");
         assert_eq!(result[2], "lint");
+    }
+
+    // =========================================================================
+    // Headless composition-boundary tests (NeedInput surfacing + per-template id namespacing)
+    //
+    // These drive the REAL execute_template → execute_composition pipeline with a
+    // fake TemplateExecutor stubbed at the trait boundary, closing the prior coverage gap
+    // where every headless test called engine.start_headless directly and never
+    // exercised unpack_archive / the composition operator.
+    // =========================================================================
+
+    use crate::fs::{DefaultVfs, DiskFileLoader, DiskFileWriter, GitLikeMerger, TarGzUnpacker};
+    use crate::operations::TemplateOperator;
+    use crate::session::DefaultSessionIdGenerator;
+    use crate::template::{DefaultTemplateHistory, TemplateExecutor};
+    use cyanprompt::domain::models::cyan::Cyan;
+    use cyanprompt::domain::models::question::{Question, QuestionTrait, TextQuestion};
+    use cyanprompt::domain::services::template::states::TemplateState;
+    use cyanregistry::http::client::CyanRegistryClient;
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    /// A minimal valid (empty) tar.gz archive — a single zero-length entry header plus
+    /// the two end-of-archive zero blocks, then gzip-framed. Producing real output lets
+    /// the "complete" path's `unpack_archive` succeed.
+    fn empty_tar_gz() -> Vec<u8> {
+        use flate2::Compression;
+        use flate2::write::GzEncoder;
+        use std::io::Write;
+        // 512-byte zero block repeated twice = end-of-archive marker (empty archive).
+        let zero_block = [0u8; 512];
+        let mut gz = GzEncoder::new(Vec::new(), Compression::default());
+        gz.write_all(&zero_block).unwrap();
+        gz.write_all(&zero_block).unwrap();
+        gz.finish().unwrap()
+    }
+
+    /// A scripted fake `TemplateExecutor` that returns canned outcomes per call. Used to
+    /// drive the real composition pipeline without a live coordinator.
+    struct StubExecutor {
+        /// Canned results returned in order, one per execute_template call. Each is
+        /// (archive_data, template_state, session_id).
+        scripted: std::sync::Mutex<Vec<(Vec<u8>, TemplateState, String)>>,
+        calls: Arc<AtomicUsize>,
+    }
+
+    impl TemplateExecutor for StubExecutor {
+        fn execute_template(
+            &self,
+            _template: &TemplateVersionRes,
+            _session_id: &str,
+            _answers: Option<&HashMap<String, Answer>>,
+            _deterministic_states: Option<&HashMap<String, String>>,
+        ) -> Result<(Vec<u8>, TemplateState, String), Box<dyn std::error::Error + Send>> {
+            let idx = self.calls.fetch_add(1, Ordering::SeqCst);
+            let guard = self.scripted.lock().unwrap();
+            if idx < guard.len() {
+                let (archive, state, sid) = guard[idx].clone();
+                Ok((archive, state, sid))
+            } else {
+                // Default: complete with an empty archive if the script runs out.
+                Ok((
+                    empty_tar_gz(),
+                    TemplateState::Complete(
+                        Cyan {
+                            processors: vec![],
+                            plugins: vec![],
+                        },
+                        HashMap::new(),
+                    ),
+                    format!("session-{idx}"),
+                ))
+            }
+        }
+    }
+
+    /// Build a `CompositionOperator` wired to a fake executor + real DefaultVfs (whose
+    /// TarGzUnpacker errors on an EMPTY byte stream — exactly the empty-archive NeedInput scenario). The
+    /// registry client is never used by execute_composition (dependencies are pre-built).
+    fn operator_with_executor(executor: StubExecutor) -> CompositionOperator {
+        let registry = Rc::new(CyanRegistryClient {
+            endpoint: "http://unused.invalid".to_string(),
+            version: "1.0".to_string(),
+            client: Rc::new(reqwest::blocking::Client::new()),
+        });
+        let unpacker = Box::new(TarGzUnpacker);
+        let loader = Box::new(DiskFileLoader);
+        let merger = Box::new(GitLikeMerger::new(false, 50));
+        let writer = Box::new(DiskFileWriter);
+        let template_operator = TemplateOperator::new(
+            Box::new(DefaultSessionIdGenerator),
+            Box::new(executor),
+            Box::new(DefaultTemplateHistory::new()),
+            Box::new(DefaultVfs::new(unpacker, loader, merger, writer)),
+            registry,
+        );
+        let dependency_resolver: Box<dyn DependencyResolver> =
+            Box::new(MockDependencyResolver::new());
+        CompositionOperator::new(
+            template_operator,
+            dependency_resolver,
+            Box::new(DefaultVfsLayerer),
+        )
+    }
+
+    /// Like [`operator_with_executor`] but accepts an arbitrary `dyn TemplateExecutor`,
+    /// so a test can wire a bespoke capturing/branching executor into the REAL composition
+    /// pipeline (the only way to observe per-dependency answer routing).
+    fn operator_with_dyn_executor(executor: Box<dyn TemplateExecutor>) -> CompositionOperator {
+        let registry = Rc::new(CyanRegistryClient {
+            endpoint: "http://unused.invalid".to_string(),
+            version: "1.0".to_string(),
+            client: Rc::new(reqwest::blocking::Client::new()),
+        });
+        let unpacker = Box::new(TarGzUnpacker);
+        let loader = Box::new(DiskFileLoader);
+        let merger = Box::new(GitLikeMerger::new(false, 50));
+        let writer = Box::new(DiskFileWriter);
+        let template_operator = TemplateOperator::new(
+            Box::new(DefaultSessionIdGenerator),
+            executor,
+            Box::new(DefaultTemplateHistory::new()),
+            Box::new(DefaultVfs::new(unpacker, loader, merger, writer)),
+            registry,
+        );
+        let dependency_resolver: Box<dyn DependencyResolver> =
+            Box::new(MockDependencyResolver::new());
+        CompositionOperator::new(
+            template_operator,
+            dependency_resolver,
+            Box::new(DefaultVfsLayerer),
+        )
+    }
+
+    // A NeedInput template state MUST be surfaced (need_input set, no error) even
+    // though the executor returns an EMPTY archive for it. Before the fix, execute_composition
+    // called unpack_archive(Vec::new()) BEFORE checking need_input → "unexpected end of file"
+    // error envelope (exit 1) instead of need_input (exit 2).
+    #[test]
+    fn need_input_is_surfaced_without_unpacking_empty_archive() {
+        let question = Question::Text(TextQuestion {
+            message: "Name?".to_string(),
+            default: None,
+            desc: None,
+            initial: None,
+            id: "name".to_string(),
+        });
+        let need_state = TemplateState::NeedInput(question, HashMap::new());
+        // Empty archive is exactly what DefaultTemplateExecutor returns on NeedInput.
+        let executor = StubExecutor {
+            scripted: std::sync::Mutex::new(vec![(Vec::new(), need_state, "s1".to_string())]),
+            calls: Arc::new(AtomicUsize::new(0)),
+        };
+        let mut operator = operator_with_executor(executor);
+
+        let template = make_template_version("root", "root", 1, vec![]);
+        let deps = vec![ResolvedDependency {
+            template: template.clone(),
+            preset_answers: HashMap::new(),
+        }];
+        let shared_state = CompositionState::new();
+        let (vfs, final_state, session_ids) = operator
+            .execute_composition(&deps, &shared_state, true)
+            .expect("NeedInput must not error via unpack_archive");
+
+        // The NeedInput question surfaced: exit-2 path, not exit-1.
+        assert!(
+            final_state.need_input.is_some(),
+            "NeedInput must be surfaced, not turned into an unpack error"
+        );
+        assert_eq!(
+            final_state.need_input.as_ref().unwrap().id(),
+            "name",
+            "single-template (no namespace): id stays raw"
+        );
+        // Single dependency → no namespace applied, question id is raw.
+        assert_eq!(session_ids.len(), 1);
+        // No files (empty VFS discarded on the NeedInput path).
+        assert!(vfs.get_paths().is_empty());
+    }
+
+    // Regression: an EMPTY archive fed to a COMPLETE path still errors (the fix did
+    // not weaken the happy path's unpack). Only NeedInput skips unpacking.
+    #[test]
+    fn empty_archive_on_complete_path_still_errors() {
+        let complete = TemplateState::Complete(
+            Cyan {
+                processors: vec![],
+                plugins: vec![],
+            },
+            HashMap::new(),
+        );
+        let executor = StubExecutor {
+            scripted: std::sync::Mutex::new(vec![(Vec::new(), complete, "s1".to_string())]),
+            calls: Arc::new(AtomicUsize::new(0)),
+        };
+        let mut operator = operator_with_executor(executor);
+
+        let template = make_template_version("root", "root", 1, vec![]);
+        let deps = vec![ResolvedDependency {
+            template: template.clone(),
+            preset_answers: HashMap::new(),
+        }];
+        let result = operator.execute_composition(&deps, &CompositionState::new(), true);
+        assert!(
+            result.is_err(),
+            "an empty archive on the COMPLETE path must still error (unpack is only skipped for NeedInput)"
+        );
+    }
+
+    // When TWO dependencies both ask a question with the SAME raw id ("name"),
+    // the composition namespaces surfaced ids by template id so they do not collide, and
+    // routes caller-supplied namespaced answers to the correct dependency.
+    #[test]
+    fn multi_template_namespaces_same_id_across_dependencies() {
+        // Dependency A asks "name", dependency B also asks "name". Both finalizing once
+        // their own "name" is present (each sees only its own answer thanks to routing).
+        let dep_a = make_template_version("frontend", "frontend", 1, vec![]);
+        let dep_b = make_template_version("backend", "backend", 1, vec![]);
+        let deps = vec![
+            ResolvedDependency {
+                template: dep_a,
+                preset_answers: HashMap::new(),
+            },
+            ResolvedDependency {
+                template: dep_b,
+                preset_answers: HashMap::new(),
+            },
+        ];
+
+        let question = Question::Text(TextQuestion {
+            message: "Name?".to_string(),
+            default: None,
+            desc: None,
+            initial: None,
+            id: "name".to_string(),
+        });
+
+        // First dependency (frontend) returns NeedInput("name") with an empty archive.
+        // The surfaced id MUST be namespaced as "frontend/name".
+        let need_state = TemplateState::NeedInput(question.clone(), HashMap::new());
+        let executor = StubExecutor {
+            scripted: std::sync::Mutex::new(vec![(
+                Vec::new(),
+                need_state,
+                "s-frontend".to_string(),
+            )]),
+            calls: Arc::new(AtomicUsize::new(0)),
+        };
+        let mut operator = operator_with_executor(executor);
+        let shared_state = CompositionState::new();
+        let (_vfs, final_state, _session_ids) = operator
+            .execute_composition(&deps, &shared_state, true)
+            .expect("NeedInput must surface, not error");
+
+        let need = final_state
+            .need_input
+            .as_ref()
+            .expect("NeedInput must be surfaced");
+        assert_eq!(
+            need.id(),
+            "frontend/name",
+            "multi-template composition must namespace the surfaced id by template id"
+        );
+
+        // Routing: a caller-supplied answer under "backend/name" must reach dependency B's
+        // "name" (prefix stripped), and NOT dependency A's. Verify by feeding both deps a
+        // Complete outcome and asserting each received only its own "name" answer.
+        // Capture what answers each dep saw via a shared log.
+        let seen: Arc<std::sync::Mutex<Vec<HashMap<String, Answer>>>> =
+            Arc::new(std::sync::Mutex::new(Vec::new()));
+
+        struct RoutingExecutor {
+            seen: Arc<std::sync::Mutex<Vec<HashMap<String, Answer>>>>,
+        }
+        impl TemplateExecutor for RoutingExecutor {
+            fn execute_template(
+                &self,
+                _template: &TemplateVersionRes,
+                _session_id: &str,
+                answers: Option<&HashMap<String, Answer>>,
+                _deterministic_states: Option<&HashMap<String, String>>,
+            ) -> Result<(Vec<u8>, TemplateState, String), Box<dyn std::error::Error + Send>>
+            {
+                let ans = answers.cloned().unwrap_or_default();
+                self.seen.lock().unwrap().push(ans.clone());
+                Ok((
+                    empty_tar_gz(),
+                    TemplateState::Complete(
+                        Cyan {
+                            processors: vec![],
+                            plugins: vec![],
+                        },
+                        ans,
+                    ),
+                    "s".to_string(),
+                ))
+            }
+        }
+
+        let mut operator2 = {
+            let registry = Rc::new(CyanRegistryClient {
+                endpoint: "http://unused.invalid".to_string(),
+                version: "1.0".to_string(),
+                client: Rc::new(reqwest::blocking::Client::new()),
+            });
+            let unpacker = Box::new(TarGzUnpacker);
+            let loader = Box::new(DiskFileLoader);
+            let merger = Box::new(GitLikeMerger::new(false, 50));
+            let writer = Box::new(DiskFileWriter);
+            let template_operator = TemplateOperator::new(
+                Box::new(DefaultSessionIdGenerator),
+                Box::new(RoutingExecutor {
+                    seen: Arc::clone(&seen),
+                }),
+                Box::new(DefaultTemplateHistory::new()),
+                Box::new(DefaultVfs::new(unpacker, loader, merger, writer)),
+                registry,
+            );
+            CompositionOperator::new(
+                template_operator,
+                Box::new(MockDependencyResolver::new()),
+                Box::new(DefaultVfsLayerer),
+            )
+        };
+
+        // Caller supplies namespaced answers for both dependencies.
+        let mut shared = CompositionState::new();
+        shared.shared_answers.insert(
+            "frontend/name".to_string(),
+            Answer::String("fe-val".to_string()),
+        );
+        shared.shared_answers.insert(
+            "backend/name".to_string(),
+            Answer::String("be-val".to_string()),
+        );
+        let (_vfs, final_state, _session_ids) = operator2
+            .execute_composition(&deps, &shared, true)
+            .expect("composition must complete");
+
+        // Both deps completed (no NeedInput).
+        assert!(
+            final_state.need_input.is_none(),
+            "all namespaced answers supplied → both deps complete"
+        );
+
+        // Each dependency saw ONLY its own raw "name" (namespace stripped on routing).
+        let seen = seen.lock().unwrap();
+        assert_eq!(seen.len(), 2, "two dependencies executed");
+        assert!(
+            matches!(seen[0].get("name"), Some(Answer::String(s)) if s == "fe-val"),
+            "frontend dep receives frontend/name → name"
+        );
+        assert!(
+            matches!(seen[1].get("name"), Some(Answer::String(s)) if s == "be-val"),
+            "backend dep receives backend/name → name"
+        );
+        // And the shared_answers (after Complete merge) are namespaced and distinct.
+        assert!(
+            matches!(final_state.shared_answers.get("frontend/name"), Some(Answer::String(s)) if s == "fe-val")
+        );
+        assert!(
+            matches!(final_state.shared_answers.get("backend/name"), Some(Answer::String(s)) if s == "be-val")
+        );
+        // No raw "name" leaked into shared answers (would collide).
+        assert!(
+            !final_state.shared_answers.contains_key("name"),
+            "raw id must not leak into the namespaced shared answer map"
+        );
+    }
+
+    // Regression: a SINGLE dependency keeps raw question ids (no namespace) — the
+    // common create/update path is unchanged. This guards against over-namespacing.
+    #[test]
+    fn single_template_keeps_raw_question_ids() {
+        let question = Question::Text(TextQuestion {
+            message: "Name?".to_string(),
+            default: None,
+            desc: None,
+            initial: None,
+            id: "name".to_string(),
+        });
+        let need_state = TemplateState::NeedInput(question, HashMap::new());
+        let executor = StubExecutor {
+            scripted: std::sync::Mutex::new(vec![(Vec::new(), need_state, "s1".to_string())]),
+            calls: Arc::new(AtomicUsize::new(0)),
+        };
+        let mut operator = operator_with_executor(executor);
+        let template = make_template_version("root", "root", 1, vec![]);
+        let deps = vec![ResolvedDependency {
+            template,
+            preset_answers: HashMap::new(),
+        }];
+        let (_vfs, final_state, _session_ids) = operator
+            .execute_composition(&deps, &CompositionState::new(), true)
+            .expect("NeedInput must surface");
+        let need = final_state.need_input.as_ref().unwrap();
+        assert_eq!(
+            need.id(),
+            "name",
+            "single dependency: raw id, no namespace prefix"
+        );
+    }
+
+    // Partial-scope convergence in a multi-template `try group` headless walk: the caller
+    // answers ONLY one of two same-named dependencies (`frontend/name` but not
+    // `backend/name`). The answered dependency must complete, the unanswered one must
+    // surface `NeedInput` namespaced as `backend/name`, and supplying the missing answer
+    // walks both to completion. This is the most common real-world `try group` headless
+    // path; it lacked an explicit regression test in Loop 1. (Loop-1 review issue #4.)
+    #[test]
+    fn partial_scope_one_dep_answered_other_surfaces_namespaced_need_input() {
+        let deps = vec![
+            ResolvedDependency {
+                template: make_template_version("frontend", "frontend", 1, vec![]),
+                preset_answers: HashMap::new(),
+            },
+            ResolvedDependency {
+                template: make_template_version("backend", "backend", 1, vec![]),
+                preset_answers: HashMap::new(),
+            },
+        ];
+
+        let seen: Arc<std::sync::Mutex<Vec<HashMap<String, Answer>>>> =
+            Arc::new(std::sync::Mutex::new(Vec::new()));
+
+        // Completes once it received a `name` answer, else surfaces NeedInput("name").
+        // Records the answer map each dependency saw so routing is observable.
+        struct ScopeExecutor {
+            seen: Arc<std::sync::Mutex<Vec<HashMap<String, Answer>>>>,
+        }
+        impl TemplateExecutor for ScopeExecutor {
+            fn execute_template(
+                &self,
+                _template: &TemplateVersionRes,
+                _session_id: &str,
+                answers: Option<&HashMap<String, Answer>>,
+                _deterministic_states: Option<&HashMap<String, String>>,
+            ) -> Result<(Vec<u8>, TemplateState, String), Box<dyn std::error::Error + Send>>
+            {
+                let ans = answers.cloned().unwrap_or_default();
+                self.seen.lock().unwrap().push(ans.clone());
+                if ans.contains_key("name") {
+                    Ok((
+                        empty_tar_gz(),
+                        TemplateState::Complete(
+                            Cyan {
+                                processors: vec![],
+                                plugins: vec![],
+                            },
+                            ans,
+                        ),
+                        "s".to_string(),
+                    ))
+                } else {
+                    let question = Question::Text(TextQuestion {
+                        message: "Name?".to_string(),
+                        default: None,
+                        desc: None,
+                        initial: None,
+                        id: "name".to_string(),
+                    });
+                    Ok((
+                        Vec::new(),
+                        TemplateState::NeedInput(question, HashMap::new()),
+                        "s".to_string(),
+                    ))
+                }
+            }
+        }
+
+        let mut operator = operator_with_dyn_executor(Box::new(ScopeExecutor {
+            seen: Arc::clone(&seen),
+        }));
+
+        // Caller answers ONLY frontend/name. frontend completes; backend asks again.
+        let mut shared = CompositionState::new();
+        shared.shared_answers.insert(
+            "frontend/name".to_string(),
+            Answer::String("fe".to_string()),
+        );
+        let (_vfs, final_state, _session_ids) = operator
+            .execute_composition(&deps, &shared, true)
+            .expect("composition must surface NeedInput, not error");
+
+        {
+            let seen = seen.lock().unwrap();
+            assert_eq!(seen.len(), 2, "both dependencies executed");
+            assert!(
+                matches!(seen[0].get("name"), Some(Answer::String(s)) if s == "fe"),
+                "frontend received its scoped frontend/name, stripped to raw name"
+            );
+            assert!(
+                !seen[1].contains_key("name"),
+                "backend must NOT receive frontend's scoped answer"
+            );
+        }
+        assert_eq!(
+            final_state.need_input.as_ref().unwrap().id(),
+            "backend/name",
+            "unanswered dependency's question is namespaced by its template id"
+        );
+
+        // Convergence: supplying backend/name too walks both dependencies to completion.
+        shared
+            .shared_answers
+            .insert("backend/name".to_string(), Answer::String("be".to_string()));
+        let (_vfs, final_state2, _session_ids) = operator
+            .execute_composition(&deps, &shared, true)
+            .expect("both deps complete once both answers supplied");
+        assert!(
+            final_state2.need_input.is_none(),
+            "all answers supplied → both deps complete (convergence)"
+        );
+    }
+
+    // A GLOBAL answer whose raw id legitimately contains a `/` (an e2e-style id like
+    // `cyane2e/template1/name`) must reach EVERY dependency in a multi-template
+    // composition — NOT be silently dropped or misrouted. The Loop-1 `contains('/')`
+    // discriminator classified such a key as "scoped" and, matching no dependency's
+    // namespace, skipped it for all of them. Classifying against the KNOWN namespace set
+    // routes it correctly as global. (Loop-1 review issues #1 and #5.)
+    #[test]
+    fn global_slash_id_routed_to_every_dependency() {
+        let deps = vec![
+            ResolvedDependency {
+                template: make_template_version("frontend", "frontend", 1, vec![]),
+                preset_answers: HashMap::new(),
+            },
+            ResolvedDependency {
+                template: make_template_version("backend", "backend", 1, vec![]),
+                preset_answers: HashMap::new(),
+            },
+        ];
+
+        let seen: Arc<std::sync::Mutex<Vec<HashMap<String, Answer>>>> =
+            Arc::new(std::sync::Mutex::new(Vec::new()));
+        struct CaptureExecutor {
+            seen: Arc<std::sync::Mutex<Vec<HashMap<String, Answer>>>>,
+        }
+        impl TemplateExecutor for CaptureExecutor {
+            fn execute_template(
+                &self,
+                _template: &TemplateVersionRes,
+                _session_id: &str,
+                answers: Option<&HashMap<String, Answer>>,
+                _deterministic_states: Option<&HashMap<String, String>>,
+            ) -> Result<(Vec<u8>, TemplateState, String), Box<dyn std::error::Error + Send>>
+            {
+                let ans = answers.cloned().unwrap_or_default();
+                self.seen.lock().unwrap().push(ans.clone());
+                Ok((
+                    empty_tar_gz(),
+                    TemplateState::Complete(
+                        Cyan {
+                            processors: vec![],
+                            plugins: vec![],
+                        },
+                        ans,
+                    ),
+                    "s".to_string(),
+                ))
+            }
+        }
+        let mut operator = operator_with_dyn_executor(Box::new(CaptureExecutor {
+            seen: Arc::clone(&seen),
+        }));
+
+        // A scoped answer (frontend/name) PLUS a GLOBAL answer whose id contains a slash.
+        let mut shared = CompositionState::new();
+        shared.shared_answers.insert(
+            "frontend/name".to_string(),
+            Answer::String("fe".to_string()),
+        );
+        shared.shared_answers.insert(
+            "cyane2e/template1/name".to_string(),
+            Answer::String("glob".to_string()),
+        );
+        let (_vfs, final_state, _session_ids) = operator
+            .execute_composition(&deps, &shared, true)
+            .expect("composition must complete");
+
+        assert!(
+            final_state.need_input.is_none(),
+            "both dependencies have their answers → complete"
+        );
+
+        let seen = seen.lock().unwrap();
+        // frontend received its scoped `name` AND the slash-containing global verbatim.
+        assert!(
+            matches!(seen[0].get("name"), Some(Answer::String(s)) if s == "fe"),
+            "frontend receives its scoped frontend/name → stripped to raw name"
+        );
+        assert!(
+            matches!(seen[0].get("cyane2e/template1/name"), Some(Answer::String(s)) if s == "glob"),
+            "frontend receives the slash-containing GLOBAL answer verbatim (not dropped)"
+        );
+        // backend received the global (reaches every dep) but NOT frontend's scoped answer.
+        assert!(
+            matches!(seen[1].get("cyane2e/template1/name"), Some(Answer::String(s)) if s == "glob"),
+            "backend also receives the slash-containing global answer"
+        );
+        assert!(
+            !seen[1].contains_key("name"),
+            "backend must not receive frontend's scoped answer"
+        );
+    }
+
+    // =========================================================================
+    // Caller-vs-preset answer precedence (REAL pipeline, not inline sim)
+    //
+    // These replace the four removed inline-simulation tests. They drive the actual
+    // execute_composition → executor boundary with a capturing fake executor and assert
+    // the answer map the executor RECEIVES, so a precedence inversion in production code
+    // (like the single-dependency namespacing regression) is caught instead of masked.
+    // =========================================================================
+
+    /// A fake executor that records the answer map it is handed for each dependency, then
+    /// completes with an empty archive. Lets a test assert what answers the composition
+    /// actually routed to the template.
+    struct CapturingExecutor {
+        seen: Arc<std::sync::Mutex<Vec<HashMap<String, Answer>>>>,
+    }
+    impl TemplateExecutor for CapturingExecutor {
+        fn execute_template(
+            &self,
+            _template: &TemplateVersionRes,
+            _session_id: &str,
+            answers: Option<&HashMap<String, Answer>>,
+            _deterministic_states: Option<&HashMap<String, String>>,
+        ) -> Result<(Vec<u8>, TemplateState, String), Box<dyn std::error::Error + Send>> {
+            self.seen
+                .lock()
+                .unwrap()
+                .push(answers.cloned().unwrap_or_default());
+            Ok((
+                empty_tar_gz(),
+                TemplateState::Complete(
+                    Cyan {
+                        processors: vec![],
+                        plugins: vec![],
+                    },
+                    HashMap::new(),
+                ),
+                "s".to_string(),
+            ))
+        }
+    }
+
+    fn operator_with_boxed_executor(executor: Box<dyn TemplateExecutor>) -> CompositionOperator {
+        let registry = Rc::new(CyanRegistryClient {
+            endpoint: "http://unused.invalid".to_string(),
+            version: "1.0".to_string(),
+            client: Rc::new(reqwest::blocking::Client::new()),
+        });
+        let template_operator = TemplateOperator::new(
+            Box::new(DefaultSessionIdGenerator),
+            executor,
+            Box::new(DefaultTemplateHistory::new()),
+            Box::new(DefaultVfs::new(
+                Box::new(TarGzUnpacker),
+                Box::new(DiskFileLoader),
+                Box::new(GitLikeMerger::new(false, 50)),
+                Box::new(DiskFileWriter),
+            )),
+            registry,
+        );
+        CompositionOperator::new(
+            template_operator,
+            Box::new(MockDependencyResolver::new()),
+            Box::new(DefaultVfsLayerer),
+        )
+    }
+
+    // When the caller supplies an answer for the SAME id as a dependency preset,
+    // the CALLER wins. (Single dependency → no namespace, so the raw id matches directly.)
+    #[test]
+    fn caller_answer_wins_over_preset_in_pipeline() {
+        let seen: Arc<std::sync::Mutex<Vec<HashMap<String, Answer>>>> =
+            Arc::new(std::sync::Mutex::new(Vec::new()));
+        let mut operator = operator_with_boxed_executor(Box::new(CapturingExecutor {
+            seen: Arc::clone(&seen),
+        }));
+
+        let deps = vec![ResolvedDependency {
+            template: make_template_version("root", "root", 1, vec![]),
+            preset_answers: HashMap::from([(
+                "db_host".to_string(),
+                Answer::String("preset-host".to_string()),
+            )]),
+        }];
+        let mut shared = CompositionState::new();
+        shared.shared_answers.insert(
+            "db_host".to_string(),
+            Answer::String("user-host".to_string()),
+        );
+
+        operator
+            .execute_composition(&deps, &shared, true)
+            .expect("composition completes");
+
+        let seen = seen.lock().unwrap();
+        assert_eq!(seen.len(), 1, "one dependency executed");
+        assert!(
+            matches!(seen[0].get("db_host"), Some(Answer::String(s)) if s == "user-host"),
+            "caller-supplied answer must WIN over the preset, got {:?}",
+            seen[0].get("db_host")
+        );
+    }
+
+    // A preset fills a gap only when the caller did NOT supply that id.
+    #[test]
+    fn preset_fills_gap_in_pipeline() {
+        let seen: Arc<std::sync::Mutex<Vec<HashMap<String, Answer>>>> =
+            Arc::new(std::sync::Mutex::new(Vec::new()));
+        let mut operator = operator_with_boxed_executor(Box::new(CapturingExecutor {
+            seen: Arc::clone(&seen),
+        }));
+
+        let deps = vec![ResolvedDependency {
+            template: make_template_version("root", "root", 1, vec![]),
+            preset_answers: HashMap::from([(
+                "db_host".to_string(),
+                Answer::String("preset-host".to_string()),
+            )]),
+        }];
+        let mut shared = CompositionState::new();
+        shared
+            .shared_answers
+            .insert("app_name".to_string(), Answer::String("myapp".to_string()));
+
+        operator
+            .execute_composition(&deps, &shared, true)
+            .expect("composition completes");
+
+        let seen = seen.lock().unwrap();
+        assert!(
+            matches!(seen[0].get("db_host"), Some(Answer::String(s)) if s == "preset-host"),
+            "preset fills the gap when the caller did not supply the id"
+        );
+        assert!(
+            matches!(seen[0].get("app_name"), Some(Answer::String(s)) if s == "myapp"),
+            "caller-supplied unrelated answer is preserved"
+        );
+    }
+
+    // A dependency's preset does not leak to a sibling dependency.
+    #[test]
+    fn preset_answers_isolated_per_dependency_in_pipeline() {
+        let seen: Arc<std::sync::Mutex<Vec<HashMap<String, Answer>>>> =
+            Arc::new(std::sync::Mutex::new(Vec::new()));
+        let mut operator = operator_with_boxed_executor(Box::new(CapturingExecutor {
+            seen: Arc::clone(&seen),
+        }));
+
+        // Dep A carries a preset; dep B carries none.
+        let deps = vec![
+            ResolvedDependency {
+                template: make_template_version("dep_a", "dep_a", 1, vec![]),
+                preset_answers: HashMap::from([(
+                    "a_secret".to_string(),
+                    Answer::String("s1".to_string()),
+                )]),
+            },
+            ResolvedDependency {
+                template: make_template_version("dep_b", "dep_b", 1, vec![]),
+                preset_answers: HashMap::new(),
+            },
+        ];
+
+        operator
+            .execute_composition(&deps, &CompositionState::new(), true)
+            .expect("composition completes");
+
+        let seen = seen.lock().unwrap();
+        assert_eq!(seen.len(), 2, "both dependencies executed");
+        assert!(
+            seen[0].contains_key("a_secret"),
+            "dep A receives its own preset"
+        );
+        assert!(
+            !seen[1].contains_key("a_secret"),
+            "dep B must NOT receive dep A's preset (isolation)"
+        );
     }
 }

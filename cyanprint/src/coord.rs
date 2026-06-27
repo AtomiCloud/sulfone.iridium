@@ -108,13 +108,18 @@ pub async fn start_coordinator(
     img: String,
     port: u16,
     registry: Option<String>,
+    headless: bool,
 ) -> Result<(), Box<dyn Error + Send>> {
     let setup_name = "cyanprint-coordinator-setup";
     let coord_name = "cyanprint-coordinator";
     let coord_filter = "^cyanprint-coordinator$";
 
-    // Check if coordinator is already running
-    println!("🔍 Checking if coordinator is already running...");
+    // Check if coordinator is already running. All status output goes through
+    // `hprogress!` so that, when a headless command autostarts the daemon, daemon
+    // startup text lands on stderr and never pollutes the single-JSON stdout contract.
+    // Interactive callers (`daemon start`) pass `headless = false`, so their
+    // output is unchanged.
+    crate::hprogress!(headless, "🔍 Checking if coordinator is already running...");
     let containers = docker
         .list_containers(Some(ListContainersOptions {
             all: true, // Include both running and stopped containers
@@ -140,11 +145,17 @@ pub async fn start_coordinator(
             .collect();
 
         if !running_containers.is_empty() {
-            println!("✅ Coordinator is already running on port {port}.");
+            crate::hprogress!(
+                headless,
+                "✅ Coordinator is already running on port {port}."
+            );
             return Ok(());
         } else {
             // Container exists but is not running, remove it
-            println!("🧹 Found stopped coordinator container, removing it...");
+            crate::hprogress!(
+                headless,
+                "🧹 Found stopped coordinator container, removing it..."
+            );
             for container in containers {
                 if let Some(id) = &container.id {
                     docker
@@ -157,7 +168,7 @@ pub async fn start_coordinator(
                         )
                         .await
                         .map_err(|e| Box::new(e) as Box<dyn Error + Send>)?;
-                    println!("✅ Removed stopped container: {id}");
+                    crate::hprogress!(headless, "✅ Removed stopped container: {id}");
                 }
             }
         }
@@ -187,8 +198,11 @@ pub async fn start_coordinator(
             host_port: Some(port.to_string()),
         }]),
     );
-    println!("🔧 Using image to configure the coordinator: {img}");
-    println!("⏬ Pulling image...");
+    crate::hprogress!(
+        headless,
+        "🔧 Using image to configure the coordinator: {img}"
+    );
+    crate::hprogress!(headless, "⏬ Pulling image...");
     docker
         .clone()
         .create_image(
@@ -202,9 +216,9 @@ pub async fn start_coordinator(
         .try_collect::<Vec<_>>()
         .await
         .map_err(|e| Box::new(e) as Box<dyn Error + Send>)?;
-    println!("✅ Image pulled");
+    crate::hprogress!(headless, "✅ Image pulled");
 
-    println!("⚙️ Setting up Coordinator Network...");
+    crate::hprogress!(headless, "⚙️ Setting up Coordinator Network...");
     let network = docker
         .create_container(
             Some(CreateContainerOptions {
@@ -238,14 +252,14 @@ pub async fn start_coordinator(
         }),
     );
     while let Some(msg) = streams.next().await {
-        println!("{msg:#?}");
+        crate::hprogress!(headless, "{msg:#?}");
     }
     docker
         .remove_container(setup_name, None::<RemoveContainerOptions>)
         .await
         .map_err(|e| Box::new(e) as Box<dyn Error + Send>)?;
-    println!("✅ CyanPrint Coordinator Network Started");
-    println!("⚙️ Starting Coordinator...");
+    crate::hprogress!(headless, "✅ CyanPrint Coordinator Network Started");
+    crate::hprogress!(headless, "⚙️ Starting Coordinator...");
     let mut coordinator_cmd = vec![];
     if let Some(registry_url) = registry {
         coordinator_cmd.push("start".to_string());

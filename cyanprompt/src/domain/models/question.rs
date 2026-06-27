@@ -15,6 +15,7 @@ impl QuestionTrait for Question {
     }
 }
 
+#[derive(Clone, Debug)]
 pub enum Question {
     Confirm(ConfirmQuestion),
     Date(DateQuestion),
@@ -24,6 +25,7 @@ pub enum Question {
     Select(SelectQuestion),
 }
 
+#[derive(Clone, Debug)]
 pub struct ConfirmQuestion {
     pub message: String,
     pub desc: Option<String>,
@@ -32,6 +34,7 @@ pub struct ConfirmQuestion {
     pub id: String,
 }
 
+#[derive(Clone, Debug)]
 pub struct DateQuestion {
     pub message: String,
     pub desc: Option<String>,
@@ -41,12 +44,14 @@ pub struct DateQuestion {
     pub id: String,
 }
 
+#[derive(Clone, Debug)]
 pub struct CheckboxQuestion {
     pub message: String,
     pub options: Vec<String>,
     pub desc: Option<String>,
     pub id: String,
 }
+#[derive(Clone, Debug)]
 pub struct PasswordQuestion {
     pub message: String,
     pub desc: Option<String>,
@@ -54,6 +59,7 @@ pub struct PasswordQuestion {
     pub id: String,
 }
 
+#[derive(Clone, Debug)]
 pub struct TextQuestion {
     pub message: String,
     pub default: Option<String>,
@@ -62,6 +68,7 @@ pub struct TextQuestion {
     pub id: String,
 }
 
+#[derive(Clone, Debug)]
 pub struct SelectQuestion {
     pub message: String,
     pub desc: Option<String>,
