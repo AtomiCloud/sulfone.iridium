@@ -31,6 +31,55 @@ pub struct CompositionOperator {
     cache: Cache,
 }
 
+/// Owns the coordinator sessions a composition accumulates and releases them on any
+/// early return (error or panic) while armed — closing the recurring composition-internal
+/// session-leak class. The success paths call [`disarm`](Self::disarm) to hand the
+/// accumulated ids to the caller (which then owns their release). When there is no client
+/// (e.g. the test-only `CompositionOperator::new`), the guard still tracks the ids but
+/// cannot release them — in that case there is no live coordinator session to leak.
+///
+/// The client is held by value (an `Arc`-sharing `Clone`), not by borrow, so the guard
+/// does not borrow `&mut self` for its lifetime and a `Drop` release can run even though
+/// `execute_composition` holds `&mut self` — matching the owned-descriptor RAII pattern
+/// used by `SetupArtifactsGuard` in cyanprint.
+struct CompositionSessionGuard {
+    client: Option<CyanCoordinatorClient>,
+    sessions: Vec<String>,
+}
+
+impl CompositionSessionGuard {
+    fn new(client: Option<CyanCoordinatorClient>) -> Self {
+        Self {
+            client,
+            sessions: Vec::new(),
+        }
+    }
+
+    /// Record a coordinator session id allocated during a dependency's warm/bootstrap.
+    fn push(&mut self, session_id: String) {
+        self.sessions.push(session_id);
+    }
+
+    /// Hand the accumulated session ids to the caller on a legitimate terminal state
+    /// (success or need_input). The guard no longer releases them on drop.
+    fn disarm(mut self) -> Vec<String> {
+        std::mem::take(&mut self.sessions)
+    }
+}
+
+impl Drop for CompositionSessionGuard {
+    fn drop(&mut self) {
+        if let Some(client) = &self.client {
+            for sid in &self.sessions {
+                // Best-effort: a release hiccup must not mask the original error that
+                // triggered the early return. Matches the closure-based teardown in
+                // cyanprint (e.g. `cleanup_group_sessions`).
+                let _ = client.try_cleanup(sid);
+            }
+        }
+    }
+}
+
 impl CompositionOperator {
     pub fn new(
         template_operator: TemplateOperator,
@@ -137,24 +186,64 @@ impl CompositionOperator {
     }
 
     /// Execute a composition of templates (recursive dependencies)
-    fn execute_composition(
+    pub(crate) fn execute_composition(
         &mut self,
         dependencies: &[ResolvedDependency],
         initial_shared_state: &CompositionState,
+        headless: bool,
     ) -> Result<(VirtualFileSystem, CompositionState, Vec<String>), Box<dyn Error + Send>> {
         let mut shared_state = initial_shared_state.clone();
         let mut vfs_outputs = Vec::new();
-        let mut all_session_ids = Vec::new();
+        // Coordinator sessions are allocated during each dependency's warm/bootstrap
+        // (recorded as `actual_session_id`) and are normally returned to the caller for
+        // release. But several fallible steps run AFTER a session is recorded and BEFORE
+        // this vector reaches the caller — `update_from_template_state` (the need_input
+        // branch and the completed branch), `unpack_archive`, and resolver/default VFS
+        // layering. A `?` from any of them discards the locally accumulated sessions,
+        // leaking the Boron sessions until server-side expiry. The guard releases every
+        // accumulated session on ANY early return while armed; the success paths
+        // `disarm()` it and move the ids out. This is the RAII fix for the recurring
+        // composition-internal session-leak class — one mechanism covers every current
+        // and future `?` between acquisition and return, instead of per-path patching.
+        let mut sessions = CompositionSessionGuard::new(self.client.clone());
 
         // Clear previous conflicts
         self.file_conflicts.clear();
+
+        // Namespacing must key off the dependencies composition will actually PROCESS,
+        // not the raw dependency list. Group templates (`properties.is_none()`) are skipped
+        // in the loop below — counting them here would let a composition of one executable
+        // template plus group template(s) cross the `> 1` threshold and namespace that lone
+        // template's question ids (`{template_id}/…`), diverging from its standalone
+        // behavior. Only executable dependencies can collide on a raw question id, so only
+        // they decide namespace mode and seed the namespace set.
+        let is_executable = |d: &ResolvedDependency| d.template.principal.properties.is_some();
+
+        // A composition of more than one EXECUTABLE dependency can contain two templates
+        // asking a question with the same raw id; namespace their ids by template id to
+        // avoid collisions in the shared answer map. A single executable dependency has no
+        // such risk, so its ids stay raw (existing create/update behavior unchanged).
+        let multi_template = dependencies.iter().filter(|d| is_executable(d)).count() > 1;
+        // Every executable dependency's template id is a potential `{ns}/…` namespace prefix
+        // a caller-supplied answer can be scoped under. Classifying a shared-answer key
+        // against this KNOWN set (rather than by the brittle "contains a `/`" shape) is
+        // what lets a raw question id that legitimately contains `/` (e.g. an e2e fixture
+        // id like `cyane2e/template1/name`) be routed as the GLOBAL answer it is, instead
+        // of being silently dropped or misrouted. Every namespace id is guaranteed `/`-free
+        // by the guard below, so a `{ns}/` prefix matches at most one namespace.
+        let namespaces: Vec<String> = dependencies
+            .iter()
+            .filter(|d| is_executable(d))
+            .map(|d| d.template.principal.id.clone())
+            .collect();
 
         for dep in dependencies {
             let template = &dep.template;
 
             // Check if template has execution artifacts (properties field)
             if template.principal.properties.is_none() {
-                println!(
+                cprogress!(
+                    headless,
                     "⏭️ Skipping template: {}/{} (v{}) - no execution artifacts (group template)",
                     template.template.name,
                     template.template.name, // TODO: Need username
@@ -170,12 +259,83 @@ impl CompositionOperator {
             // Generate session for this template
             let session_id = self.template_operator.session_id_generator.generate();
 
-            // Merge preset answers into shared_answers for this template only
-            let mut template_answers = shared_state.shared_answers.clone();
+            let template_id = template.principal.id.clone();
+            // When more than one template composes, two dependencies can ask a
+            // question with the SAME raw id (e.g. `name`); routing them through one
+            // flat `shared_answers` map would collide. Namespace per dependency by its
+            // template id: caller-supplied answers live under `{template_id}/{raw_id}`,
+            // so they are scoped to the dependency that owns them. For a single
+            // dependency (the common create/update case) there is no collision risk, so
+            // ids stay raw and existing behavior is preserved exactly.
+            //
+            // The `{template_id}/{raw_id}` key + first-`/` `strip_namespace` is only
+            // unambiguous when the template id itself has no `/`. A template id with a
+            // slash would let two distinct (template, raw-id) pairs map to one key, so
+            // fail fast rather than route an answer to the wrong dependency. Template ids
+            // are coordinator-assigned and non-slash in practice; this is the guard.
+            if multi_template && template_id.contains('/') {
+                return Err(Box::new(std::io::Error::other(format!(
+                    "cannot namespace a multi-template composition: template id '{template_id}' \
+                     contains '/' which is the namespace separator"
+                ))) as Box<dyn Error + Send>);
+            }
+            let namespace = multi_template.then_some(template_id.as_str());
+
+            // Build this dependency's answer map. Caller-supplied answers MUST win
+            // over presets, so seed the map from the caller's answers FIRST, then let
+            // presets fill only the gaps via `or_insert`. Seeding from presets first and
+            // letting the caller `or_insert` would invert precedence — presets would
+            // silently win, which also changes non-headless group behavior and breaks the
+            // interactive-unchanged guarantee.
+            //
+            // Answer routing in a multi-template (namespaced) composition has three
+            // classes, decided by classifying the key against the KNOWN dependency
+            // namespaces — NOT by whether the key merely contains a `/`. A raw question id
+            // may legitimately contain `/` (e.g. an e2e fixture id `cyane2e/template1/name`),
+            // so the `/`-shape test used previously would have classified such a GLOBAL
+            // answer as "scoped" and, matching no dependency's namespace, dropped it from
+            // every dependency. Instead:
+            // - A key belonging to NO namespace (`classify_namespace` → `None`) is a GLOBAL
+            //   answer: it applies to every dependency verbatim. This preserves the
+            //   pre-namespacing behavior (each dep received the full flat `shared_answers`
+            //   map), so a shared answer still reaches all sub-templates and a node's cache
+            //   key is unchanged whether it runs standalone or inside a composition.
+            // - A key scoped to THIS dependency (`{template_id}/{raw}`) is stripped to its
+            //   raw id and OVERRIDES the global of the same raw id, so a caller can target
+            //   one dependency's question without colliding with a sibling's same-named one.
+            // - A key scoped to a SIBLING dependency is skipped entirely for this dep.
+            // In a single-template composition the flat shared map applies directly.
+            let mut template_answers: HashMap<String, Answer> = HashMap::new();
+            match namespace {
+                Some(ns) => {
+                    // Global answers first (belong to no namespace), so a dependency-scoped
+                    // answer below can override a global of the same raw id.
+                    for (key, answer) in &shared_state.shared_answers {
+                        if classify_namespace(key, &namespaces).is_none() {
+                            template_answers.insert(key.clone(), answer.clone());
+                        }
+                    }
+                    // This dependency's scoped answers override the globals (raw id restored).
+                    for (key, answer) in &shared_state.shared_answers {
+                        if classify_namespace(key, &namespaces) == Some(ns) {
+                            let raw_key = strip_namespace(ns, key)
+                                .expect("key classified under this namespace");
+                            template_answers.insert(raw_key, answer.clone());
+                        }
+                    }
+                }
+                None => {
+                    for (key, answer) in &shared_state.shared_answers {
+                        template_answers.insert(key.clone(), answer.clone());
+                    }
+                }
+            }
+            // Preset answers (raw ids declared by the parent) fill gaps ONLY — a
+            // caller-supplied answer for the same id, inserted above, is left untouched.
             for (key, answer) in &dep.preset_answers {
                 template_answers
                     .entry(key.clone())
-                    .or_insert(answer.clone());
+                    .or_insert_with(|| answer.clone());
             }
 
             // Compute the content-addressed key only when the node can be cached,
@@ -215,6 +375,11 @@ impl CompositionOperator {
                             // cached answers through the same merge path so later
                             // nodes' template_answers and the saved
                             // .cyan_state.yaml are identical to a fresh run. (FR12)
+                            // The cache stores raw (un-namespaced) Complete answers,
+                            // so route the replay through `namespace_template_state`
+                            // exactly like the live completed path below — keeping a
+                            // cache hit and a fresh run byte-identical in a namespaced
+                            // multi-template composition too.
                             let replay_state = TemplateState::Complete(
                                 Cyan {
                                     processors: Vec::new(),
@@ -222,10 +387,15 @@ impl CompositionOperator {
                                 },
                                 entry.state,
                             );
-                            shared_state.update_from_template_state(
+                            let namespaced = namespace_template_state(
                                 &replay_state,
-                                template.principal.id.clone(),
+                                namespace,
+                                &initial_shared_state.shared_answers,
                             );
+                            shared_state.update_from_template_state(
+                                &namespaced,
+                                template.principal.id.clone(),
+                            )?;
                             served_from_cache = true;
                             // The entry was genuinely served: count it now, AFTER
                             // the archive unpacked and state replayed, so a
@@ -256,9 +426,12 @@ impl CompositionOperator {
             if !served_from_cache {
                 // CACHE MISS: execute as today. (FR3) The "Executing" line lives
                 // here (not before the cache check) so a cache HIT is never
-                // reported as an execution; a non-cached run still prints it for
-                // every node, exactly as before.
-                println!(
+                // reported as an execution; a non-cached run still emits it for
+                // every node. Routed through `cprogress!` so under headless it is
+                // suppressed (the single-JSON-on-stdout contract); interactive is
+                // unchanged.
+                cprogress!(
+                    headless,
                     "🚀 Executing template: {}/{} (v{})",
                     template.template.name,
                     template.template.name, // TODO: Need username
@@ -273,6 +446,43 @@ impl CompositionOperator {
                         Some(&shared_state.shared_deterministic_states),
                     )?;
 
+                // Track session for cleanup regardless of outcome (the session was
+                // created during warm/bootstrap even when Q&A stops early).
+                if !actual_session_id.is_empty() {
+                    sessions.push(actual_session_id);
+                }
+
+                // Headless: a template reached an unanswered question (NeedInput). The
+                // executor returns an EMPTY archive in this case — it must NOT be
+                // unpacked (an empty byte stream is an invalid gzip stream, so
+                // `unpack_archive` would error). Detect the terminal NeedInput state
+                // directly from `template_state` BEFORE unpacking, record the question
+                // in shared state (namespaced in a multi-template composition), and
+                // short-circuit: stop executing remaining templates and skip layering
+                // (the partial VFS outputs are discarded by the caller, which surfaces
+                // the question and stops before any files are written). A NeedInput is
+                // never cached — only a Complete result is stored below — so there is no
+                // cache interaction on this path.
+                let need_input = matches!(
+                    template_state,
+                    cyanprompt::domain::services::template::states::TemplateState::NeedInput(_, _)
+                );
+                if need_input {
+                    let namespaced = namespace_template_state(
+                        &template_state,
+                        namespace,
+                        &initial_shared_state.shared_answers,
+                    );
+                    shared_state
+                        .update_from_template_state(&namespaced, template.principal.id.clone())?;
+                    // need_input is a legitimate terminal state, not an error: the caller
+                    // owns the session release from here, so disarm the guard and hand the
+                    // accumulated ids back. (`update_from_template_state` above can still
+                    // `?` — in that case the guard stays armed and releases the sessions.)
+                    let all_session_ids = sessions.disarm();
+                    return Ok((VirtualFileSystem::new(), shared_state, all_session_ids));
+                }
+
                 // Validate the archive can actually unpack BEFORE caching it, so a
                 // bad (Ok((invalid_bytes, Complete(..)))) result is never persisted.
                 // (FR13, C1) The to-store copy is taken only when this node will be
@@ -284,8 +494,10 @@ impl CompositionOperator {
                 vfs_outputs.push(vfs);
 
                 // Store ONLY a non-interactive Complete result, and only after the
-                // archive has unpacked cleanly. QnA panics upstream and Err
-                // short-circuits via `?` above, so failures are never cached. (FR13)
+                // archive has unpacked cleanly. The raw (un-namespaced) answers are
+                // stored so a later replay can re-namespace per consuming dependency.
+                // QnA panics upstream, Err short-circuits via `?` above, and a NeedInput
+                // already returned, so failures/partials are never cached. (FR13)
                 if let (Some(key), TemplateState::Complete(_, ref answers)) =
                     (cache_key.as_ref(), &template_state)
                 {
@@ -296,26 +508,36 @@ impl CompositionOperator {
                     self.cache.store(template, key, &entry);
                 }
 
-                // Update shared state with results
+                // Update shared state with results (caller-targeted answers namespaced
+                // in a multi-template composition so they do not collide with another
+                // dependency's; global/derived answers stay raw and propagate). The
+                // "was this caller-targeted?" decision uses the immutable initial caller
+                // input, not the evolving accumulator — see `namespace_template_state`.
+                let namespaced = namespace_template_state(
+                    &template_state,
+                    namespace,
+                    &initial_shared_state.shared_answers,
+                );
                 shared_state
-                    .update_from_template_state(&template_state, template.principal.id.clone());
-
-                // Track session for cleanup
-                all_session_ids.push(actual_session_id);
+                    .update_from_template_state(&namespaced, template.principal.id.clone())?;
             }
         }
 
         // Layer all VFS outputs
         let layered_vfs = if vfs_outputs.is_empty() {
             // No templates produced output (all were group templates)
-            println!("ℹ️ No execution artifacts produced - all templates were group templates");
+            cprogress!(
+                headless,
+                "ℹ️ No execution artifacts produced - all templates were group templates"
+            );
             VirtualFileSystem::new()
         } else if let Some(ref client) = self.client {
             // Use resolver-aware layering
             // Vertical layering: collect resolvers from ALL templates in dependency tree
             let registry = Self::build_resolver_registry(dependencies);
             let template_infos = Self::build_template_infos(dependencies);
-            let layerer = ResolverAwareLayerer::new(registry, template_infos, client.clone());
+            let layerer =
+                ResolverAwareLayerer::new(registry, template_infos, client.clone(), headless);
 
             let result = layerer.layer_merge(&vfs_outputs)?;
 
@@ -328,7 +550,7 @@ impl CompositionOperator {
             self.vfs_layerer.layer_merge(&vfs_outputs)?
         };
 
-        Ok((layered_vfs, shared_state, all_session_ids))
+        Ok((layered_vfs, shared_state, sessions.disarm()))
     }
 
     /// Get a reference to the VFS operations
@@ -356,6 +578,7 @@ impl CompositionOperator {
         template: &cyanregistry::http::models::template_res::TemplateVersionRes,
         answers: &HashMap<String, Answer>,
         deterministic_states: &HashMap<String, String>,
+        headless: bool,
     ) -> Result<
         (
             VirtualFileSystem,
@@ -371,10 +594,11 @@ impl CompositionOperator {
             shared_answers: answers.clone(),
             shared_deterministic_states: deterministic_states.clone(),
             execution_order: Vec::new(),
+            need_input: None,
         };
 
         let (vfs, final_state, session_ids) =
-            self.execute_composition(&dependencies, &shared_state)?;
+            self.execute_composition(&dependencies, &shared_state, headless)?;
         let commands = Self::collect_commands(&dependencies);
         Ok((vfs, final_state, session_ids, commands))
     }
@@ -395,6 +619,7 @@ impl CompositionOperator {
         vfs_list: &[VirtualFileSystem],
         root_templates: &[cyanregistry::http::models::template_res::TemplateVersionRes],
         client: &CyanCoordinatorClient,
+        headless: bool,
     ) -> Result<VirtualFileSystem, Box<dyn Error + Send>> {
         if vfs_list.is_empty() {
             return Ok(VirtualFileSystem::new());
@@ -419,7 +644,7 @@ impl CompositionOperator {
         let template_infos = Self::build_template_infos(&root_dependencies);
 
         // Use resolver-aware layerer
-        let layerer = ResolverAwareLayerer::new(registry, template_infos, client.clone());
+        let layerer = ResolverAwareLayerer::new(registry, template_infos, client.clone(), headless);
         let result = layerer.layer_merge(vfs_list)?;
 
         // Track conflicts for state writing
@@ -495,5 +720,176 @@ impl CompositionOperator {
             }
         }
         commands
+    }
+}
+
+// ===========================================================================
+// Per-template question-id namespacing
+// ===========================================================================
+
+/// If `namespaced_key` is of the form `{namespace}/{rest}`, return `rest`; otherwise
+/// `None` (the key does not belong to this namespace). Used to route a caller-supplied
+/// namespaced answer back to its dependency's raw question id.
+fn strip_namespace(namespace: &str, namespaced_key: &str) -> Option<String> {
+    let prefix = format!("{namespace}/");
+    namespaced_key
+        .strip_prefix(&prefix)
+        .map(|rest| rest.to_string())
+}
+
+/// If `key` is scoped under one of the known dependency namespaces — i.e. it begins with
+/// `{ns}/` for some `ns` in `namespaces` — return that namespace; otherwise return `None`
+/// (the key is GLOBAL: it belongs to no dependency).
+///
+/// This is the unambiguous replacement for the old "does the key contain a `/`?" routing
+/// test. A raw question id may itself legitimately contain `/` (e.g. an e2e fixture id
+/// `cyane2e/template1/name`); such a key matches no `{ns}/` prefix here, so it is correctly
+/// classified as global and routed to every dependency instead of being silently dropped.
+/// The match is unambiguous because every namespace id is guaranteed `/`-free by the guard
+/// in `execute_composition` (a `{ns}/` prefix can match at most one `/`-free `ns`).
+fn classify_namespace<'a>(key: &str, namespaces: &'a [String]) -> Option<&'a str> {
+    namespaces
+        .iter()
+        .find_map(|ns| strip_namespace(ns, key).is_some().then_some(ns.as_str()))
+}
+
+/// Return a copy of `state` whose question ids and (caller-targeted) answer keys are
+/// prefixed with `{namespace}/` when a namespace is supplied, so each dependency's
+/// questions/answers are scoped and cannot collide with another dependency's. When
+/// `namespace` is `None` (single-template composition) the state is returned with raw
+/// ids unchanged.
+///
+/// Two terminal states are rewritten:
+/// - `NeedInput`: the unanswered `Question`'s id is ALWAYS namespaced as `{namespace}/id`,
+///   so the surfaced need_input envelope asks for `{namespace}/id` and the caller knows
+///   which dependency to answer.
+/// - `Complete`: an answer key `k` is namespaced to `{namespace}/k` ONLY when the caller
+///   actually targeted it via a `{namespace}/k` entry in `supplied_answers`. Global
+///   (un-namespaced) caller answers and answers DERIVED by the dependency (not supplied
+///   by the caller) stay raw, so they remain shared across sibling dependencies — this
+///   preserves the pre-namespacing flat-shared-state behavior (and the cache feature's
+///   cross-dependency derived-answer propagation) while still isolating answers the
+///   caller deliberately scoped to one dependency.
+///
+/// `supplied_answers` MUST be the immutable caller-supplied input snapshot (the
+/// `initial_shared_state.shared_answers` captured before the dependency loop), NOT the
+/// live `shared_state.shared_answers` accumulator. The accumulator also holds answers
+/// DERIVED by earlier dependencies, so using it here would let an earlier dependency's
+/// derived key shaped like `{later_ns}/{raw}` spuriously re-key a later dependency's raw
+/// answer as caller-scoped. Seeding downstream templates still uses the accumulator (so
+/// derived answers propagate); only this "was it caller-targeted?" decision needs the
+/// original input.
+fn namespace_template_state(
+    state: &cyanprompt::domain::services::template::states::TemplateState,
+    namespace: Option<&str>,
+    supplied_answers: &HashMap<String, Answer>,
+) -> cyanprompt::domain::services::template::states::TemplateState {
+    use cyanprompt::domain::services::template::states::TemplateState;
+
+    let Some(ns) = namespace else {
+        return state.clone();
+    };
+
+    match state {
+        TemplateState::NeedInput(question, det) => {
+            TemplateState::NeedInput(rename_question(question, ns), det.clone())
+        }
+        TemplateState::Complete(cyan, answers) => {
+            let namespaced: HashMap<String, Answer> = answers
+                .iter()
+                .map(|(k, v)| {
+                    let scoped = format!("{ns}/{k}");
+                    if supplied_answers.contains_key(&scoped) {
+                        // Caller targeted this dependency's answer explicitly — keep it
+                        // scoped so it cannot collide with a sibling's same-named answer.
+                        (scoped, v.clone())
+                    } else {
+                        // Global or derived answer — stays raw so it propagates to
+                        // sibling dependencies (flat-shared-state / cache replay).
+                        (k.clone(), v.clone())
+                    }
+                })
+                .collect();
+            TemplateState::Complete(cyan.clone(), namespaced)
+        }
+        // QnA is never terminal; Err carries no ids. Clone unchanged.
+        other => other.clone(),
+    }
+}
+
+/// Clone `question` with its `id` prefixed by `{namespace}/`. `Question` is an enum over
+/// per-kind structs each carrying a `String` id, so each variant's id is rewritten.
+fn rename_question(
+    question: &cyanprompt::domain::models::question::Question,
+    namespace: &str,
+) -> cyanprompt::domain::models::question::Question {
+    use cyanprompt::domain::models::question::{
+        CheckboxQuestion, ConfirmQuestion, DateQuestion, PasswordQuestion, Question,
+        SelectQuestion, TextQuestion,
+    };
+
+    let prefixed = |id: &str| format!("{namespace}/{id}");
+    match question {
+        Question::Confirm(q) => Question::Confirm(ConfirmQuestion {
+            id: prefixed(&q.id),
+            ..q.clone()
+        }),
+        Question::Date(q) => Question::Date(DateQuestion {
+            id: prefixed(&q.id),
+            ..q.clone()
+        }),
+        Question::Checkbox(q) => Question::Checkbox(CheckboxQuestion {
+            id: prefixed(&q.id),
+            ..q.clone()
+        }),
+        Question::Password(q) => Question::Password(PasswordQuestion {
+            id: prefixed(&q.id),
+            ..q.clone()
+        }),
+        Question::Text(q) => Question::Text(TextQuestion {
+            id: prefixed(&q.id),
+            ..q.clone()
+        }),
+        Question::Select(q) => Question::Select(SelectQuestion {
+            id: prefixed(&q.id),
+            ..q.clone()
+        }),
+    }
+}
+
+#[cfg(test)]
+mod session_guard_tests {
+    use super::*;
+
+    /// `disarm` returns every recorded session id, in order, to the caller — the
+    /// legitimate-terminal-state path. This is what the success and need_input arms rely
+    /// on to hand the ids back so the CLI layer (the caller) owns their release.
+    #[test]
+    fn disarm_returns_recorded_sessions_in_order() {
+        let mut guard = CompositionSessionGuard::new(None);
+        guard.push("s1".to_string());
+        guard.push("s2".to_string());
+        let ids = guard.disarm();
+        assert_eq!(ids, vec!["s1".to_string(), "s2".to_string()]);
+    }
+
+    /// A guard that never had a session pushed disarms to an empty vec — no spurious
+    /// release and no surprise for the caller (e.g. a composition of only group
+    /// templates, which produce no sessions).
+    #[test]
+    fn disarm_on_empty_guard_is_empty() {
+        let guard = CompositionSessionGuard::new(None);
+        assert!(guard.disarm().is_empty());
+    }
+
+    /// With no client the guard cannot release sessions (there is no live coordinator to
+    /// leak against — the test-only `CompositionOperator::new` path). `disarm` still
+    /// returns the recorded ids so the bookkeeping contract holds regardless of whether
+    /// a release path is wired.
+    #[test]
+    fn guard_without_client_still_tracks_sessions() {
+        let mut guard = CompositionSessionGuard::new(None);
+        guard.push("orphan".to_string());
+        assert_eq!(guard.disarm(), vec!["orphan".to_string()]);
     }
 }

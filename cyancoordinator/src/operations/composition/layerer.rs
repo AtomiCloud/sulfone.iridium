@@ -74,6 +74,10 @@ pub struct ResolverAwareLayerer {
     client: CyanCoordinatorClient,
     /// Conflicts tracked during layer_merge
     conflicts: RefCell<Vec<FileConflictEntry>>,
+    /// When `true`, layering progress/conflict messages go to stderr so they never
+    /// pollute the single-JSON-on-stdout headless contract. This path is
+    /// reachable in headless mode (multi-template batches and dependency layering).
+    headless: bool,
 }
 
 impl ResolverAwareLayerer {
@@ -82,12 +86,14 @@ impl ResolverAwareLayerer {
         registry: ConflictFileResolverRegistry,
         template_infos: Vec<TemplateInfo>,
         client: CyanCoordinatorClient,
+        headless: bool,
     ) -> Self {
         Self {
             registry,
             template_infos,
             client,
             conflicts: RefCell::new(Vec::new()),
+            headless,
         }
     }
 
@@ -259,9 +265,11 @@ impl VfsLayerer for ResolverAwareLayerer {
                         &variations,
                     );
                     self.conflicts.borrow_mut().push(entry);
-                    println!(
+                    crate::cprogress!(
+                        self.headless,
                         "✅ File {} resolved via resolver {}",
-                        path_str, resolver.docker_ref
+                        path_str,
+                        resolver.docker_ref
                     );
                 }
                 ConsensusResult::AllNone => {
@@ -280,9 +288,11 @@ impl VfsLayerer for ResolverAwareLayerer {
                             &variations,
                         );
                         self.conflicts.borrow_mut().push(entry);
-                        println!(
+                        crate::cprogress!(
+                            self.headless,
                             "⚠️ File {} has conflict - LWW (all no resolver): {}",
-                            path_str, template_info.template_id
+                            path_str,
+                            template_info.template_id
                         );
                     }
                 }
@@ -318,9 +328,11 @@ impl VfsLayerer for ResolverAwareLayerer {
                             &variations,
                         );
                         self.conflicts.borrow_mut().push(entry);
-                        println!(
+                        crate::cprogress!(
+                            self.headless,
                             "⚠️ File {} has conflict - LWW (no consensus): {}",
-                            path_str, template_info.template_id
+                            path_str,
+                            template_info.template_id
                         );
                     }
                 }
@@ -340,16 +352,19 @@ impl VfsLayerer for ResolverAwareLayerer {
                             &variations,
                         );
                         self.conflicts.borrow_mut().push(entry);
-                        println!(
+                        crate::cprogress!(
+                            self.headless,
                             "⚠️ File {} has conflict - LWW (ambiguous resolvers): {}",
-                            path_str, template_info.template_id
+                            path_str,
+                            template_info.template_id
                         );
                     }
                 }
             }
         }
 
-        println!(
+        crate::cprogress!(
+            self.headless,
             "🔄 Layered {} VFS outputs with resolver-aware conflict resolution",
             vfs_list.len()
         );

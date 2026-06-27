@@ -112,7 +112,12 @@ pub fn run_plugin_tests(
     println!("Running pre-flight validation...");
     let docker = bollard::Docker::connect_with_local_defaults()
         .map_err(|e| Box::new(e) as Box<dyn Error + Send>)?;
-    ensure_daemon_running(&docker, disable_daemon_autostart, coordinator_endpoint)?;
+    ensure_daemon_running(
+        &docker,
+        disable_daemon_autostart,
+        coordinator_endpoint,
+        false,
+    )?;
 
     // Create temporary output directory
     let tmp_output_dir = PathBuf::from(output_dir).join("tmp");

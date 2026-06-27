@@ -21,6 +21,10 @@ fn shell_escape(arg: &str) -> String {
 pub struct BuildxBuilder {
     /// Optional builder name to use
     builder: Option<String>,
+    /// When true, route build progress output (the docker command and build stdout)
+    /// to stderr instead of stdout so it never pollutes a headless JSON contract
+    /// stream. Defaults to `false` (interactive output unchanged,).
+    headless: bool,
 }
 
 /// Build output mode
@@ -58,12 +62,22 @@ pub struct BuildOptions<'a> {
 impl BuildxBuilder {
     /// Create a new BuildxBuilder
     pub fn new() -> Self {
-        Self { builder: None }
+        Self {
+            builder: None,
+            headless: false,
+        }
     }
 
     /// Set the builder to use
     pub fn with_builder(mut self, builder: impl Into<String>) -> Self {
         self.builder = Some(builder.into());
+        self
+    }
+
+    /// Run in headless mode: build progress is routed to stderr instead of stdout
+    /// so the JSON contract stream stays clean.
+    pub fn with_headless(mut self, headless: bool) -> Self {
+        self.headless = headless;
         self
     }
 
@@ -151,7 +165,12 @@ impl BuildxBuilder {
 
         if opts.dry_run {
             let escaped_args: Vec<String> = args.iter().map(|s| shell_escape(s)).collect();
-            println!("  docker {}", escaped_args.join(" "));
+            let line = format!("  docker {}", escaped_args.join(" "));
+            if self.headless {
+                eprintln!("{line}");
+            } else {
+                println!("{line}");
+            }
             return Ok(());
         }
 
@@ -165,10 +184,15 @@ impl BuildxBuilder {
             ))));
         }
 
-        // Print build output
+        // Print build output. In headless mode route it to stderr so the JSON
+        // contract stream on stdout stays a single envelope.
         let stdout = String::from_utf8_lossy(&output.stdout);
         if !stdout.is_empty() {
-            println!("{stdout}");
+            if self.headless {
+                eprintln!("{stdout}");
+            } else {
+                println!("{stdout}");
+            }
         }
 
         Ok(())

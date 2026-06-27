@@ -14,6 +14,7 @@ use cyancoordinator::state::{DefaultStateManager, StateReader, StateWriter};
 use cyancoordinator::template::TemplateHistory;
 use cyanprompt::domain::models::answer::Answer;
 use cyanprompt::domain::models::cyan::Cyan;
+use cyanprompt::domain::models::question::Question;
 use cyanprompt::domain::services::template::states::TemplateState;
 use cyanregistry::http::client::CyanRegistryClient;
 use cyanregistry::http::models::template_res::TemplateVersionRes;
@@ -26,6 +27,7 @@ use cyancoordinator::template::{DefaultTemplateHistory, TemplateUpdateType};
 use cyancoordinator::fs::VirtualFileSystem;
 
 use crate::command_executor::CommandExecutor;
+use crate::headless::CyanRunResult;
 use crate::update::spec::{TemplateSpec, TemplateSpecManager, sort_specs};
 
 /// cyanprint's own bookkeeping artifacts, excluded from the managed-files manifest.
@@ -49,7 +51,7 @@ fn normalize_path(path: &Path) -> String {
     // On non-Windows targets, Path::components() does NOT treat '\' as a separator,
     // so literal backslashes (e.g. a Windows-authored "dir\sub\file.txt") survive in
     // the joined string. Replace them explicitly so backslash separators normalize to
-    // forward slashes on every platform — AC7/FR7 requires this canonical form.
+    // forward slashes on every platform — requires this canonical form.
     let forward = joined.replace('\\', "/");
 
     // Strip leading "./" and any leading '/', then any trailing '/'.
@@ -95,7 +97,9 @@ fn has_dependencies(template: &TemplateVersionRes) -> bool {
 /// Unified batch processing for both create and update commands.
 /// Handles MAP, LAYER, and MERGE+WRITE phases.
 /// Returns session IDs for cleanup, file conflicts for state persistence, and commands for execution.
-#[allow(clippy::type_complexity)]
+// `headless` controls only whether progress goes to stderr; the per-phase
+// inputs are intrinsic to batch processing, so this stays parameter-heavy.
+#[allow(clippy::type_complexity, clippy::too_many_arguments)]
 pub fn batch_process(
     prev_specs: &[TemplateSpec],
     curr_specs: &[TemplateSpec],
@@ -104,44 +108,73 @@ pub fn batch_process(
     registry: &CyanRegistryClient,
     coord_client: &CyanCoordinatorClient,
     operator: &mut CompositionOperator,
+    headless: bool,
 ) -> Result<
     (
         Vec<String>,
         Vec<FileConflictEntry>,
         Vec<String>,
         HashMap<String, Vec<String>>,
+        Option<Question>,
     ),
     Box<dyn Error + Send>,
 > {
     // PHASE 2: MAP (execute each template spec → VFS)
-    println!(
+    crate::hprogress!(
+        headless,
         "\n📦 PHASE 2: MAP - Executing {} prev + {} curr templates",
         prev_specs.len(),
         curr_specs.len()
     );
 
-    // Execute prev_specs and collect template responses for horizontal layering
+    // Execute prev_specs and collect template responses for horizontal layering.
+    // Every coordinator session acquired below is registered with `session_guard`, which
+    // releases them on ANY early `?` return between acquisition and the point the ids are
+    // handed back to the caller — closing the window where a post-acquisition failure
+    // (layering, merge, write, metadata save) would drop the ids and leak the sessions.
     let mut prev_vfs_list = Vec::new();
-    let mut prev_session_ids = Vec::new();
+    let mut session_guard =
+        SessionCleanupGuard::new(|sid: &str| release_session(coord_client, sid), Vec::new());
     let mut prev_template_res_list = Vec::new();
 
     for spec in prev_specs {
-        println!("  🔄 Executing prev: {} v{}", spec.key(), spec.version);
+        crate::hprogress!(
+            headless,
+            "  🔄 Executing prev: {} v{}",
+            spec.key(),
+            spec.version
+        );
         let template_res = registry.get_template(
             spec.username.clone(),
             spec.template_name.clone(),
             Some(spec.version),
         )?;
-        let (vfs, _final_state, session_ids, _commands) =
-            operator.execute_template(&template_res, &spec.answers, &spec.deterministic_states)?;
+        let (vfs, final_state, session_ids, _commands) = operator.execute_template(
+            &template_res,
+            &spec.answers,
+            &spec.deterministic_states,
+            headless,
+        )?;
+        session_guard.extend(session_ids);
+        // Headless: a (re-created) prev template stopped on an unanswered question.
+        // Surface it immediately; no files are written. Hand the sessions to the caller
+        // (which cleans them at the headless boundary) by disarming via `take`.
+        if let Some(question) = final_state.need_input {
+            return Ok((
+                session_guard.take(),
+                Vec::new(),
+                Vec::new(),
+                HashMap::new(),
+                Some(question),
+            ));
+        }
         prev_vfs_list.push(vfs);
-        prev_session_ids.extend(session_ids);
         prev_template_res_list.push(template_res);
     }
 
-    // Execute curr_specs and track final states for metadata
+    // Execute curr_specs and track final states for metadata. Sessions acquired here join
+    // the same `session_guard` accumulation as the prev loop.
     let mut curr_vfs_list = Vec::new();
-    let mut curr_session_ids = Vec::new();
     // Map template_key -> final answers for metadata persistence
     let mut final_answers_map: HashMap<String, HashMap<String, Answer>> = HashMap::new();
     let mut curr_template_res_list = Vec::new();
@@ -152,14 +185,36 @@ pub fn batch_process(
     let mut managed_by_template: HashMap<String, Vec<String>> = HashMap::new();
 
     for spec in curr_specs {
-        println!("  🔄 Executing curr: {} v{}", spec.key(), spec.version);
+        crate::hprogress!(
+            headless,
+            "  🔄 Executing curr: {} v{}",
+            spec.key(),
+            spec.version
+        );
         let template_res = registry.get_template(
             spec.username.clone(),
             spec.template_name.clone(),
             Some(spec.version),
         )?;
-        let (vfs, final_state, session_ids, commands) =
-            operator.execute_template(&template_res, &spec.answers, &spec.deterministic_states)?;
+        let (vfs, final_state, session_ids, commands) = operator.execute_template(
+            &template_res,
+            &spec.answers,
+            &spec.deterministic_states,
+            headless,
+        )?;
+        session_guard.extend(session_ids);
+        // Headless: this template stopped on an unanswered question. Surface it and
+        // stop the batch before any layering / merge / write happens. Hand the accumulated
+        // (prev + curr) sessions to the caller by disarming via `take`.
+        if let Some(question) = final_state.need_input {
+            return Ok((
+                session_guard.take(),
+                Vec::new(),
+                Vec::new(),
+                HashMap::new(),
+                Some(question),
+            ));
+        }
         curr_vfs_list.push(vfs);
         // Collect this template's normalized output paths from its own VFS (the active
         // set), before layering merges them into one.
@@ -167,7 +222,6 @@ pub fn batch_process(
             spec.key(),
             normalize_managed_paths(curr_vfs_list.last().unwrap()),
         );
-        curr_session_ids.extend(session_ids);
         // Store the final answers for this template (includes Q&A answers)
         final_answers_map.insert(spec.key(), final_state.shared_answers);
         curr_template_res_list.push(template_res);
@@ -177,7 +231,8 @@ pub fn batch_process(
 
     // PHASE 3: LAYER (merge each list into ONE VFS)
     // Horizontal layering: collect resolvers from ONLY root templates (not dependencies)
-    println!(
+    crate::hprogress!(
+        headless,
         "\n🔀 PHASE 3: LAYER - Merging {} prev + {} curr VFS outputs",
         prev_vfs_list.len(),
         curr_vfs_list.len()
@@ -193,6 +248,7 @@ pub fn batch_process(
             &prev_vfs_list,
             &prev_template_res_list,
             coord_client,
+            headless,
         )?
     };
 
@@ -206,11 +262,15 @@ pub fn batch_process(
             &curr_vfs_list,
             &curr_template_res_list,
             coord_client,
+            headless,
         )?
     };
 
     // PHASE 4: MERGE + WRITE
-    println!("\n📝 PHASE 4: MERGE+WRITE - 3-way merge with local files");
+    crate::hprogress!(
+        headless,
+        "\n📝 PHASE 4: MERGE+WRITE - 3-way merge with local files"
+    );
 
     let local_vfs = operator.load_local_files(target_dir)?;
     let merged_vfs = operator.merge(&prev_vfs, &local_vfs, &curr_vfs)?;
@@ -218,14 +278,19 @@ pub fn batch_process(
     // Clean up files that were deleted during merge
     let deleted = operator.cleanup_deleted_files(target_dir, &local_vfs, &merged_vfs)?;
     if !deleted.is_empty() {
-        println!("🗑️ Removed {} file(s) no longer in template", deleted.len());
+        crate::hprogress!(
+            headless,
+            "🗑️ Removed {} file(s) no longer in template",
+            deleted.len()
+        );
     }
 
     operator.write_to_disk(target_dir, &merged_vfs)?;
 
     // Save metadata for upgraded templates only
     if !upgraded_specs.is_empty() {
-        println!(
+        crate::hprogress!(
+            headless,
             "💾 Saving template metadata for {} upgraded templates",
             upgraded_specs.len()
         );
@@ -261,8 +326,10 @@ pub fn batch_process(
         }
     }
 
-    let mut all_session_ids = prev_session_ids;
-    all_session_ids.extend(curr_session_ids);
+    // All fallible work is past — disarm the guard and hand the sessions to the caller,
+    // which cleans them at the headless boundary (a `?` from any operation above instead
+    // drops the still-armed guard and releases them).
+    let all_session_ids = session_guard.take();
 
     // Collect file conflicts from operator for state persistence
     let file_conflicts = operator.get_file_conflicts().to_vec();
@@ -271,13 +338,159 @@ pub fn batch_process(
     // (prev is just the 3-way-merge baseline; its commands would be duplicates or stale)
     let all_commands = curr_resolved_commands;
 
-    println!("✅ Batch process complete");
+    crate::hprogress!(headless, "✅ Batch process complete");
     Ok((
         all_session_ids,
         file_conflicts,
         all_commands,
         managed_by_template,
+        None,
     ))
+}
+
+/// The shallowest path component of `target_dir` that does not yet exist.
+///
+/// `create_dir_all(target_dir)` creates this directory and everything beneath it, so this
+/// is the single directory whose removal undoes the whole creation (including any empty
+/// intermediate parents of a nested new path like `a/b/c`). `ancestors()` yields deepest →
+/// shallowest, so the LAST non-existent ancestor is the shallowest one to be created;
+/// `None` means the target already existed and nothing will be created. A headless run that
+/// stops before `done` removes exactly this directory so the filesystem is left untouched.
+fn shallowest_uncreated_ancestor(target_dir: &Path) -> Option<PathBuf> {
+    target_dir
+        .ancestors()
+        .filter(|a| !a.as_os_str().is_empty())
+        .filter(|a| !a.exists())
+        .last()
+        .map(|p| p.to_path_buf())
+}
+
+/// Remove the directory tree this invocation created, if any. A headless run that stops
+/// before `done` (a pending `need_input` or an error) must leave the filesystem exactly as
+/// it found it; removing the shallowest created ancestor also drops any empty parent dirs
+/// created for a nested new path. A no-op when nothing was created (`None`) — so a
+/// pre-existing target directory is never touched. Best-effort: a removal error is ignored
+/// (the directory is empty at this point, and a leftover empty dir must not mask the real
+/// outcome being surfaced).
+fn remove_created_dir(first_created_dir: &Option<PathBuf>) {
+    if let Some(created) = first_created_dir {
+        let _ = fs::remove_dir_all(created);
+    }
+}
+
+/// RAII guard that removes the directory tree this headless invocation created if it
+/// drops while still armed.
+///
+/// A headless run must leave the filesystem exactly as it found it until it reaches
+/// `done`. Many return paths sit between `create_dir_all` and the point where output is
+/// committed — a pending `need_input`, a batch transport/validation error, and pre-batch
+/// early returns (e.g. an invalid template with neither dependencies nor execution
+/// artifacts). Patching each return site individually has historically missed paths, so
+/// the cleanup is bound to the guard's `Drop` instead: arm it right after the directory is
+/// created and `disarm()` it exactly once the run is committed to writing output (the
+/// `need_input` check has passed). Every error/`need_input` return before that disarm
+/// removes the created tree automatically; the committed `done` path keeps it.
+///
+/// Interactive runs pass `headless = false`, so the guard is inert and the interactive
+/// path is byte-identical (no removal ever happens).
+struct CreatedDirGuard {
+    first_created_dir: Option<PathBuf>,
+    headless: bool,
+    armed: bool,
+}
+
+impl CreatedDirGuard {
+    fn new(first_created_dir: Option<PathBuf>, headless: bool) -> Self {
+        Self {
+            first_created_dir,
+            headless,
+            armed: true,
+        }
+    }
+
+    /// Mark the run as committed to its output so dropping the guard no longer removes the
+    /// created directory. Called once the `need_input` check has passed and the happy path
+    /// is about to persist state / write files.
+    fn disarm(&mut self) {
+        self.armed = false;
+    }
+}
+
+impl Drop for CreatedDirGuard {
+    fn drop(&mut self) {
+        if self.headless && self.armed {
+            remove_created_dir(&self.first_created_dir);
+        }
+    }
+}
+
+/// Release a single coordinator session against the given client, best-effort. A release
+/// error is ignored: cleanup must not mask the run's own outcome, and the session will be
+/// reclaimed by the coordinator's own timeout regardless.
+pub(crate) fn release_session(coord_client: &CyanCoordinatorClient, session_id: &str) {
+    let _ = coord_client.clean(session_id.to_string());
+}
+
+/// RAII guard that releases coordinator sessions on `Drop` while armed.
+///
+/// Coordinator sessions are acquired incrementally as templates execute, but several
+/// fallible operations (resolver-aware layering, file load, merge, deleted-file cleanup,
+/// `write_to_disk`, metadata + state save, post-template commands) run BETWEEN acquisition
+/// and the point the ids are handed to the headless cleanup boundary (`finish_headless`).
+/// A `?` in that window drops the local id vectors and returns `Err` before the boundary
+/// ever sees the ids — leaking the sessions until the coordinator's own timeout. Patching
+/// each return site individually has historically missed paths (the same recurring class as
+/// the directory leak), so cleanup is bound to this guard's `Drop`: register each id as it
+/// is acquired and it is released best-effort on ANY early return. [`take`](Self::take)
+/// disarms and hands ownership of the ids back once they reach a caller that WILL clean them
+/// (a `done`/`need_input` boundary return), preventing a double release.
+///
+/// Releasing a session on error is correct in BOTH headless and interactive modes (it is a
+/// coordinator HTTP call, not user-facing output), so — unlike [`CreatedDirGuard`] — this
+/// guard is NOT mode-gated; the interactive path is unaffected in its output while also no
+/// longer leaking sessions on these error paths.
+///
+/// The release action is a closure (production passes [`release_session`] bound to the
+/// coordinator client) so the guard's DECISION — which ids it releases, and that `take`
+/// disarms it — is unit-testable with a recorder closure and no live coordinator.
+pub(crate) struct SessionCleanupGuard<F: FnMut(&str)> {
+    release: F,
+    session_ids: Vec<String>,
+    armed: bool,
+}
+
+impl<F: FnMut(&str)> SessionCleanupGuard<F> {
+    pub(crate) fn new(release: F, session_ids: Vec<String>) -> Self {
+        Self {
+            release,
+            session_ids,
+            armed: true,
+        }
+    }
+
+    /// Register newly-acquired session ids with the guard so they are released if it drops
+    /// while still armed.
+    fn extend(&mut self, ids: impl IntoIterator<Item = String>) {
+        self.session_ids.extend(ids);
+    }
+
+    /// Disarm and return the accumulated session ids. After this the caller owns cleanup
+    /// (e.g. the headless boundary `finish_headless`), so the guard must not also release
+    /// them.
+    pub(crate) fn take(&mut self) -> Vec<String> {
+        self.armed = false;
+        std::mem::take(&mut self.session_ids)
+    }
+}
+
+impl<F: FnMut(&str)> Drop for SessionCleanupGuard<F> {
+    fn drop(&mut self) {
+        if self.armed {
+            for sid in &self.session_ids {
+                (self.release)(sid);
+            }
+        }
+    }
 }
 
 /// Run the cyan template generation process with automatic composition detection
@@ -292,23 +505,48 @@ pub fn cyan_run(
     registry_client: Rc<CyanRegistryClient>,
     debug: bool,
     cache_config: cyancoordinator::cache::CacheConfig,
-) -> Result<Vec<String>, Box<dyn Error + Send>> {
+    headless: bool,
+    headless_answers: HashMap<String, Answer>,
+) -> Result<CyanRunResult, Box<dyn Error + Send>> {
     // Handle the target directory
     let path = path.unwrap_or(".".to_string());
     let path_buf = PathBuf::from(&path);
     let target_dir = path_buf.as_path();
-    println!("📁 Target directory: {target_dir:?}");
+    crate::hprogress!(headless, "📁 Target directory: {target_dir:?}");
+    // Find the shallowest path component that does not yet exist: `create_dir_all`
+    // below will create this directory and everything beneath it. A headless
+    // `need_input` (which must leave the filesystem untouched until `done`) removes
+    // exactly this directory, so a nested new path (e.g. `a/b/c`) leaves no empty
+    // `a/` and `a/b/` parents behind. `ancestors()` yields deepest → shallowest, so
+    // the last non-existent ancestor is the shallowest one to be created; `None`
+    // means the target already existed and nothing is created. See the `need_input`
+    // short-circuit below.
+    let first_created_dir = shallowest_uncreated_ancestor(target_dir);
     fs::create_dir_all(target_dir).map_err(|e| Box::new(e) as Box<dyn Error + Send>)?;
+    // Arm the directory guard immediately after creation: ANY return before the run is
+    // committed to writing output (a pre-batch early return, a batch error, or a pending
+    // `need_input`) drops the guard while armed and removes exactly the tree this
+    // invocation created, leaving the filesystem as it was found. Disarmed once the
+    // `need_input` check passes (the `done` path then keeps its output). Inert when
+    // interactive, so that path is unchanged.
+    let mut dir_guard = CreatedDirGuard::new(first_created_dir, headless);
 
     // Create all components for dependency injection at the highest level
     let unpacker = Box::new(TarGzUnpacker);
     let loader = Box::new(DiskFileLoader);
-    let merger = Box::new(GitLikeMerger::new(debug, 50));
+    // In headless mode the merger's debug output uses plain `println!`, which would
+    // pollute the single-JSON-on-stdout contract. Disable merger debug under
+    // headless so stdout stays reserved for the envelope; interactive `--debug` is
+    // unchanged.
+    let merger = Box::new(GitLikeMerger::new(debug && !headless, 50));
     let writer = Box::new(DiskFileWriter);
 
     // Setup services with explicit dependencies
     let template_history = Box::new(DefaultTemplateHistory::new());
-    let template_executor = Box::new(DefaultTemplateExecutor::new(coord_client.endpoint.clone()));
+    let template_executor = Box::new(DefaultTemplateExecutor::new_with_headless(
+        coord_client.endpoint.clone(),
+        headless,
+    ));
     let vfs = Box::new(DefaultVfs::new(unpacker, loader, merger, writer));
 
     // Create the TemplateOperator
@@ -328,8 +566,8 @@ pub fn cyan_run(
     // to support batch processing when adding to existing projects)
     let dependency_resolver = Box::new(DefaultDependencyResolver::new(registry_client.clone()));
 
-    // Create the CompositionOperator with client for resolver-aware layering
-    // Clone the client since we also need it for batch_process
+    // Create the CompositionOperator with client for resolver-aware layering.
+    // Clone the client since we also need it for batch_process.
     let mut composition_operator = CompositionOperator::with_client(
         template_operator,
         dependency_resolver,
@@ -344,18 +582,23 @@ pub fn cyan_run(
     // Log template type
     if is_composition {
         if has_execution_artifacts(&template) {
-            println!(
+            crate::hprogress!(
+                headless,
                 "🔗 Template with {} dependencies and execution artifacts - using composition execution",
                 template.templates.len()
             );
         } else {
-            println!(
+            crate::hprogress!(
+                headless,
                 "🔗 Template group with {} dependencies (no execution artifacts) - using composition execution",
                 template.templates.len()
             );
         }
     } else if has_execution_artifacts(&template) {
-        println!("📦 Single template with execution artifacts - using single template execution");
+        crate::hprogress!(
+            headless,
+            "📦 Single template with execution artifacts - using single template execution"
+        );
     } else {
         return Err(Box::new(std::io::Error::new(
             std::io::ErrorKind::InvalidInput,
@@ -530,19 +773,82 @@ pub fn cyan_run(
         }
     };
 
+    // Headless: seed the supplied answers ONLY into the template(s) this invocation
+    // is creating/upgrading/rerunning — never into pre-existing, already-installed
+    // templates that happen to be re-executed as part of the batch. A flat answer map
+    // has no per-template scoping, so seeding it into every curr_spec would let an
+    // answer intended for the target template (e.g. `name`, `token`) silently satisfy
+    // an unrelated installed template's same-named question, skipping its expected
+    // `need_input` and generating with the wrong value. Scoping to the upgraded set
+    // (NewTemplate → the new spec; Upgrade/Rerun → the target) keeps each template's
+    // Q&A independent.
+    let curr_specs: Vec<TemplateSpec> = if headless && !headless_answers.is_empty() {
+        let upgraded_keys: std::collections::HashSet<String> =
+            upgraded_specs.iter().map(|s| s.key()).collect();
+        curr_specs
+            .into_iter()
+            .map(|mut s| {
+                if upgraded_keys.contains(&s.key()) {
+                    for (k, v) in &headless_answers {
+                        s.answers.insert(k.clone(), v.clone());
+                    }
+                }
+                s
+            })
+            .collect()
+    } else {
+        curr_specs
+    };
+
     // Convert upgraded_specs to references for batch_process
     let upgraded_refs: Vec<&TemplateSpec> = upgraded_specs.iter().collect();
 
     // Execute unified batch processing
-    let (session_ids, file_conflicts, commands, managed_by_template) = batch_process(
-        &prev_specs,
-        &curr_specs,
-        &upgraded_refs,
-        target_dir,
-        &registry_client,
-        &coord_client,
-        &mut composition_operator,
-    )?;
+    let (session_ids, file_conflicts, commands, managed_by_template, need_input) =
+        match batch_process(
+            &prev_specs,
+            &curr_specs,
+            &upgraded_refs,
+            target_dir,
+            &registry_client,
+            &coord_client,
+            &mut composition_operator,
+            headless,
+        ) {
+            Ok(v) => v,
+            Err(err) => {
+                // Headless: a supplied-answer validation failure or a transport error during
+                // the batch surfaces here (it never reaches a write). The still-armed
+                // `dir_guard` drops on this return and removes the directory tree THIS
+                // invocation created, leaving the filesystem as it was found. Interactive
+                // runs are untouched (the guard is inert when not headless).
+                return Err(err);
+            }
+        };
+
+    // Headless: a question is pending. Do NOT persist state, write files, or run
+    // post-commands — surface the question and stop (stateless replay). The still-armed
+    // `dir_guard` drops on this return and removes the directory tree THIS invocation
+    // created (the walk stopped before PHASE 4, so the tree is empty and removal is safe),
+    // leaving the filesystem exactly as found; a pre-existing target is untouched.
+    if let Some(question) = need_input {
+        return Ok(CyanRunResult {
+            session_ids,
+            need_input: Some(question),
+        });
+    }
+
+    // Past the `need_input` check the run is committed to producing output (`done`):
+    // disarm the directory guard so the created tree is kept from here on.
+    dir_guard.disarm();
+
+    // The run is committed, but several fallible steps remain (state save, post-template
+    // commands) BEFORE the session ids reach `finish_headless`. A `?`/early `return Err`
+    // from any of them would drop the ids and leak the coordinator sessions. Hand them to a
+    // cleanup guard so every error path below releases them; `take()` disarms it on the
+    // happy `done` return (where `finish_headless` then cleans normally).
+    let mut session_guard =
+        SessionCleanupGuard::new(|sid: &str| release_session(&coord_client, sid), session_ids);
 
     // One-line cache summary (always printed when caching is enabled). (FR15)
     composition_operator.print_cache_summary();
@@ -559,43 +865,57 @@ pub fn cyan_run(
     // union, clearing stale entries (e.g. for now-deactivated templates).
     cyan_state.set_managed_files(&managed_by_template);
     let managed_count = cyan_state.managed_files.len();
+    // A save failure here drops the still-armed `session_guard`, releasing the sessions.
     state_manager.save_state_file(&cyan_state, &state_file_path)?;
     if conflicts_count > 0 {
-        println!("📝 Saved {conflicts_count} file conflict(s) to state");
+        crate::hprogress!(
+            headless,
+            "📝 Saved {conflicts_count} file conflict(s) to state"
+        );
     }
     if managed_count > 0 {
-        println!("📝 Recorded {managed_count} managed file(s) in state");
+        crate::hprogress!(
+            headless,
+            "📝 Recorded {managed_count} managed file(s) in state"
+        );
     }
 
     // Execute commands if any were collected
     if !commands.is_empty() {
-        println!(
+        crate::hprogress!(
+            headless,
             "\n⚡ Executing {} post-template command(s)...",
             commands.len()
         );
-        let exec_result = match CommandExecutor::execute_commands(&commands, target_dir) {
-            Ok(result) => result,
-            Err(err) => {
-                // Clean up coordinator sessions before propagating the error
-                for sid in &session_ids {
-                    let _ = coord_client.clean(sid.clone());
-                }
-                return Err(err);
-            }
-        };
+        // Each error arm below returns `Err` while `session_guard` is still armed, so its
+        // `Drop` releases the coordinator sessions — no per-arm cleanup loop needed.
+        let exec_result =
+            CommandExecutor::execute_commands_for_mode(&commands, target_dir, headless)?;
         if exec_result.aborted {
-            // Clean up coordinator sessions before returning on abort
-            for sid in &session_ids {
-                let _ = coord_client.clean(sid.clone());
-            }
             return Err(Box::new(std::io::Error::other(format!(
                 "Command execution aborted: {}/{} succeeded, {}/{} failed before abort",
                 exec_result.succeeded, exec_result.total, exec_result.failed, exec_result.total
             ))));
         }
+        if headless && !exec_result.all_succeeded() {
+            // The non-interactive path runs every command and records failures in
+            // the result but returns Ok — it never sets `aborted`. Without this check a
+            // failed post-template command (e.g. a command exiting non-zero) would be
+            // silently ignored and the run would report `done` / exit 0. In headless mode
+            // there is no interactive "continue?" prompt to surface the failure, so treat
+            // any partial failure as an error → error envelope / exit 1 (the still-armed
+            // `session_guard` releases the sessions on return). Interactive mode keeps its
+            // existing behavior: the user already chose whether to continue.
+            return Err(Box::new(std::io::Error::other(format!(
+                "Command execution failed: {}/{} succeeded, {}/{} failed",
+                exec_result.succeeded, exec_result.total, exec_result.failed, exec_result.total
+            ))));
+        }
     }
 
-    Ok(session_ids)
+    // `done`: disarm the guard and hand the sessions to `finish_headless`, which cleans
+    // them at the command boundary.
+    Ok(CyanRunResult::completed(session_guard.take()))
 }
 
 /// Parse template key from the update module
@@ -607,6 +927,121 @@ fn parse_template_key(template_key: &str) -> Option<(String, String)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // A headless run that stops before `done` (need_input OR error) must remove the
+    // directory tree IT created so the filesystem is left exactly as found. For a nested
+    // new path the shallowest created ancestor is identified and removing it drops the
+    // empty parents too. This is the cleanup shared by the need_input short-circuit and
+    // the headless-error arm in `cyan_run`.
+    #[test]
+    fn created_dir_cleanup_removes_nested_tree() {
+        let base = tempfile::TempDir::new().expect("temp dir");
+        // Target is two new levels below an existing base: base/a/b. Neither `a` nor
+        // `a/b` exists yet, so the shallowest uncreated ancestor is `base/a`.
+        let target = base.path().join("a").join("b");
+        let shallowest = shallowest_uncreated_ancestor(&target);
+        assert_eq!(
+            shallowest.as_deref(),
+            Some(base.path().join("a").as_path()),
+            "shallowest uncreated ancestor must be the first new level"
+        );
+
+        fs::create_dir_all(&target).expect("create target tree");
+        assert!(target.exists(), "create_dir_all built the nested tree");
+
+        // Removing the shallowest created ancestor removes the whole created tree,
+        // leaving the pre-existing base untouched.
+        remove_created_dir(&shallowest);
+        assert!(
+            !base.path().join("a").exists(),
+            "the created tree (including empty parent `a/`) must be gone"
+        );
+        assert!(base.path().exists(), "the pre-existing base must remain");
+    }
+
+    // When the target directory already exists, nothing is created, so there is nothing
+    // to remove: `shallowest_uncreated_ancestor` is None and `remove_created_dir` is a
+    // no-op that leaves the existing directory intact (the default "." case).
+    #[test]
+    fn created_dir_cleanup_is_noop_for_existing_target() {
+        let base = tempfile::TempDir::new().expect("temp dir");
+        let target = base.path().to_path_buf();
+        assert!(
+            shallowest_uncreated_ancestor(&target).is_none(),
+            "an existing target has no uncreated ancestor"
+        );
+        // A None cleanup must not touch the existing directory.
+        remove_created_dir(&None);
+        assert!(
+            base.path().exists(),
+            "existing target must be left untouched"
+        );
+    }
+
+    // An armed headless guard that drops before the run commits (any pre-batch early
+    // return, batch error, or pending need_input) removes the created tree. This is the
+    // single mechanism that now covers ALL of those return paths, not just the batch
+    // error / need_input sites the per-path cleanup previously covered.
+    #[test]
+    fn dir_guard_removes_created_tree_when_armed_and_headless() {
+        let base = tempfile::TempDir::new().expect("temp dir");
+        let target = base.path().join("a").join("b");
+        let first_created = shallowest_uncreated_ancestor(&target);
+        fs::create_dir_all(&target).expect("create target tree");
+        assert!(target.exists());
+
+        {
+            // Simulate any non-committed return: the guard is still armed when it drops.
+            let _guard = CreatedDirGuard::new(first_created, true);
+        }
+
+        assert!(
+            !base.path().join("a").exists(),
+            "an armed headless guard must remove the created tree on drop"
+        );
+        assert!(base.path().exists(), "the pre-existing base must remain");
+    }
+
+    // Once the run commits to output (`need_input` check passed), the guard is disarmed
+    // and dropping it keeps the written tree — the `done` path must not delete its own
+    // output.
+    #[test]
+    fn dir_guard_keeps_created_tree_after_disarm() {
+        let base = tempfile::TempDir::new().expect("temp dir");
+        let target = base.path().join("a").join("b");
+        let first_created = shallowest_uncreated_ancestor(&target);
+        fs::create_dir_all(&target).expect("create target tree");
+
+        {
+            let mut guard = CreatedDirGuard::new(first_created, true);
+            guard.disarm();
+        }
+
+        assert!(
+            target.exists(),
+            "a disarmed guard must keep the created tree (the committed `done` path)"
+        );
+    }
+
+    // AC7: the guard is inert in interactive mode — dropping it while armed must NOT
+    // remove the directory, so the non-headless path is byte-identical to before.
+    #[test]
+    fn dir_guard_is_inert_when_not_headless() {
+        let base = tempfile::TempDir::new().expect("temp dir");
+        let target = base.path().join("a").join("b");
+        let first_created = shallowest_uncreated_ancestor(&target);
+        fs::create_dir_all(&target).expect("create target tree");
+
+        {
+            // Interactive run: headless = false, guard armed, dropped without disarm.
+            let _guard = CreatedDirGuard::new(first_created, false);
+        }
+
+        assert!(
+            target.exists(),
+            "an interactive (non-headless) guard must never remove the directory"
+        );
+    }
 
     // AC7 (FR7): paths are relative, forward-slash, no leading "./" or '/', no
     // trailing '/'; backslash / "./"-prefixed inputs normalize to canonical form.
@@ -689,6 +1124,56 @@ mod tests {
                 "b.txt".to_string(),
                 "dir/c.txt".to_string()
             ]
+        );
+    }
+
+    // Coordinator sessions acquired during a run must not leak when a fallible step
+    // between acquisition and the headless cleanup boundary fails. `SessionCleanupGuard`
+    // releases every registered id on `Drop` while armed. Here a recorder closure stands in
+    // for the real `release_session` so the guard's DECISION is asserted with no live
+    // coordinator: an armed drop releases ALL accumulated ids exactly once.
+    #[test]
+    fn session_guard_releases_all_ids_on_armed_drop() {
+        let released = std::cell::RefCell::new(Vec::<String>::new());
+        {
+            let mut guard = SessionCleanupGuard::new(
+                |sid: &str| released.borrow_mut().push(sid.to_string()),
+                vec!["s1".to_string()],
+            );
+            // Sessions acquired incrementally (the prev + curr template loops).
+            guard.extend(["s2".to_string(), "s3".to_string()]);
+            // Simulate a `?` error after acquisition: the guard drops while still armed.
+        }
+        assert_eq!(
+            released.borrow().as_slice(),
+            &["s1".to_string(), "s2".to_string(), "s3".to_string()],
+            "an armed guard must release every accumulated session id on drop"
+        );
+    }
+
+    // Once the ids are handed to the caller (the `done`/`need_input` boundary, which cleans
+    // them itself), `take()` disarms the guard so dropping it does NOT release them again —
+    // preventing a double release.
+    #[test]
+    fn session_guard_take_disarms_and_returns_ids() {
+        let released = std::cell::RefCell::new(Vec::<String>::new());
+        let taken;
+        {
+            let mut guard = SessionCleanupGuard::new(
+                |sid: &str| released.borrow_mut().push(sid.to_string()),
+                vec!["a".to_string(), "b".to_string()],
+            );
+            taken = guard.take();
+            // Guard drops here, disarmed — must NOT release.
+        }
+        assert_eq!(
+            taken,
+            vec!["a".to_string(), "b".to_string()],
+            "take() must hand back the accumulated ids"
+        );
+        assert!(
+            released.borrow().is_empty(),
+            "a disarmed guard must not release sessions on drop (caller owns cleanup)"
         );
     }
 }

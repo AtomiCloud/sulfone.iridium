@@ -111,7 +111,12 @@ pub fn run_processor_tests(
     println!("Running pre-flight validation...");
     let docker = bollard::Docker::connect_with_local_defaults()
         .map_err(|e| Box::new(e) as Box<dyn Error + Send>)?;
-    crate::try_cmd::ensure_daemon_running(&docker, disable_daemon_autostart, coordinator_endpoint)?;
+    crate::try_cmd::ensure_daemon_running(
+        &docker,
+        disable_daemon_autostart,
+        coordinator_endpoint,
+        false,
+    )?;
     println!("  Docker daemon is reachable");
 
     // Collect all input directories for bind mounts

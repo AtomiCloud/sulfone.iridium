@@ -88,6 +88,20 @@ pub enum Commands {
             env = "CYANPRINT_COORDINATOR"
         )]
         coordinator_endpoint: String,
+
+        #[arg(
+            long,
+            help = "Run non-interactively: emit the next unanswered question as JSON instead of prompting",
+            default_value_t = false
+        )]
+        headless: bool,
+
+        #[arg(
+            long,
+            value_name = "ANSWERS_FILE",
+            help = "Path to a JSON file of answers (id -> {type,value}); reads stdin when omitted and piped"
+        )]
+        answers: Option<String>,
     },
 
     #[command(
@@ -120,6 +134,21 @@ pub enum Commands {
             help = "Force update even if git is dirty (skip confirmation prompt)"
         )]
         force: bool,
+
+        #[arg(
+            long,
+            help = "Run non-interactively: emit the next unanswered question as JSON instead of prompting",
+            default_value_t = false,
+            conflicts_with = "interactive"
+        )]
+        headless: bool,
+
+        #[arg(
+            long,
+            value_name = "ANSWERS_FILE",
+            help = "Path to a JSON file of answers (id -> {type,value}); reads stdin when omitted and piped"
+        )]
+        answers: Option<String>,
     },
 
     #[command(
@@ -191,6 +220,20 @@ pub enum TryCommands {
             env = "CYANPRINT_COORDINATOR"
         )]
         coordinator_endpoint: String,
+
+        #[arg(
+            long,
+            help = "Run non-interactively: emit the next unanswered question as JSON instead of prompting",
+            default_value_t = false
+        )]
+        headless: bool,
+
+        #[arg(
+            long,
+            value_name = "ANSWERS_FILE",
+            help = "Path to a JSON file of answers (id -> {type,value}); reads stdin when omitted and piped"
+        )]
+        answers: Option<String>,
     },
 
     #[command(about = "Try a local group template (no build, dependencies from registry)")]
@@ -210,6 +253,20 @@ pub enum TryCommands {
             env = "CYANPRINT_COORDINATOR"
         )]
         coordinator_endpoint: String,
+
+        #[arg(
+            long,
+            help = "Run non-interactively: emit the next unanswered question as JSON instead of prompting",
+            default_value_t = false
+        )]
+        headless: bool,
+
+        #[arg(
+            long,
+            value_name = "ANSWERS_FILE",
+            help = "Path to a JSON file of answers (id -> {type,value}); reads stdin when omitted and piped"
+        )]
+        answers: Option<String>,
     },
 }
 
@@ -856,6 +913,123 @@ mod tests {
                 },
                 _ => panic!("expected Commands::Cache"),
             }
+        }
+    }
+
+    // AC4 / AC7: the headless surface parses on create, and is opt-in (defaults off).
+    #[test]
+    fn test_create_headless_flags() {
+        let cli = Cli::try_parse_from([
+            "cyanprint",
+            "create",
+            "user/tmpl",
+            "out",
+            "--headless",
+            "--answers",
+            "ans.json",
+        ])
+        .unwrap();
+        if let Commands::Create {
+            headless, answers, ..
+        } = cli.command
+        {
+            assert!(headless);
+            assert_eq!(answers, Some("ans.json".to_string()));
+        } else {
+            panic!("Expected Create");
+        }
+
+        // Default: headless off, no answers (interactive path unchanged — FR10).
+        let cli = Cli::try_parse_from(["cyanprint", "create", "user/tmpl"]).unwrap();
+        if let Commands::Create {
+            headless, answers, ..
+        } = cli.command
+        {
+            assert!(!headless);
+            assert!(answers.is_none());
+        } else {
+            panic!("Expected Create");
+        }
+    }
+
+    #[test]
+    fn test_update_headless_flags() {
+        let cli = Cli::try_parse_from(["cyanprint", "update", ".", "--headless"]).unwrap();
+        if let Commands::Update {
+            headless, answers, ..
+        } = cli.command
+        {
+            assert!(headless);
+            assert!(answers.is_none());
+        } else {
+            panic!("Expected Update");
+        }
+    }
+
+    // `--headless` and `--interactive` are mutually exclusive on update, so the
+    // interactive version-select prompt (FR1/NFC2 violation) can never be reached headless.
+    #[test]
+    fn test_update_headless_conflicts_with_interactive() {
+        let result =
+            Cli::try_parse_from(["cyanprint", "update", ".", "--headless", "--interactive"]);
+        assert!(
+            result.is_err(),
+            "--headless and --interactive must be mutually exclusive on update"
+        );
+
+        // Each on its own still parses.
+        assert!(Cli::try_parse_from(["cyanprint", "update", ".", "--headless"]).is_ok());
+        assert!(Cli::try_parse_from(["cyanprint", "update", ".", "--interactive"]).is_ok());
+    }
+
+    #[test]
+    fn test_try_headless_flags() {
+        let cli = Cli::try_parse_from([
+            "cyanprint",
+            "try",
+            "template",
+            "tpath",
+            "opath",
+            "--headless",
+        ])
+        .unwrap();
+        if let Commands::Try { command } = cli.command {
+            if let TryCommands::Template {
+                headless, answers, ..
+            } = command
+            {
+                assert!(headless);
+                assert!(answers.is_none());
+            } else {
+                panic!("Expected Try::Template");
+            }
+        } else {
+            panic!("Expected Try");
+        }
+
+        let cli = Cli::try_parse_from([
+            "cyanprint",
+            "try",
+            "group",
+            "tpath",
+            "opath",
+            "--headless",
+            "--answers",
+            "a.json",
+        ])
+        .unwrap();
+        if let Commands::Try { command } = cli.command {
+            if let TryCommands::Group {
+                headless, answers, ..
+            } = command
+            {
+                assert!(headless);
+                assert_eq!(answers, Some("a.json".to_string()));
+            } else {
+                panic!("Expected Try::Group");
+            }
+        } else {
+            panic!("Expected Try");
         }
     }
 

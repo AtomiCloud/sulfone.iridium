@@ -1149,13 +1149,18 @@ fn qa_warmup(
 
     // Pre-flight validation
     println!("Running pre-flight validation...");
-    pre_flight_validation(template_path, false)?;
+    pre_flight_validation(template_path, false, false)?;
 
     // Ensure daemon is running
     println!("Ensuring daemon is running...");
     let docker =
         Docker::connect_with_local_defaults().map_err(|e| Box::new(e) as Box<dyn Error + Send>)?;
-    ensure_daemon_running(&docker, disable_daemon_autostart, coordinator_endpoint)?;
+    ensure_daemon_running(
+        &docker,
+        disable_daemon_autostart,
+        coordinator_endpoint,
+        false,
+    )?;
 
     // Resolve dependencies (needed to build synthetic template for image building)
     println!("Resolving and pinning dependencies...");
@@ -1223,6 +1228,7 @@ fn qa_warmup(
             coordinator_endpoint,
             "cyanprint.test",
             None,
+            false, // non-headless: test runner prints progress to stdout as before
         ) {
             Ok(()) => {
                 last_err = None;
@@ -1243,7 +1249,7 @@ fn qa_warmup(
 
     // Health check
     println!("Health checking template container...");
-    crate::try_cmd::health_check_template_container(port, 30, 2)?;
+    crate::try_cmd::health_check_template_container(port, 30, 2, false)?;
 
     Ok(QaWarmup {
         container_name,
@@ -1414,7 +1420,7 @@ mod tests {
     #[test]
     fn test_generate_test_name_truncation() {
         let mut used_names = HashMap::new();
-        let long_labels: Vec<String> = (0..10).map(|i| format!("verylonglabel{}", i)).collect();
+        let long_labels: Vec<String> = (0..10).map(|i| format!("verylonglabel{i}")).collect();
         let name = generate_test_name(&long_labels, 0, &mut used_names);
         assert!(name.len() <= 80);
     }
@@ -1422,7 +1428,7 @@ mod tests {
     #[test]
     fn test_generate_test_name_truncation_with_collision() {
         let mut used_names = HashMap::new();
-        let long_labels: Vec<String> = (0..10).map(|i| format!("verylonglabel{}", i)).collect();
+        let long_labels: Vec<String> = (0..10).map(|i| format!("verylonglabel{i}")).collect();
 
         let name1 = generate_test_name(&long_labels, 0, &mut used_names);
         assert!(name1.len() <= 80);

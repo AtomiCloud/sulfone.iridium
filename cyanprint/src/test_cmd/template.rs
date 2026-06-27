@@ -422,13 +422,18 @@ fn composition_warmup(
 
     // Pre-flight validation (tests always build, so dev_mode=false)
     println!("Running pre-flight validation...");
-    crate::try_cmd::pre_flight_validation(template_path, false)?;
+    crate::try_cmd::pre_flight_validation(template_path, false, false)?;
 
     // Ensure daemon is running
     println!("Ensuring daemon is running...");
     let docker =
         Docker::connect_with_local_defaults().map_err(|e| Box::new(e) as Box<dyn Error + Send>)?;
-    ensure_daemon_running(&docker, disable_daemon_autostart, coordinator_endpoint)?;
+    ensure_daemon_running(
+        &docker,
+        disable_daemon_autostart,
+        coordinator_endpoint,
+        false,
+    )?;
 
     // Resolve and pin dependencies (root images are local; deps come from registry)
     println!("Resolving and pinning dependencies...");
@@ -729,7 +734,7 @@ fn run_single_composition_test_case(
     // Execute composition (resolves deps, warms each, runs non-interactive Q&A, layers)
     println!("  Executing composition for {}...", test_case.name);
     let (vfs_output, _final_state, session_ids, resolved_commands) = composition_operator
-        .execute_template(synthetic_template, &answers, &deterministic_state)?;
+        .execute_template(synthetic_template, &answers, &deterministic_state, false)?;
 
     // Clean up coordinator sessions created during composition (before any
     // further fallible step so sessions are never leaked on a later error)
@@ -768,6 +773,7 @@ fn run_single_composition_test_case(
         let exec_result = CommandExecutor::execute_commands_non_interactive(
             &resolved_commands,
             &test_output_dir,
+            false,
         )?;
         if !exec_result.all_succeeded() {
             let cmd_msg = format!(
@@ -840,13 +846,18 @@ fn template_warmup(
 
     // Pre-flight validation (pass dev_mode=false since tests always build)
     println!("Running pre-flight validation...");
-    crate::try_cmd::pre_flight_validation(template_path, false)?;
+    crate::try_cmd::pre_flight_validation(template_path, false, false)?;
 
     // Ensure daemon is running (always check, even with --disable-daemon-autostart)
     println!("Ensuring daemon is running...");
     let docker =
         Docker::connect_with_local_defaults().map_err(|e| Box::new(e) as Box<dyn Error + Send>)?;
-    ensure_daemon_running(&docker, disable_daemon_autostart, coordinator_endpoint)?;
+    ensure_daemon_running(
+        &docker,
+        disable_daemon_autostart,
+        coordinator_endpoint,
+        false,
+    )?;
 
     // Resolve and pin dependencies
     println!("Resolving and pinning dependencies...");
@@ -918,6 +929,7 @@ fn template_warmup(
             coordinator_endpoint,
             "cyanprint.test",
             Some(run_id),
+            false, // non-headless: test runner prints progress to stdout as before
         ) {
             Ok(()) => {
                 last_err = None;
@@ -938,7 +950,7 @@ fn template_warmup(
 
     // Health check template container
     println!("Health checking template container...");
-    crate::try_cmd::health_check_template_container(port, 30, 2)?;
+    crate::try_cmd::health_check_template_container(port, 30, 2, false)?;
 
     Ok(TemplateWarmup {
         template,
@@ -1285,6 +1297,7 @@ fn run_single_test_case(
         let exec_result = CommandExecutor::execute_commands_non_interactive(
             &resolved_commands,
             &test_output_dir,
+            false,
         )?;
         if !exec_result.all_succeeded() {
             let cmd_msg = format!(

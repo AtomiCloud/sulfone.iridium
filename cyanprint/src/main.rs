@@ -34,6 +34,7 @@ pub mod coord;
 pub mod docker;
 pub mod errors;
 pub mod git;
+pub mod headless;
 pub mod port;
 pub mod run;
 pub mod test_cmd;
@@ -45,6 +46,12 @@ fn main() -> ExitCode {
     match run() {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
+            // Headless commands signal their exit code via HeadlessExit; the JSON
+            // envelope has already been printed to stdout, so do not print an
+            // "Error:" line — just propagate the code (need_input → 2, error → 1).
+            if let Some(headless_exit) = e.downcast_ref::<crate::headless::HeadlessExit>() {
+                return ExitCode::from(headless_exit.0);
+            }
             eprintln!("Error: {e}");
             ExitCode::FAILURE
         }
@@ -380,8 +387,14 @@ fn run() -> Result<(), Box<dyn Error + Send>> {
             template_ref,
             path,
             coordinator_endpoint,
+            headless,
+            answers,
         } => {
             let session_id_generator = Box::new(DefaultSessionIdGenerator);
+
+            // Headless: ingest the supplied answers up front via the shared helper;
+            // a bad source is an `error` envelope (exit 1), never a panic.
+            let headless_answers = load_headless_answers(headless, answers.as_deref())?;
 
             let username = parse_ref(template_ref.clone())
                 .map(|(u, _, _)| u)
@@ -389,14 +402,16 @@ fn run() -> Result<(), Box<dyn Error + Send>> {
 
             let r = parse_ref(template_ref)
                 .and_then(|(u, n, v)| {
-                    println!(
+                    crate::hprogress!(
+                        headless,
                         "Retrieving template '{}/{}:{}' from registry...",
                         u,
                         n,
                         v.unwrap_or(-1)
                     );
                     let r = registry.get_template(u.clone(), n.clone(), v);
-                    println!(
+                    crate::hprogress!(
+                        headless,
                         "Retrieved template '{}/{}:{}' from registry.",
                         u,
                         n,
@@ -418,15 +433,23 @@ fn run() -> Result<(), Box<dyn Error + Send>> {
                         Rc::clone(&registry_ref),
                         cli.debug,
                         cache_config,
+                        headless,
+                        headless_answers,
                     )
                 });
 
+            if headless {
+                let clean = crate::headless::headless_session_cleaner(coordinator_endpoint.clone());
+                let stdout = std::io::stdout();
+                return crate::headless::finish_headless(r, &mut stdout.lock(), clean);
+            }
+
             match r {
-                Ok(session_ids) => {
+                Ok(result) => {
                     println!("Completed successfully");
                     let coord_client = CyanCoordinatorClient::new(coordinator_endpoint.clone());
                     println!("Cleaning up all sessions...");
-                    for sid in session_ids {
+                    for sid in result.session_ids {
                         println!("Cleaning up session: {sid}");
                         let _ = coord_client.clean(sid);
                     }
@@ -444,12 +467,20 @@ fn run() -> Result<(), Box<dyn Error + Send>> {
             coordinator_endpoint,
             interactive,
             force,
+            headless,
+            answers,
         } => {
             let session_id_generator = Box::new(DefaultSessionIdGenerator);
             let coord_client = CyanCoordinatorClient::new(coordinator_endpoint.clone());
             let registry_ref = Rc::new(registry);
 
-            println!("Updating templates to latest versions");
+            // Headless: ingest answers up front via the shared helper; a bad source
+            // → `error` envelope.
+            let headless_answers = load_headless_answers(headless, answers.as_deref())?;
+
+            if !headless {
+                println!("Updating templates to latest versions");
+            }
 
             let r = cyan_update(
                 session_id_generator,
@@ -460,13 +491,21 @@ fn run() -> Result<(), Box<dyn Error + Send>> {
                 interactive,
                 force,
                 cache_config,
+                headless,
+                headless_answers,
             );
 
+            if headless {
+                let clean = crate::headless::headless_session_cleaner(coordinator_endpoint.clone());
+                let stdout = std::io::stdout();
+                return crate::headless::finish_headless(r, &mut stdout.lock(), clean);
+            }
+
             match r {
-                Ok(session_ids) => {
+                Ok(result) => {
                     println!("Update completed successfully");
                     println!("Cleaning up all sessions...");
-                    for sid in session_ids {
+                    for sid in result.session_ids {
                         println!("Cleaning up session: {sid}");
                         let _ = coord_client.clean(sid);
                     }
@@ -498,7 +537,9 @@ fn run() -> Result<(), Box<dyn Error + Send>> {
                             let img = "ghcr.io/atomicloud/sulfone.boron/sulfone-boron".to_string()
                                 + ":"
                                 + version.as_str();
-                            start_coordinator(docker, img, port, registry)
+                            // Explicit `daemon start` is an interactive command, not a
+                            // headless contract path — emit progress to stdout as before.
+                            start_coordinator(docker, img, port, registry, false)
                                 .await
                                 .map(|_| {
                                     println!("Coordinator started on port {port}");
@@ -545,9 +586,12 @@ fn run() -> Result<(), Box<dyn Error + Send>> {
                 keep_containers,
                 disable_daemon_autostart,
                 coordinator_endpoint,
+                headless,
+                answers,
             } => {
                 let registry_ref = Rc::new(registry);
-                let _ = execute_try_command(
+                let headless_answers = load_headless_answers(headless, answers.as_deref())?;
+                let res = execute_try_command(
                     template_path,
                     output_path,
                     dev,
@@ -556,7 +600,14 @@ fn run() -> Result<(), Box<dyn Error + Send>> {
                     cli.registry.clone(),
                     coordinator_endpoint,
                     registry_ref,
-                )?;
+                    headless,
+                    headless_answers,
+                );
+                if headless {
+                    let stdout = std::io::stdout();
+                    return crate::headless::finish_headless_try(res, &mut stdout.lock());
+                }
+                res?;
                 Ok(())
             }
             TryCommands::Group {
@@ -564,16 +615,26 @@ fn run() -> Result<(), Box<dyn Error + Send>> {
                 output_path,
                 disable_daemon_autostart,
                 coordinator_endpoint,
+                headless,
+                answers,
             } => {
                 let registry_ref = Rc::new(registry);
-                execute_try_group_command(
+                let headless_answers = load_headless_answers(headless, answers.as_deref())?;
+                let res = execute_try_group_command(
                     template_path,
                     output_path,
                     disable_daemon_autostart,
                     coordinator_endpoint,
                     registry_ref,
                     cache_config.clone(),
-                )?;
+                    headless,
+                    headless_answers,
+                );
+                if headless {
+                    let stdout = std::io::stdout();
+                    return crate::headless::finish_headless_try(res, &mut stdout.lock());
+                }
+                res?;
                 Ok(())
             }
         },
@@ -764,6 +825,35 @@ fn run() -> Result<(), Box<dyn Error + Send>> {
 /// try group). (L17)
 fn cli_cache_config(cli: &Cli) -> CacheConfig {
     CacheConfig::resolve(cli.no_output_cache, cli.cache_dir.clone(), cli.debug)
+}
+
+/// Ingest the headless answer set for any command. On success returns the answer
+/// map. On an ingestion error it has already printed the `error` envelope to stdout
+/// and returns an `Err` carrying a [`crate::headless::HeadlessExit`] that
+/// `main` downcasts to the exit-1 code — so the caller just `return`s the
+/// error. When `headless` is false this returns an empty map (the interactive path
+/// never uses a supplied answer set). All four headless entry points route through this
+/// single helper so they ingest answers and map errors identically.
+fn load_headless_answers(
+    headless: bool,
+    answers_path: Option<&str>,
+) -> Result<
+    std::collections::HashMap<String, cyanprompt::domain::models::answer::Answer>,
+    Box<dyn Error + Send>,
+> {
+    if !headless {
+        return Ok(std::collections::HashMap::new());
+    }
+    // A bad answer source is an `error` envelope (exit 1). `emit_and_exit` prints
+    // the envelope to stdout and returns `Err(HeadlessExit(1))`; we hand that
+    // sentinel back so `main` downcasts it to the exit code. On the (impossible)
+    // success arm of a non-error envelope we fall through to an empty map.
+    crate::headless::read_answers(answers_path).or_else(|e| {
+        crate::headless::emit_and_exit(
+            &cyanprompt::domain::models::headless::HeadlessEnvelope::error(e.to_string()),
+        )
+        .map(|()| std::collections::HashMap::new())
+    })
 }
 
 fn handle_build(
