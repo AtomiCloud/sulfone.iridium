@@ -1368,16 +1368,23 @@ fn template_endpoint(
 /// Build a [`TemplateEngine`] pointed at the template-service endpoint. Shared by
 /// the interactive and headless Q&A loops (the only difference between them is
 /// `start_with` vs `start_headless`).
-fn build_template_prompter(endpoint: String) -> TemplateEngine {
-    let c = Rc::new(reqwest::blocking::Client::new());
-    TemplateEngine {
+fn build_template_prompter(endpoint: String) -> Result<TemplateEngine, Box<dyn Error + Send>> {
+    // A stalled template service must not hang a scripted/CI Q&A walk forever, so the
+    // blocking client carries a request timeout (matching the executor's 600s ceiling).
+    let c = Rc::new(
+        reqwest::blocking::Client::builder()
+            .timeout(std::time::Duration::from_secs(600))
+            .build()
+            .map_err(|e| Box::new(e) as Box<dyn Error + Send>)?,
+    );
+    Ok(TemplateEngine {
         client: Rc::new(CyanHttpRepo {
             client: CyanClient {
                 endpoint,
                 client: c,
             },
         }),
-    }
+    })
 }
 
 /// Extract deterministic states from Q&A answers: each `String` answer value is
@@ -1398,7 +1405,7 @@ fn run_qa_loop(
     cyan_yaml_path: &Path,
     port: Option<u16>,
 ) -> QaLoopResult {
-    let prompter = build_template_prompter(template_endpoint(dev_mode, cyan_yaml_path, port)?);
+    let prompter = build_template_prompter(template_endpoint(dev_mode, cyan_yaml_path, port)?)?;
     let state = prompter.start_with(None, None);
 
     match state {
@@ -1447,7 +1454,7 @@ fn run_qa_loop_headless(
     port: Option<u16>,
     answers: HashMap<String, Answer>,
 ) -> Result<HeadlessQaOutcome, Box<dyn Error + Send>> {
-    let prompter = build_template_prompter(template_endpoint(dev_mode, cyan_yaml_path, port)?);
+    let prompter = build_template_prompter(template_endpoint(dev_mode, cyan_yaml_path, port)?)?;
 
     match prompter.start_headless(Some(answers)) {
         TemplateState::Complete(cyan, answers) => {
@@ -1814,8 +1821,12 @@ pub fn execute_try_group_command(
         return Ok(TryHeadlessOutcome::NeedInput(question));
     }
 
-    // One-line cache summary (always printed when caching is enabled). (FR15)
-    composition_operator.print_cache_summary();
+    // One-line cache summary (printed when caching is enabled). (FR15)
+    // Suppressed in headless mode: stdout must carry a single JSON envelope, so any
+    // human-readable summary line would corrupt the headless contract.
+    if !headless {
+        composition_operator.print_cache_summary();
+    }
 
     // Step 9: Write output to disk
     crate::hprogress!(headless, "📝 Writing output to {output_path}...");

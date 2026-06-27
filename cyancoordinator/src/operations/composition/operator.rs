@@ -210,13 +210,22 @@ impl CompositionOperator {
         // Clear previous conflicts
         self.file_conflicts.clear();
 
-        // A composition of more than one dependency can contain two templates
+        // Namespacing must key off the dependencies composition will actually PROCESS,
+        // not the raw dependency list. Group templates (`properties.is_none()`) are skipped
+        // in the loop below — counting them here would let a composition of one executable
+        // template plus group template(s) cross the `> 1` threshold and namespace that lone
+        // template's question ids (`{template_id}/…`), diverging from its standalone
+        // behavior. Only executable dependencies can collide on a raw question id, so only
+        // they decide namespace mode and seed the namespace set.
+        let is_executable = |d: &ResolvedDependency| d.template.principal.properties.is_some();
+
+        // A composition of more than one EXECUTABLE dependency can contain two templates
         // asking a question with the same raw id; namespace their ids by template id to
-        // avoid collisions in the shared answer map. A single dependency has no such
-        // risk, so its ids stay raw (existing create/update behavior unchanged).
-        let multi_template = dependencies.len() > 1;
-        // Every dependency's template id is a potential `{ns}/…` namespace prefix a
-        // caller-supplied answer can be scoped under. Classifying a shared-answer key
+        // avoid collisions in the shared answer map. A single executable dependency has no
+        // such risk, so its ids stay raw (existing create/update behavior unchanged).
+        let multi_template = dependencies.iter().filter(|d| is_executable(d)).count() > 1;
+        // Every executable dependency's template id is a potential `{ns}/…` namespace prefix
+        // a caller-supplied answer can be scoped under. Classifying a shared-answer key
         // against this KNOWN set (rather than by the brittle "contains a `/`" shape) is
         // what lets a raw question id that legitimately contains `/` (e.g. an e2e fixture
         // id like `cyane2e/template1/name`) be routed as the GLOBAL answer it is, instead
@@ -224,6 +233,7 @@ impl CompositionOperator {
         // by the guard below, so a `{ns}/` prefix matches at most one namespace.
         let namespaces: Vec<String> = dependencies
             .iter()
+            .filter(|d| is_executable(d))
             .map(|d| d.template.principal.id.clone())
             .collect();
 
